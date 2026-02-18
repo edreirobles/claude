@@ -1,0 +1,530 @@
+/* ═══════════════════════════════════════════════════
+   X → LinkedIn AI Publisher — Frontend Logic
+   ═══════════════════════════════════════════════════ */
+
+'use strict';
+
+// ── Estado global ──────────────────────────────────────
+const state = {
+  tweetData: null,
+  generatedText: '',
+  suggestedImages: [],
+  selectedImageIndex: 0,   // 0 = ninguna, 1+ = imagen índice-1
+  linkedInConnected: false,
+};
+
+// ── Inicialización ─────────────────────────────────────
+document.addEventListener('DOMContentLoaded', () => {
+  checkAuthStatus();
+  loadHistory();
+  setupCharCounter();
+  checkUrlParams();
+  setDefaultScheduleTime();
+});
+
+function checkUrlParams() {
+  const params = new URLSearchParams(window.location.search);
+  if (params.get('connected') === 'true') {
+    showToast('¡LinkedIn conectado exitosamente!', 'success');
+    history.replaceState({}, '', '/');
+    checkAuthStatus();
+  }
+  if (params.get('error')) {
+    showToast(`Error de autenticación: ${params.get('error')}`, 'error');
+    history.replaceState({}, '', '/');
+  }
+}
+
+function setDefaultScheduleTime() {
+  const dt = document.getElementById('schedule-datetime');
+  if (!dt) return;
+  const now = new Date();
+  now.setHours(now.getHours() + 1);
+  now.setMinutes(0, 0, 0);
+  // Formato datetime-local: YYYY-MM-DDTHH:MM
+  dt.value = now.toISOString().slice(0, 16);
+  dt.min = new Date().toISOString().slice(0, 16);
+}
+
+function setupCharCounter() {
+  const textarea = document.getElementById('linkedin-text');
+  const counter  = document.getElementById('char-count');
+  if (!textarea || !counter) return;
+  textarea.addEventListener('input', () => {
+    const len = textarea.value.length;
+    counter.textContent = len;
+    counter.parentElement.classList.toggle('over', len > 3000);
+  });
+}
+
+// ── Auth / LinkedIn Status ─────────────────────────────
+async function checkAuthStatus() {
+  try {
+    const res = await fetch('/auth/status');
+    const data = await res.json();
+    state.linkedInConnected = data.connected;
+    updateAuthUI(data);
+  } catch (e) {
+    console.error('Error checking auth:', e);
+  }
+}
+
+function updateAuthUI(data) {
+  const container = document.getElementById('auth-status');
+  if (!container) return;
+
+  if (data.connected) {
+    container.innerHTML = `
+      <div class="auth-user">
+        ${data.person_picture ? `<img src="${escHtml(data.person_picture)}" class="auth-avatar" alt="avatar" />` : ''}
+        <span class="auth-name">${escHtml(data.person_name || 'LinkedIn')}</span>
+        <button class="btn btn-ghost btn-sm" onclick="disconnectLinkedIn()" title="Desconectar">✕</button>
+      </div>
+    `;
+  } else {
+    container.innerHTML = `
+      <button class="btn btn-secondary btn-sm" onclick="connectLinkedIn()">
+        Conectar LinkedIn
+      </button>
+    `;
+  }
+}
+
+function connectLinkedIn() {
+  document.getElementById('modal-connect').classList.remove('hidden');
+}
+
+function closeModal() {
+  document.getElementById('modal-connect').classList.add('hidden');
+}
+
+async function disconnectLinkedIn() {
+  if (!confirm('¿Desconectar tu cuenta de LinkedIn?')) return;
+  try {
+    await fetch('/auth/linkedin', { method: 'DELETE' });
+    state.linkedInConnected = false;
+    updateAuthUI({ connected: false });
+    showToast('Cuenta de LinkedIn desconectada', 'info');
+  } catch (e) {
+    showToast('Error al desconectar', 'error');
+  }
+}
+
+// ── Generación de post ─────────────────────────────────
+async function generatePost() {
+  const urlInput = document.getElementById('tweet-url');
+  const url = urlInput.value.trim();
+
+  if (!url) {
+    showError('generate-error', 'Por favor ingresa un URL de X/Twitter válido.');
+    urlInput.focus();
+    return;
+  }
+
+  if (!/^https?:\/\/(www\.)?(twitter|x)\.com\/.+\/status\/\d+/.test(url)) {
+    showError('generate-error', 'El URL debe ser un enlace directo a un tweet. Ejemplo: https://x.com/usuario/status/123456');
+    return;
+  }
+
+  hideError('generate-error');
+  showLoading('Extrayendo contenido del tweet...');
+
+  const language = document.getElementById('post-language').value;
+
+  try {
+    // Actualizar mensaje mientras se espera
+    setTimeout(() => setLoadingMessage('Generando post con Claude AI...'), 3000);
+
+    const res = await fetch('/api/generate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url, language }),
+    });
+
+    const data = await res.json();
+
+    if (!res.ok) {
+      throw new Error(data.detail || 'Error al generar el post');
+    }
+
+    state.tweetData = data.tweet;
+    state.generatedText = data.linkedin_text;
+    state.suggestedImages = data.suggested_images || [];
+
+    renderTweetPreview(data.tweet);
+    renderLinkedInPreview(data.linkedin_text);
+    renderImageSelector(data.suggested_images);
+
+    // Mostrar secciones
+    show('section-preview');
+    show('section-publish');
+    document.getElementById('section-preview').scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+  } catch (e) {
+    showError('generate-error', e.message);
+  } finally {
+    hideLoading();
+  }
+}
+
+function renderTweetPreview(tweet) {
+  const authorEl = document.getElementById('tweet-author');
+  const textEl   = document.getElementById('tweet-text');
+  const imgsEl   = document.getElementById('tweet-images');
+  const paperEl  = document.getElementById('tweet-paper');
+
+  authorEl.textContent = tweet.author_name
+    ? `${tweet.author_name}${tweet.author_handle ? ' · @' + tweet.author_handle : ''}`
+    : 'Autor desconocido';
+
+  textEl.textContent = tweet.text;
+
+  // Imágenes
+  imgsEl.innerHTML = '';
+  (tweet.images || []).slice(0, 4).forEach((src, i) => {
+    const img = document.createElement('img');
+    img.src = src;
+    img.className = 'tweet-img';
+    img.alt = `Imagen ${i + 1} del tweet`;
+    img.loading = 'lazy';
+    imgsEl.appendChild(img);
+  });
+
+  // Info de paper
+  if (tweet.paper_info) {
+    const p = tweet.paper_info;
+    paperEl.innerHTML = `
+      <strong>📄 ${escHtml(p.title || 'Paper académico')}</strong>
+      ${p.authors?.length ? '<span>' + escHtml(p.authors.slice(0,3).join(', ')) + '</span>' : ''}
+      ${p.abstract ? '<span>' + escHtml(p.abstract.substring(0, 200)) + '...</span>' : ''}
+    `;
+    paperEl.classList.remove('hidden');
+  } else {
+    paperEl.classList.add('hidden');
+  }
+}
+
+function renderLinkedInPreview(text) {
+  const textarea = document.getElementById('linkedin-text');
+  textarea.value = text;
+  // Disparar evento para actualizar contador
+  textarea.dispatchEvent(new Event('input'));
+}
+
+function renderImageSelector(images) {
+  const container = document.getElementById('image-selector');
+  const optionsEl = document.getElementById('image-options');
+
+  if (!images || images.length === 0) {
+    container.classList.add('hidden');
+    state.selectedImageIndex = 0;
+    return;
+  }
+
+  optionsEl.innerHTML = '';
+  state.selectedImageIndex = 1; // Por defecto, primera imagen
+
+  // Opción "Sin imagen"
+  const noneLabel = document.createElement('label');
+  noneLabel.className = 'image-option';
+  noneLabel.innerHTML = `
+    <input type="radio" name="img-select" value="0" />
+    <div class="image-option-none">Sin imagen</div>
+  `;
+  noneLabel.querySelector('input').addEventListener('change', () => {
+    state.selectedImageIndex = 0;
+  });
+  optionsEl.appendChild(noneLabel);
+
+  // Opciones de imagen
+  images.slice(0, 4).forEach((src, i) => {
+    const label = document.createElement('label');
+    label.className = 'image-option';
+    const checked = i === 0 ? 'checked' : '';
+    label.innerHTML = `
+      <input type="radio" name="img-select" value="${i + 1}" ${checked} />
+      <img src="${escHtml(src)}" class="image-option-img" alt="Imagen ${i + 1}" loading="lazy" />
+    `;
+    label.querySelector('input').addEventListener('change', () => {
+      state.selectedImageIndex = i + 1;
+    });
+    optionsEl.appendChild(label);
+  });
+
+  container.classList.remove('hidden');
+}
+
+// ── Publicar ahora ─────────────────────────────────────
+async function publishNow() {
+  if (!state.linkedInConnected) {
+    connectLinkedIn();
+    return;
+  }
+
+  if (!state.tweetData) {
+    showToast('Primero genera un post', 'error');
+    return;
+  }
+
+  const linkedinText = document.getElementById('linkedin-text').value.trim();
+  if (!linkedinText) {
+    showToast('El texto del post está vacío', 'error');
+    return;
+  }
+
+  const imageUrls = getSelectedImages();
+
+  showLoading('Publicando en LinkedIn...');
+  hidePublishResult();
+
+  try {
+    const res = await fetch('/api/publish', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        tweet_url: state.tweetData.tweet_url,
+        tweet_text: state.tweetData.text,
+        tweet_author: state.tweetData.author_name || '',
+        linkedin_text: linkedinText,
+        image_urls: imageUrls,
+        use_first_image: imageUrls.length > 0,
+      }),
+    });
+
+    const data = await res.json();
+
+    if (!res.ok) throw new Error(data.detail || 'Error al publicar');
+
+    showPublishResult('¡Post publicado en LinkedIn exitosamente! 🎉', 'success');
+    showToast('¡Publicado!', 'success');
+    loadHistory();
+    resetForm();
+
+  } catch (e) {
+    showPublishResult(`Error: ${e.message}`, 'error');
+  } finally {
+    hideLoading();
+  }
+}
+
+// ── Programar post ─────────────────────────────────────
+async function schedulePost() {
+  if (!state.linkedInConnected) {
+    connectLinkedIn();
+    return;
+  }
+
+  if (!state.tweetData) {
+    showToast('Primero genera un post', 'error');
+    return;
+  }
+
+  const scheduledAt = document.getElementById('schedule-datetime').value;
+  if (!scheduledAt) {
+    showToast('Selecciona una fecha y hora', 'error');
+    return;
+  }
+
+  const scheduledDate = new Date(scheduledAt);
+  if (scheduledDate <= new Date()) {
+    showToast('La fecha debe ser en el futuro', 'error');
+    return;
+  }
+
+  const linkedinText = document.getElementById('linkedin-text').value.trim();
+  if (!linkedinText) {
+    showToast('El texto del post está vacío', 'error');
+    return;
+  }
+
+  const imageUrls = getSelectedImages();
+
+  showLoading('Programando publicación...');
+  hidePublishResult();
+
+  try {
+    const res = await fetch('/api/schedule', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        tweet_url: state.tweetData.tweet_url,
+        tweet_text: state.tweetData.text,
+        tweet_author: state.tweetData.author_name || '',
+        linkedin_text: linkedinText,
+        image_urls: imageUrls,
+        use_first_image: imageUrls.length > 0,
+        scheduled_at: scheduledDate.toISOString(),
+      }),
+    });
+
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || 'Error al programar');
+
+    const dateStr = scheduledDate.toLocaleString('es-ES', {
+      dateStyle: 'medium', timeStyle: 'short'
+    });
+    showPublishResult(`✅ Post programado para el ${dateStr}`, 'success');
+    showToast('Post programado', 'success');
+    loadHistory();
+    resetForm();
+
+  } catch (e) {
+    showPublishResult(`Error: ${e.message}`, 'error');
+  } finally {
+    hideLoading();
+  }
+}
+
+function getSelectedImages() {
+  if (state.selectedImageIndex === 0 || !state.suggestedImages.length) return [];
+  return [state.suggestedImages[state.selectedImageIndex - 1]].filter(Boolean);
+}
+
+// ── Historial ──────────────────────────────────────────
+async function loadHistory() {
+  try {
+    const res = await fetch('/api/posts');
+    const posts = await res.json();
+    renderHistory(posts);
+  } catch (e) {
+    console.error('Error loading history:', e);
+  }
+}
+
+function renderHistory(posts) {
+  const el = document.getElementById('history-list');
+  if (!posts || posts.length === 0) {
+    el.innerHTML = '<div class="empty-state">Aún no hay publicaciones. ¡Genera tu primer post!</div>';
+    return;
+  }
+
+  el.innerHTML = posts.map(post => {
+    const date = post.published_at || post.scheduled_at || post.created_at;
+    const dateStr = date ? new Date(date + 'Z').toLocaleString('es-ES', {
+      dateStyle: 'short', timeStyle: 'short'
+    }) : '—';
+
+    const statusLabel = {
+      published: 'Publicado',
+      scheduled: 'Programado',
+      failed: 'Error',
+      cancelled: 'Cancelado',
+      pending: 'Pendiente',
+    }[post.status] || post.status;
+
+    const cancelBtn = post.status === 'scheduled'
+      ? `<button class="btn-cancel-small" onclick="cancelPost(${post.id})" title="Cancelar">Cancelar</button>`
+      : '';
+
+    return `
+      <div class="history-item">
+        <span class="history-status status-${escHtml(post.status)}">${escHtml(statusLabel)}</span>
+        <div class="history-content">
+          <div class="history-text">${escHtml(post.linkedin_text)}</div>
+          <div class="history-meta">
+            <span>${post.status === 'scheduled' ? '📅 Programado: ' : '📤 '}${escHtml(dateStr)}</span>
+            ${post.tweet_author ? `<span>🐦 ${escHtml(post.tweet_author)}</span>` : ''}
+            ${post.error_message ? `<span style="color:var(--error)">⚠ ${escHtml(post.error_message)}</span>` : ''}
+          </div>
+        </div>
+        <div class="history-actions">${cancelBtn}</div>
+      </div>
+    `;
+  }).join('');
+}
+
+async function cancelPost(postId) {
+  if (!confirm('¿Cancelar esta publicación programada?')) return;
+  try {
+    const res = await fetch(`/api/posts/${postId}`, { method: 'DELETE' });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail);
+    showToast('Post cancelado', 'info');
+    loadHistory();
+  } catch (e) {
+    showToast(`Error: ${e.message}`, 'error');
+  }
+}
+
+// ── Helpers UI ─────────────────────────────────────────
+function show(id) {
+  document.getElementById(id)?.classList.remove('hidden');
+}
+
+function hide(id) {
+  document.getElementById(id)?.classList.add('hidden');
+}
+
+function showError(id, msg) {
+  const el = document.getElementById(id);
+  if (el) { el.textContent = msg; el.classList.remove('hidden'); }
+}
+
+function hideError(id) {
+  document.getElementById(id)?.classList.add('hidden');
+}
+
+function showLoading(msg = 'Cargando...') {
+  document.getElementById('loading-message').textContent = msg;
+  document.getElementById('loading-overlay').classList.remove('hidden');
+}
+
+function setLoadingMessage(msg) {
+  const el = document.getElementById('loading-message');
+  if (el) el.textContent = msg;
+}
+
+function hideLoading() {
+  document.getElementById('loading-overlay').classList.add('hidden');
+}
+
+function showPublishResult(msg, type) {
+  const el = document.getElementById('publish-result');
+  el.textContent = msg;
+  el.className = `publish-result ${type}`;
+  el.classList.remove('hidden');
+}
+
+function hidePublishResult() {
+  document.getElementById('publish-result').classList.add('hidden');
+}
+
+function showToast(msg, type = 'info') {
+  const toast = document.getElementById('toast');
+  toast.textContent = msg;
+  toast.className = `toast ${type}`;
+  toast.classList.remove('hidden');
+  setTimeout(() => toast.classList.add('hidden'), 4000);
+}
+
+function resetForm() {
+  // Limpiar estado y ocultar secciones de preview/publish
+  // (no limpiar el URL input para facilitar re-generación)
+  state.tweetData = null;
+  state.generatedText = '';
+  state.suggestedImages = [];
+  state.selectedImageIndex = 0;
+  hide('section-preview');
+  hide('section-publish');
+  hidePublishResult();
+}
+
+function escHtml(str) {
+  if (!str) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+// Permitir enviar con Enter en el input de URL
+document.addEventListener('DOMContentLoaded', () => {
+  const input = document.getElementById('tweet-url');
+  if (input) {
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') generatePost();
+    });
+  }
+});

@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>X → LinkedIn AI</title>
+  <link rel="stylesheet" href="/static/css/style.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+</head>
+<body>
+
+<!-- HEADER -->
+<header class="header">
+  <div class="header-inner">
+    <div class="logo">
+      <span class="logo-icon">𝕏</span>
+      <span class="logo-arrow">→</span>
+      <span class="logo-li">in</span>
+      <span class="logo-text">AI Publisher</span>
+    </div>
+    <div id="auth-status" class="auth-status">
+      <button id="btn-connect" class="btn btn-secondary btn-sm" onclick="connectLinkedIn()">
+        Conectar LinkedIn
+      </button>
+    </div>
+  </div>
+</header>
+
+<!-- MAIN -->
+<main class="main">
+
+  <!-- STEP 1: Ingresar URL -->
+  <section class="card" id="section-input">
+    <div class="card-header">
+      <span class="step-badge">1</span>
+      <h2>Pega el enlace del tweet</h2>
+    </div>
+    <div class="input-group">
+      <input
+        type="url"
+        id="tweet-url"
+        class="url-input"
+        placeholder="https://x.com/usuario/status/1234567890"
+        autocomplete="off"
+        spellcheck="false"
+      />
+      <div class="input-controls">
+        <select id="post-language" class="select-sm" title="Idioma del post generado">
+          <option value="es">🇪🇸 Español</option>
+          <option value="en">🇺🇸 English</option>
+        </select>
+        <button id="btn-generate" class="btn btn-primary" onclick="generatePost()">
+          <span class="btn-icon">✨</span>
+          Generar post
+        </button>
+      </div>
+    </div>
+    <div id="generate-error" class="error-msg hidden"></div>
+  </section>
+
+  <!-- STEP 2: Preview (oculto hasta generar) -->
+  <section class="card hidden" id="section-preview">
+    <div class="card-header">
+      <span class="step-badge">2</span>
+      <h2>Revisar y editar</h2>
+    </div>
+
+    <div class="preview-grid">
+
+      <!-- Tweet original -->
+      <div class="preview-panel">
+        <div class="panel-label">
+          <span class="label-icon">𝕏</span> Tweet original
+        </div>
+        <div id="tweet-preview" class="tweet-card">
+          <div id="tweet-author" class="tweet-author"></div>
+          <div id="tweet-text" class="tweet-text"></div>
+          <div id="tweet-images" class="tweet-images"></div>
+          <div id="tweet-paper" class="tweet-paper hidden"></div>
+        </div>
+      </div>
+
+      <!-- Post LinkedIn generado -->
+      <div class="preview-panel">
+        <div class="panel-label">
+          <span class="label-icon">in</span> Post LinkedIn generado
+          <button class="btn-icon-only" title="Regenerar" onclick="generatePost()" id="btn-regen">↺</button>
+        </div>
+        <textarea
+          id="linkedin-text"
+          class="linkedin-textarea"
+          placeholder="El post generado aparecerá aquí..."
+          spellcheck="true"
+        ></textarea>
+        <div class="char-count">
+          <span id="char-count">0</span> / 3000 caracteres
+        </div>
+      </div>
+    </div>
+
+    <!-- Selección de imagen -->
+    <div id="image-selector" class="image-selector hidden">
+      <div class="panel-label">Imagen a adjuntar al post</div>
+      <div id="image-options" class="image-options"></div>
+    </div>
+
+  </section>
+
+  <!-- STEP 3: Publicar -->
+  <section class="card hidden" id="section-publish">
+    <div class="card-header">
+      <span class="step-badge">3</span>
+      <h2>Publicar en LinkedIn</h2>
+    </div>
+
+    <div class="publish-actions">
+
+      <!-- Publicar ahora -->
+      <div class="publish-option">
+        <div class="publish-option-header">
+          <span class="publish-icon">🚀</span>
+          <div>
+            <div class="publish-title">Publicar ahora</div>
+            <div class="publish-subtitle">Se publica inmediatamente en tu perfil</div>
+          </div>
+        </div>
+        <button id="btn-publish-now" class="btn btn-publish" onclick="publishNow()">
+          Publicar ahora
+        </button>
+      </div>
+
+      <div class="divider-or"><span>o</span></div>
+
+      <!-- Programar -->
+      <div class="publish-option">
+        <div class="publish-option-header">
+          <span class="publish-icon">🗓</span>
+          <div>
+            <div class="publish-title">Programar publicación</div>
+            <div class="publish-subtitle">Elige fecha y hora exactas</div>
+          </div>
+        </div>
+        <div class="schedule-controls">
+          <input type="datetime-local" id="schedule-datetime" class="datetime-input" />
+          <button id="btn-schedule" class="btn btn-schedule" onclick="schedulePost()">
+            Programar
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div id="publish-result" class="publish-result hidden"></div>
+  </section>
+
+  <!-- HISTORIAL -->
+  <section class="card" id="section-history">
+    <div class="card-header">
+      <span class="step-badge history-badge">📋</span>
+      <h2>Historial de publicaciones</h2>
+      <button class="btn btn-ghost btn-sm" onclick="loadHistory()">↺ Actualizar</button>
+    </div>
+    <div id="history-list" class="history-list">
+      <div class="empty-state">Aún no hay publicaciones. ¡Genera tu primer post!</div>
+    </div>
+  </section>
+
+</main>
+
+<!-- MODAL: Conectar LinkedIn -->
+<div id="modal-connect" class="modal hidden">
+  <div class="modal-overlay" onclick="closeModal()"></div>
+  <div class="modal-box">
+    <button class="modal-close" onclick="closeModal()">✕</button>
+    <div class="modal-header">
+      <span class="modal-icon">in</span>
+      <h3>Conectar LinkedIn</h3>
+    </div>
+    <p class="modal-desc">
+      Para publicar en LinkedIn necesitas conectar tu cuenta.
+      Serás redirigido a LinkedIn para autorizar el acceso.
+    </p>
+    <div class="modal-steps">
+      <div class="modal-step">✅ Solo necesitas hacer esto una vez</div>
+      <div class="modal-step">✅ No guardamos tu contraseña</div>
+      <div class="modal-step">✅ Puedes revocar el acceso cuando quieras</div>
+    </div>
+    <a href="/auth/linkedin" class="btn btn-primary btn-full">
+      <span>🔗</span> Conectar con LinkedIn
+    </a>
+  </div>
+</div>
+
+<!-- TOAST -->
+<div id="toast" class="toast hidden"></div>
+
+<!-- LOADING OVERLAY -->
+<div id="loading-overlay" class="loading-overlay hidden">
+  <div class="loading-box">
+    <div class="spinner"></div>
+    <div id="loading-message" class="loading-message">Generando post con IA...</div>
+  </div>
+</div>
+
+<script src="/static/js/app.js"></script>
+</body>
+</html>
