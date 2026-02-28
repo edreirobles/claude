@@ -1,0 +1,33 @@
+# Entorno virtual
+venv/
+.venv/
+env/
+
+# Variables de entorno (NUNCA subir a git)
+.env
+.env.local
+.env.*.local
+
+# Bases de datos locales
+*.db
+*.sqlite
+*.sqlite3
+
+# Caché de Python
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+
+# Playwright
+playwright/.local-browsers/
+
+# Logs
+*.log
+
+# macOS
+.DS_Store
+
+# IDE
+.vscode/
+.idea/
