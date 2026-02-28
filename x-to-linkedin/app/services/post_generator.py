@@ -3,9 +3,18 @@ Generador de publicaciones LinkedIn usando Claude AI.
 Transforma contenido de X en posts atractivos para LinkedIn
 sobre IA e IA en educación.
 """
+import asyncio
+import os
+import tempfile
+import urllib.parse
+import httpx
+import logging
 import anthropic
+from typing import Optional
 from .x_scraper import TweetData
 from ..config import get_settings
+
+logger = logging.getLogger(__name__)
 
 settings = get_settings()
 
@@ -145,3 +154,83 @@ async def generate_linkedin_post(tweet: TweetData, language: str = "es") -> str:
     )
 
     return message.content[0].text.strip()
+
+
+async def generate_free_image(prompt: str) -> Optional[bytes]:
+    """
+    Genera una imagen gratis usando Pollinations.ai (sin API key).
+    Retorna los bytes de la imagen o None si falla.
+    """
+    # Limpiar y acortar el prompt
+    clean_prompt = prompt[:300].replace("\n", " ").strip()
+    encoded = urllib.parse.quote(clean_prompt)
+    url = (
+        f"https://image.pollinations.ai/prompt/{encoded}"
+        f"?width=1024&height=1024&nologo=true&model=flux"
+    )
+    try:
+        async with httpx.AsyncClient(timeout=90, follow_redirects=True) as client:
+            r = await client.get(url)
+            if r.status_code == 200 and r.headers.get("content-type", "").startswith("image/"):
+                return r.content
+            logger.warning(f"Pollinations devolvió status {r.status_code}")
+    except Exception as e:
+        logger.error(f"Error generando imagen con Pollinations.ai: {e}")
+    return None
+
+
+async def download_tweet_video(tweet_url: str) -> Optional[bytes]:
+    """
+    Descarga el video de un tweet usando yt-dlp.
+    Retorna los bytes del video (MP4) o None si falla.
+    """
+    try:
+        import yt_dlp
+    except ImportError:
+        logger.warning("yt-dlp no está instalado, no se puede descargar el video")
+        return None
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        output_template = os.path.join(tmpdir, "video.%(ext)s")
+        ydl_opts = {
+            "format": "best[ext=mp4]/best[height<=720]/best",
+            "outtmpl": output_template,
+            "quiet": True,
+            "no_warnings": True,
+            "max_filesize": 150 * 1024 * 1024,  # 150 MB límite
+        }
+        try:
+            loop = asyncio.get_event_loop()
+
+            def _download():
+                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                    ydl.download([tweet_url])
+
+            await loop.run_in_executor(None, _download)
+
+            files = os.listdir(tmpdir)
+            if files:
+                filepath = os.path.join(tmpdir, files[0])
+                with open(filepath, "rb") as f:
+                    return f.read()
+        except Exception as e:
+            logger.error(f"Error descargando video con yt-dlp: {e}")
+    return None
+
+
+async def download_pdf(url: str) -> Optional[bytes]:
+    """
+    Descarga un PDF desde una URL.
+    Retorna los bytes del PDF o None si falla.
+    """
+    try:
+        async with httpx.AsyncClient(
+            timeout=30, follow_redirects=True, headers={"User-Agent": "Mozilla/5.0"}
+        ) as client:
+            r = await client.get(url)
+            if r.status_code == 200:
+                return r.content
+            logger.warning(f"PDF download devolvió status {r.status_code} para {url}")
+    except Exception as e:
+        logger.error(f"Error descargando PDF: {e}")
+    return None

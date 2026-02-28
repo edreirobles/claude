@@ -32,3 +32,6 @@ class ScheduledPost(Base):
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     use_first_image: Mapped[bool] = mapped_column(Boolean, default=True)
+    media_type: Mapped[str] = mapped_column(String(20), default="auto")
+    pdf_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    document_title: Mapped[str] = mapped_column(String(500), default="Documento")

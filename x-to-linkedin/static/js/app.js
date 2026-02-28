@@ -11,6 +11,9 @@ const state = {
   suggestedImages: [],
   selectedImageIndex: 0,   // 0 = ninguna, 1+ = imagen índice-1
   linkedInConnected: false,
+  mediaType: 'auto',        // image | video | document | generate | auto
+  pdfUrl: null,
+  documentTitle: 'Documento',
 };
 
 // ── Inicialización ─────────────────────────────────────
@@ -150,10 +153,14 @@ async function generatePost() {
     state.tweetData = data.tweet;
     state.generatedText = data.linkedin_text;
     state.suggestedImages = data.suggested_images || [];
+    state.mediaType = data.media_type || 'auto';
+    state.pdfUrl = data.tweet.pdf_url || null;
+    state.documentTitle = data.tweet.paper_info?.title || 'Documento';
 
     renderTweetPreview(data.tweet);
     renderLinkedInPreview(data.linkedin_text);
-    renderImageSelector(data.suggested_images);
+    renderMediaBadge(data.media_type);
+    renderImageSelector(data.media_type === 'image' ? data.suggested_images : []);
 
     // Mostrar secciones
     show('section-preview');
@@ -201,6 +208,33 @@ function renderTweetPreview(tweet) {
     paperEl.classList.remove('hidden');
   } else {
     paperEl.classList.add('hidden');
+  }
+}
+
+function renderMediaBadge(mediaType) {
+  // Mostrar un badge indicando qué tipo de media se va a adjuntar
+  let existingBadge = document.getElementById('media-badge');
+  if (!existingBadge) {
+    existingBadge = document.createElement('div');
+    existingBadge.id = 'media-badge';
+    existingBadge.style.cssText = 'margin:8px 0;padding:6px 12px;border-radius:6px;font-size:0.85rem;font-weight:500;display:inline-block;';
+    const tweetTextEl = document.getElementById('tweet-text');
+    if (tweetTextEl) tweetTextEl.parentElement.insertBefore(existingBadge, tweetTextEl.nextSibling);
+  }
+  const badges = {
+    video:    { text: '📹 Video detectado — se subirá el video a LinkedIn', color: '#1d4ed8', bg: '#dbeafe' },
+    document: { text: '📄 Paper/PDF detectado — se adjuntará el PDF', color: '#065f46', bg: '#d1fae5' },
+    generate: { text: '🎨 Sin media — se generará imagen automáticamente con IA', color: '#7c3aed', bg: '#ede9fe' },
+    image:    { text: '🖼️ Imagen(es) detectadas — se adjuntará la primera', color: '#92400e', bg: '#fef3c7' },
+  };
+  const b = badges[mediaType];
+  if (b) {
+    existingBadge.textContent = b.text;
+    existingBadge.style.color = b.color;
+    existingBadge.style.background = b.bg;
+    existingBadge.classList.remove('hidden');
+  } else {
+    existingBadge.classList.add('hidden');
   }
 }
 
@@ -288,6 +322,9 @@ async function publishNow() {
         linkedin_text: linkedinText,
         image_urls: imageUrls,
         use_first_image: imageUrls.length > 0,
+        media_type: state.mediaType,
+        pdf_url: state.pdfUrl,
+        document_title: state.documentTitle,
       }),
     });
 
@@ -354,6 +391,9 @@ async function schedulePost() {
         image_urls: imageUrls,
         use_first_image: imageUrls.length > 0,
         scheduled_at: scheduledDate.toISOString(),
+        media_type: state.mediaType,
+        pdf_url: state.pdfUrl,
+        document_title: state.documentTitle,
       }),
     });
 
@@ -504,6 +544,11 @@ function resetForm() {
   state.generatedText = '';
   state.suggestedImages = [];
   state.selectedImageIndex = 0;
+  state.mediaType = 'auto';
+  state.pdfUrl = null;
+  state.documentTitle = 'Documento';
+  const badge = document.getElementById('media-badge');
+  if (badge) badge.classList.add('hidden');
   hide('section-preview');
   hide('section-publish');
   hidePublishResult();

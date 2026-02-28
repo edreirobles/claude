@@ -16,12 +16,15 @@ class TweetData(BaseModel):
     links: list[str] = []
     tweet_url: str
     paper_info: Optional[dict] = None
+    has_video: bool = False
+    pdf_url: Optional[str] = None
 
 
 class GenerateResponse(BaseModel):
     tweet: TweetData
     linkedin_text: str
     suggested_images: list[str] = []
+    media_type: str = "auto"  # image | video | document | generate
 
 
 class PublishRequest(BaseModel):
@@ -31,6 +34,9 @@ class PublishRequest(BaseModel):
     linkedin_text: str
     image_urls: list[str] = []
     use_first_image: bool = True
+    media_type: str = "auto"  # image | video | document | generate
+    pdf_url: Optional[str] = None
+    document_title: str = "Documento"
 
 
 class ScheduleRequest(PublishRequest):

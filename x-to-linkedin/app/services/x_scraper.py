@@ -22,6 +22,8 @@ class TweetData:
     links: list[str] = field(default_factory=list)
     tweet_url: str = ""
     paper_info: Optional[dict] = None
+    has_video: bool = False
+    pdf_url: Optional[str] = None
 
 
 def normalize_tweet_url(url: str) -> str:
@@ -142,12 +144,17 @@ async def scrape_with_playwright(url: str) -> TweetData | None:
                     src = re.sub(r"&name=\w+", "&name=large", src)
                     images.append(src)
 
-            # Enlace de video thumbnail
+            # Enlace de video thumbnail y detección de video
             video_poster_els = await page.query_selector_all("video[poster]")
+            has_video = len(video_poster_els) > 0
             for v in video_poster_els:
                 poster = await v.get_attribute("poster")
                 if poster:
                     images.append(poster)
+            # También detectar videos sin poster
+            if not has_video:
+                all_video_els = await page.query_selector_all("video")
+                has_video = len(all_video_els) > 0
 
             # Links en el texto
             links: list[str] = []
@@ -174,6 +181,7 @@ async def scrape_with_playwright(url: str) -> TweetData | None:
                 images=images,
                 links=list(set(links)),
                 tweet_url=url,
+                has_video=has_video,
             )
 
     except ImportError:
@@ -210,6 +218,7 @@ async def fetch_paper_info(url: str) -> dict | None:
                             "authors": authors[:5],
                             "source": "arXiv",
                             "url": url,
+                            "pdf_url": f"https://arxiv.org/pdf/{arxiv_id}.pdf",
                         }
         except Exception as e:
             logger.warning(f"Error fetching arXiv: {e}")
@@ -247,6 +256,15 @@ async def scrape_tweet(url: str) -> TweetData:
             paper_info = await fetch_paper_info(link)
             if paper_info:
                 result.paper_info = paper_info
+                if paper_info.get("pdf_url"):
+                    result.pdf_url = paper_info["pdf_url"]
+                break
+
+    # También detectar PDFs directos en los links
+    if not result.pdf_url:
+        for link in result.links:
+            if link.lower().endswith(".pdf"):
+                result.pdf_url = link
                 break
 
     return result

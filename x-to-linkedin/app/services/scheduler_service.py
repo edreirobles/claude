@@ -57,12 +57,33 @@ async def execute_scheduled_post(post_id: int):
                 await db.commit()
                 return
 
+            # Descargar media según tipo
+            from .post_generator import generate_free_image, download_tweet_video, download_pdf
+
+            media_type = getattr(post, "media_type", "auto")
+            video_bytes = None
+            document_bytes = None
+            generated_image_bytes = None
+
+            if media_type == "video":
+                video_bytes = await download_tweet_video(post.tweet_url)
+            elif media_type == "document":
+                pdf_url = getattr(post, "pdf_url", None)
+                if pdf_url:
+                    document_bytes = await download_pdf(pdf_url)
+            elif media_type == "generate":
+                generated_image_bytes = await generate_free_image(post.linkedin_text)
+
             # Publicar
             client = LinkedInClient(token.access_token, token.person_urn)
             result = await client.create_post(
                 text=post.linkedin_text,
-                image_urls=post.image_urls,
-                use_first_image=post.use_first_image,
+                image_urls=post.image_urls if media_type == "image" else None,
+                use_first_image=media_type == "image" and post.use_first_image,
+                video_bytes=video_bytes,
+                document_bytes=document_bytes,
+                document_title=getattr(post, "document_title", "Documento"),
+                generated_image_bytes=generated_image_bytes,
             )
 
             post.status = "published"

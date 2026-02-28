@@ -21,7 +21,12 @@ from ..schemas import (
     TweetData as TweetDataSchema,
 )
 from ..services.x_scraper import scrape_tweet
-from ..services.post_generator import generate_linkedin_post
+from ..services.post_generator import (
+    generate_linkedin_post,
+    generate_free_image,
+    download_tweet_video,
+    download_pdf,
+)
 from ..services.linkedin_client import LinkedInClient
 from ..services.scheduler_service import schedule_post, cancel_scheduled_post
 from ..config import get_settings
@@ -74,6 +79,16 @@ async def generate_post(request: ScrapeRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error generando el post: {e}")
 
+    # Determinar tipo de media
+    if tweet.has_video:
+        media_type = "video"
+    elif tweet.pdf_url:
+        media_type = "document"
+    elif tweet.images:
+        media_type = "image"
+    else:
+        media_type = "generate"  # Se generará imagen automáticamente al publicar
+
     tweet_schema = TweetDataSchema(
         text=tweet.text,
         author_name=tweet.author_name,
@@ -82,12 +97,15 @@ async def generate_post(request: ScrapeRequest):
         links=tweet.links,
         tweet_url=tweet.tweet_url,
         paper_info=tweet.paper_info,
+        has_video=tweet.has_video,
+        pdf_url=tweet.pdf_url,
     )
 
     return GenerateResponse(
         tweet=tweet_schema,
         linkedin_text=linkedin_text,
         suggested_images=tweet.images[:4],
+        media_type=media_type,
     )
 
 
@@ -99,11 +117,30 @@ async def publish_now(
     """Publica inmediatamente en LinkedIn."""
     li_client = await get_linkedin_client(db)
 
+    # Descargar media según el tipo detectado
+    video_bytes = None
+    document_bytes = None
+    generated_image_bytes = None
+
+    if request.media_type == "video":
+        video_bytes = await download_tweet_video(request.tweet_url)
+        if not video_bytes:
+            # Si falla la descarga del video, intentar con imagen del tweet
+            request = request.model_copy(update={"media_type": "image"})
+    elif request.media_type == "document" and request.pdf_url:
+        document_bytes = await download_pdf(request.pdf_url)
+    elif request.media_type == "generate":
+        generated_image_bytes = await generate_free_image(request.linkedin_text)
+
     try:
         result = await li_client.create_post(
             text=request.linkedin_text,
-            image_urls=request.image_urls,
-            use_first_image=request.use_first_image,
+            image_urls=request.image_urls if request.media_type == "image" else None,
+            use_first_image=request.media_type == "image" and request.use_first_image,
+            video_bytes=video_bytes,
+            document_bytes=document_bytes,
+            document_title=request.document_title,
+            generated_image_bytes=generated_image_bytes,
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error publicando en LinkedIn: {e}")
@@ -119,6 +156,9 @@ async def publish_now(
         published_at=datetime.utcnow(),
         linkedin_post_id=result.get("post_id", ""),
         use_first_image=request.use_first_image,
+        media_type=request.media_type,
+        pdf_url=request.pdf_url,
+        document_title=request.document_title,
     )
     db.add(post)
     await db.commit()
@@ -151,6 +191,9 @@ async def schedule_linkedin_post(
         status="scheduled",
         scheduled_at=request.scheduled_at,
         use_first_image=request.use_first_image,
+        media_type=request.media_type,
+        pdf_url=request.pdf_url,
+        document_title=request.document_title,
     )
     db.add(post)
     await db.commit()
