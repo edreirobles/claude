@@ -20,6 +20,11 @@ class Settings(BaseSettings):
     database_url: str = "sqlite+aiosqlite:///./x_to_linkedin.db"
     post_language: str = "es"
 
+    # X (Twitter) API — para monitoreo de likes
+    x_bearer_token: str = ""
+    x_user_id: str = ""          # ID numérico del usuario (no el @username)
+    x_check_interval_minutes: int = 15
+
 
 @lru_cache
 def get_settings() -> Settings:

@@ -161,8 +161,37 @@
       <h2>Historial de publicaciones</h2>
       <button class="btn btn-ghost btn-sm" onclick="loadHistory()">↺ Actualizar</button>
     </div>
+
+    <!-- Exportar CSV -->
+    <div class="export-bar">
+      <span class="export-label">Exportar CSV:</span>
+      <div class="export-controls">
+        <label class="date-label">Desde
+          <input type="date" id="export-from" class="date-input" />
+        </label>
+        <label class="date-label">Hasta
+          <input type="date" id="export-to" class="date-input" />
+        </label>
+        <button class="btn btn-ghost btn-sm" onclick="exportCsv()" title="Sin rango = todo el historial">
+          ⬇ Descargar CSV
+        </button>
+      </div>
+    </div>
+
     <div id="history-list" class="history-list">
       <div class="empty-state">Aún no hay publicaciones. ¡Genera tu primer post!</div>
+    </div>
+  </section>
+
+  <!-- AUTOMATIZACIÓN X → LINKEDIN -->
+  <section class="card" id="section-x-monitor">
+    <div class="card-header">
+      <span class="step-badge history-badge">𝕏</span>
+      <h2>Automatización: Me gusta → LinkedIn</h2>
+      <button class="btn btn-ghost btn-sm" onclick="loadXMonitorStatus()">↺ Actualizar</button>
+    </div>
+    <div id="x-monitor-body">
+      <div class="empty-state">Cargando estado...</div>
     </div>
   </section>
 

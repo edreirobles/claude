@@ -23,6 +23,7 @@ document.addEventListener('DOMContentLoaded', () => {
   setupCharCounter();
   checkUrlParams();
   setDefaultScheduleTime();
+  loadXMonitorStatus();
 });
 
 function checkUrlParams() {
@@ -573,3 +574,132 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 });
+
+// ── Exportar CSV ────────────────────────────────────────
+function exportCsv() {
+  const fromDate = document.getElementById('export-from').value;
+  const toDate   = document.getElementById('export-to').value;
+
+  const params = new URLSearchParams();
+  if (fromDate) params.append('from_date', fromDate);
+  if (toDate)   params.append('to_date', toDate);
+
+  const url = '/api/posts/export' + (params.toString() ? '?' + params.toString() : '');
+  window.location.href = url;
+}
+
+// ── X Monitor ───────────────────────────────────────────
+async function loadXMonitorStatus() {
+  try {
+    const res  = await fetch('/api/x-monitor/status');
+    const data = await res.json();
+    renderXMonitorStatus(data);
+  } catch (e) {
+    console.error('Error cargando estado de X Monitor:', e);
+  }
+}
+
+function renderXMonitorStatus(data) {
+  const el = document.getElementById('x-monitor-body');
+  if (!el) return;
+
+  if (!data.configured) {
+    el.innerHTML = `
+      <div class="x-status-badge inactive">⚪ No configurado</div>
+      <div class="x-setup-box">
+        <h4>Cómo activar la automatización</h4>
+        <ol>
+          <li>Ve a <strong>developer.twitter.com</strong> y crea una App (cuenta gratuita).</li>
+          <li>En <em>Keys and tokens</em>, copia el <strong>Bearer Token</strong>.</li>
+          <li>Obtén tu <strong>User ID numérico</strong> en
+            <a href="https://tweeterid.com" target="_blank" rel="noopener" style="color:var(--accent)">tweeterid.com</a>
+            (pon tu @username y te devuelve el ID).
+          </li>
+          <li>Edita el archivo <code>.env</code> de la app y agrega:
+            <br/><code>X_BEARER_TOKEN=tu_token_aquí</code>
+            <br/><code>X_USER_ID=tu_id_numerico</code>
+          </li>
+          <li>Reinicia la app con <code>uvicorn app.main:app --reload</code>.</li>
+        </ol>
+        <br/>
+        <p style="color:var(--text-muted);font-size:12px">
+          ℹ Requiere que tu perfil de X sea <strong>público</strong>. El chequeo se realiza cada
+          ${escHtml(String(data.check_interval_minutes || 15))} minutos.
+          Las publicaciones se calendarizarán a las <strong>5:00 AM hora de Monterrey</strong>,
+          máximo una por día de forma automática.
+        </p>
+      </div>
+    `;
+    return;
+  }
+
+  const lastDate = data.last_processed_at
+    ? new Date(data.last_processed_at + 'Z').toLocaleString('es-ES', { dateStyle: 'short', timeStyle: 'short' })
+    : '—';
+
+  const recentHtml = (data.recent_likes || []).map(like => {
+    const d = like.processed_at
+      ? new Date(like.processed_at + 'Z').toLocaleString('es-ES', { dateStyle: 'short', timeStyle: 'short' })
+      : '—';
+    return `
+      <div class="x-like-item">
+        <span class="x-like-status ${escHtml(like.status)}">${escHtml(like.status)}</span>
+        <div class="x-like-info">
+          <div class="x-like-author">@${escHtml(like.tweet_author || '—')}</div>
+          <div class="x-like-url"><a href="${escHtml(like.tweet_url)}" target="_blank" rel="noopener">${escHtml(like.tweet_url)}</a></div>
+          ${like.error_message ? `<div style="color:var(--error);font-size:11px">⚠ ${escHtml(like.error_message)}</div>` : ''}
+        </div>
+        <span class="x-like-date">${escHtml(d)}</span>
+      </div>
+    `;
+  }).join('');
+
+  el.innerHTML = `
+    <div class="x-status-badge active">🟢 Activo — revisando cada ${escHtml(String(data.check_interval_minutes))} min</div>
+
+    <div class="x-monitor-grid">
+      <div class="x-stat">
+        <div class="x-stat-label">Posts auto-calendarizados pendientes</div>
+        <div class="x-stat-value">${escHtml(String(data.pending_auto_posts))}</div>
+      </div>
+      <div class="x-stat">
+        <div class="x-stat-label">Total tweets procesados</div>
+        <div class="x-stat-value">${escHtml(String(data.total_processed))}</div>
+      </div>
+      <div class="x-stat">
+        <div class="x-stat-label">Último tweet procesado</div>
+        <div class="x-stat-value" style="font-size:12px">${escHtml(lastDate)}</div>
+      </div>
+      <div class="x-stat">
+        <div class="x-stat-label">User ID configurado</div>
+        <div class="x-stat-value" style="font-size:12px">${escHtml(data.user_id)}</div>
+      </div>
+    </div>
+
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+      <div style="color:var(--text-muted);font-size:13px">Últimos likes procesados</div>
+      <button class="btn btn-ghost btn-sm" onclick="checkXNow()">⚡ Revisar ahora</button>
+    </div>
+
+    ${recentHtml
+      ? `<div class="x-likes-list">${recentHtml}</div>`
+      : '<div class="empty-state">Aún no se han procesado likes.</div>'
+    }
+
+    <p style="color:var(--text-faint);font-size:11px;margin-top:12px">
+      ℹ Los posts de la automatización se calendarizarán a las <strong>5:00 AM hora Monterrey</strong>,
+      máximo 1 auto-post por día. Las publicaciones manuales no afectan este límite.
+    </p>
+  `;
+}
+
+async function checkXNow() {
+  try {
+    showToast('Revisando likes en X...', 'info');
+    await fetch('/api/x-monitor/check-now', { method: 'POST' });
+    showToast('Chequeo iniciado. Actualiza en unos segundos.', 'success');
+    setTimeout(loadXMonitorStatus, 5000);
+  } catch (e) {
+    showToast('Error al iniciar chequeo', 'error');
+  }
+}

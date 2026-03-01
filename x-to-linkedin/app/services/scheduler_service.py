@@ -23,6 +23,25 @@ def start_scheduler():
     if not scheduler.running:
         scheduler.start()
         logger.info("Scheduler iniciado")
+        _start_x_monitor_job()
+
+
+def _start_x_monitor_job():
+    """Registra el job periódico de monitoreo de likes en X si hay credenciales."""
+    from ..config import get_settings
+    settings = get_settings()
+    if not settings.x_bearer_token or not settings.x_user_id:
+        logger.info("X Monitor: credenciales no configuradas, job no registrado")
+        return
+    from .x_likes_monitor import check_and_process_likes
+    scheduler.add_job(
+        check_and_process_likes,
+        trigger="interval",
+        minutes=settings.x_check_interval_minutes,
+        id="x_likes_monitor",
+        replace_existing=True,
+    )
+    logger.info(f"X Monitor: job registrado cada {settings.x_check_interval_minutes} min")
 
 
 def stop_scheduler():

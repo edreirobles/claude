@@ -153,7 +153,13 @@ async def generate_linkedin_post(tweet: TweetData, language: str = "es") -> str:
         messages=[{"role": "user", "content": user_message}],
     )
 
-    return message.content[0].text.strip()
+    generated = message.content[0].text.strip()
+
+    # Agregar fuente al final
+    if tweet.tweet_url:
+        generated = f"{generated}\n\nFuente: {tweet.tweet_url}"
+
+    return generated
 
 
 async def generate_free_image(prompt: str) -> Optional[bytes]:

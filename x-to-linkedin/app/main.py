@@ -10,6 +10,7 @@ import logging
 
 from .database import init_db
 from .routers import posts, auth
+from .routers import x_monitor
 from .services.scheduler_service import start_scheduler, stop_scheduler
 
 logging.basicConfig(
@@ -38,6 +39,7 @@ app = FastAPI(
 # Rutas API
 app.include_router(posts.router)
 app.include_router(auth.router)
+app.include_router(x_monitor.router)
 
 # Archivos estáticos
 static_dir = os.path.join(os.path.dirname(__file__), "..", "static")

@@ -1,4 +1,4 @@
-from sqlalchemy import String, Text, DateTime, JSON, Integer, Boolean
+from sqlalchemy import String, Text, DateTime, JSON, Integer, Boolean, ForeignKey
 from sqlalchemy.orm import Mapped, mapped_column
 from datetime import datetime
 from .database import Base
@@ -35,3 +35,20 @@ class ScheduledPost(Base):
     media_type: Mapped[str] = mapped_column(String(20), default="auto")
     pdf_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     document_title: Mapped[str] = mapped_column(String(500), default="Documento")
+    # "manual" = publicado manualmente desde la app, "x_auto" = generado desde like en X
+    source: Mapped[str] = mapped_column(String(20), default="manual", server_default="manual")
+
+
+class XLikedTweet(Base):
+    """Registro de tweets que el usuario marcó como 'me gusta' en X y fueron procesados."""
+    __tablename__ = "x_liked_tweets"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    tweet_id: Mapped[str] = mapped_column(String(50), unique=True)
+    tweet_url: Mapped[str] = mapped_column(Text)
+    tweet_author: Mapped[str] = mapped_column(String(200), default="")
+    processed_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    post_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # "processing" | "processed" | "failed"
+    status: Mapped[str] = mapped_column(String(20), default="processing")
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)

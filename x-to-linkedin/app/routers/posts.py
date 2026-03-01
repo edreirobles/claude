@@ -5,8 +5,12 @@ Rutas principales de la API:
 - Programación de posts
 - Historial
 """
+import csv
+import io
 from datetime import datetime
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
+from typing import Optional
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Query
+from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, desc
 
@@ -215,6 +219,76 @@ async def list_posts(
         select(ScheduledPost).order_by(desc(ScheduledPost.created_at)).limit(limit)
     )
     return result.scalars().all()
+
+
+@router.get("/posts/export")
+async def export_posts_csv(
+    from_date: Optional[str] = Query(None, description="Fecha inicio ISO (ej: 2025-01-01)"),
+    to_date: Optional[str] = Query(None, description="Fecha fin ISO (ej: 2025-12-31)"),
+    db: AsyncSession = Depends(get_db),
+):
+    """Exporta el historial de publicaciones como CSV, con filtro opcional por rango de fechas."""
+    query = select(ScheduledPost).order_by(desc(ScheduledPost.created_at))
+
+    if from_date:
+        try:
+            from_dt = datetime.fromisoformat(from_date)
+            query = query.where(ScheduledPost.created_at >= from_dt)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Formato de from_date inválido. Usa YYYY-MM-DD")
+
+    if to_date:
+        try:
+            # Incluir hasta el final del día indicado
+            to_dt = datetime.fromisoformat(to_date).replace(hour=23, minute=59, second=59)
+            query = query.where(ScheduledPost.created_at <= to_dt)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Formato de to_date inválido. Usa YYYY-MM-DD")
+
+    result = await db.execute(query)
+    posts = result.scalars().all()
+
+    fields = [
+        "id", "created_at", "tweet_url", "tweet_author", "tweet_text",
+        "linkedin_text", "status", "source", "scheduled_at", "published_at",
+        "linkedin_post_id", "media_type", "use_first_image", "pdf_url",
+        "document_title", "error_message",
+    ]
+
+    output = io.StringIO()
+    writer = csv.DictWriter(output, fieldnames=fields, extrasaction="ignore")
+    writer.writeheader()
+
+    for post in posts:
+        writer.writerow({
+            "id": post.id,
+            "created_at": post.created_at,
+            "tweet_url": post.tweet_url,
+            "tweet_author": post.tweet_author,
+            "tweet_text": post.tweet_text,
+            "linkedin_text": post.linkedin_text,
+            "status": post.status,
+            "source": getattr(post, "source", "manual"),
+            "scheduled_at": post.scheduled_at or "",
+            "published_at": post.published_at or "",
+            "linkedin_post_id": post.linkedin_post_id or "",
+            "media_type": post.media_type,
+            "use_first_image": post.use_first_image,
+            "pdf_url": post.pdf_url or "",
+            "document_title": post.document_title,
+            "error_message": post.error_message or "",
+        })
+
+    output.seek(0)
+    filename = "publicaciones.csv"
+    if from_date or to_date:
+        filename = f"publicaciones_{from_date or 'inicio'}_{to_date or 'hoy'}.csv"
+
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f"attachment; filename={filename}"},
+    )
 
 
 @router.delete("/posts/{post_id}")
