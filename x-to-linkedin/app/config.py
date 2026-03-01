@@ -24,6 +24,9 @@ class Settings(BaseSettings):
     x_bearer_token: str = ""
     x_user_id: str = ""          # ID numérico del usuario (no el @username)
     x_check_interval_minutes: int = 15
+    # Fecha/hora de inicio del monitoreo en hora de Monterrey ("YYYY-MM-DDTHH:MM:SS")
+    # El monitor NO procesará nada antes de esta fecha. Primera ejecución = semilla.
+    x_monitor_start_date: str = ""
 
 
 @lru_cache

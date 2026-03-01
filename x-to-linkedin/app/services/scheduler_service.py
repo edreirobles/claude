@@ -33,14 +33,31 @@ def _start_x_monitor_job():
     if not settings.x_bearer_token or not settings.x_user_id:
         logger.info("X Monitor: credenciales no configuradas, job no registrado")
         return
+
     from .x_likes_monitor import check_and_process_likes
-    scheduler.add_job(
-        check_and_process_likes,
+    from zoneinfo import ZoneInfo
+    from datetime import timezone as dt_timezone
+
+    job_kwargs: dict = dict(
         trigger="interval",
         minutes=settings.x_check_interval_minutes,
         id="x_likes_monitor",
         replace_existing=True,
     )
+
+    if settings.x_monitor_start_date:
+        try:
+            mty_tz = ZoneInfo("America/Monterrey")
+            start_mty = datetime.fromisoformat(settings.x_monitor_start_date).replace(tzinfo=mty_tz)
+            start_utc = start_mty.astimezone(dt_timezone.utc)
+            # Solo aplicar start_date si aún está en el futuro
+            if start_utc > datetime.now(dt_timezone.utc):
+                job_kwargs["start_date"] = start_utc
+                logger.info(f"X Monitor: primer disparo programado para {start_utc} UTC")
+        except Exception as e:
+            logger.warning(f"X Monitor: no se pudo parsear X_MONITOR_START_DATE: {e}")
+
+    scheduler.add_job(check_and_process_likes, **job_kwargs)
     logger.info(f"X Monitor: job registrado cada {settings.x_check_interval_minutes} min")
 
 

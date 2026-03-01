@@ -1,7 +1,8 @@
 """
 Rutas para gestionar el monitoreo automático de "me gusta" en X.
 """
-from datetime import datetime
+from datetime import datetime, timezone as dt_timezone
+from zoneinfo import ZoneInfo
 from fastapi import APIRouter, Depends, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, desc
@@ -12,24 +13,46 @@ from ..config import get_settings
 
 router = APIRouter(prefix="/api/x-monitor", tags=["x-monitor"])
 
+MONTERREY_TZ = ZoneInfo("America/Monterrey")
+
+
+def _parse_start_date_utc(start_date_str: str):
+    """Convierte la fecha de inicio (hora Monterrey) a UTC. Retorna None si vacía o inválida."""
+    if not start_date_str:
+        return None
+    try:
+        local = datetime.fromisoformat(start_date_str).replace(tzinfo=MONTERREY_TZ)
+        return local.astimezone(dt_timezone.utc)
+    except Exception:
+        return None
+
 
 @router.get("/status")
 async def x_monitor_status(db: AsyncSession = Depends(get_db)):
-    """
-    Retorna el estado actual del monitoreo de likes en X:
-    - Si las credenciales están configuradas
-    - Último tweet procesado
-    - Posts auto-calendarizados pendientes
-    - Próximo chequeo programado
-    """
+    """Retorna el estado actual del monitoreo de likes en X."""
     settings = get_settings()
     configured = bool(settings.x_bearer_token and settings.x_user_id)
 
-    # Último tweet procesado
-    last_result = await db.execute(
-        select(XLikedTweet).order_by(desc(XLikedTweet.processed_at)).limit(1)
+    # Calcular si el monitor ya está activo (pasó la start_date)
+    start_utc = _parse_start_date_utc(settings.x_monitor_start_date)
+    now_utc = datetime.now(dt_timezone.utc)
+    waiting_for_start = start_utc is not None and now_utc < start_utc
+
+    # Conteo de todos los tweets en tabla (incluyendo skipped)
+    total_result = await db.execute(select(func.count(XLikedTweet.id)))
+    total_in_db = total_result.scalar_one()
+
+    # Conteo de skipped (semilla)
+    skipped_result = await db.execute(
+        select(func.count(XLikedTweet.id)).where(XLikedTweet.status == "skipped")
     )
-    last = last_result.scalar_one_or_none()
+    total_skipped = skipped_result.scalar_one()
+
+    # Conteo de procesados (excluye skipped)
+    total_processed = total_in_db - total_skipped
+
+    # ¿Ya se hizo la semilla? (si hay registros en la tabla)
+    seeded = total_in_db > 0
 
     # Posts auto-programados futuros
     pending_result = await db.execute(
@@ -40,13 +63,21 @@ async def x_monitor_status(db: AsyncSession = Depends(get_db)):
     )
     pending_auto = pending_result.scalar_one()
 
-    # Total de tweets procesados
-    total_result = await db.execute(select(func.count(XLikedTweet.id)))
-    total_processed = total_result.scalar_one()
+    # Último tweet procesado (excluye skipped)
+    last_result = await db.execute(
+        select(XLikedTweet)
+        .where(XLikedTweet.status != "skipped")
+        .order_by(desc(XLikedTweet.processed_at))
+        .limit(1)
+    )
+    last = last_result.scalar_one_or_none()
 
-    # Últimos 5 likes procesados
+    # Últimos 5 likes no-skipped
     recent_result = await db.execute(
-        select(XLikedTweet).order_by(desc(XLikedTweet.processed_at)).limit(5)
+        select(XLikedTweet)
+        .where(XLikedTweet.status != "skipped")
+        .order_by(desc(XLikedTweet.processed_at))
+        .limit(5)
     )
     recent = recent_result.scalars().all()
 
@@ -54,6 +85,11 @@ async def x_monitor_status(db: AsyncSession = Depends(get_db)):
         "configured": configured,
         "user_id": settings.x_user_id if configured else "",
         "check_interval_minutes": settings.x_check_interval_minutes,
+        "start_date": settings.x_monitor_start_date,
+        "start_date_utc": start_utc.isoformat() if start_utc else None,
+        "waiting_for_start": waiting_for_start,
+        "seeded": seeded,
+        "total_skipped": total_skipped,
         "pending_auto_posts": pending_auto,
         "total_processed": total_processed,
         "last_tweet_url": last.tweet_url if last else None,

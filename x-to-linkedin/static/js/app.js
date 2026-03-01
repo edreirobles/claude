@@ -615,35 +615,43 @@ function renderXMonitorStatus(data) {
             <a href="https://tweeterid.com" target="_blank" rel="noopener" style="color:var(--accent)">tweeterid.com</a>
             (pon tu @username y te devuelve el ID).
           </li>
-          <li>Edita el archivo <code>.env</code> de la app y agrega:
+          <li>Edita el archivo <code>.env</code> y agrega:
             <br/><code>X_BEARER_TOKEN=tu_token_aquí</code>
             <br/><code>X_USER_ID=tu_id_numerico</code>
+            <br/><code>X_MONITOR_START_DATE=2026-03-02T00:00:00</code> (hora Monterrey, opcional)
           </li>
           <li>Reinicia la app con <code>uvicorn app.main:app --reload</code>.</li>
         </ol>
-        <br/>
-        <p style="color:var(--text-muted);font-size:12px">
-          ℹ Requiere que tu perfil de X sea <strong>público</strong>. El chequeo se realiza cada
-          ${escHtml(String(data.check_interval_minutes || 15))} minutos.
-          Las publicaciones se calendarizarán a las <strong>5:00 AM hora de Monterrey</strong>,
-          máximo una por día de forma automática.
-        </p>
       </div>
     `;
     return;
   }
 
+  // Estado del badge
+  let badgeHtml;
+  if (data.waiting_for_start) {
+    const startLocal = data.start_date
+      ? data.start_date.replace('T', ' ') + ' (Monterrey)'
+      : '—';
+    badgeHtml = `<div class="x-status-badge inactive">🕐 Esperando inicio — arranca el ${escHtml(startLocal)}</div>`;
+  } else if (!data.seeded) {
+    badgeHtml = `<div class="x-status-badge inactive">⏳ Primera ejecución pendiente — se hará semilla al primer chequeo</div>`;
+  } else {
+    badgeHtml = `<div class="x-status-badge active">🟢 Activo — revisando cada ${escHtml(String(data.check_interval_minutes))} min</div>`;
+  }
+
   const lastDate = data.last_processed_at
-    ? new Date(data.last_processed_at + 'Z').toLocaleString('es-ES', { dateStyle: 'short', timeStyle: 'short' })
+    ? new Date(data.last_processed_at + 'Z').toLocaleString('es-MX', { dateStyle: 'short', timeStyle: 'short' })
     : '—';
 
   const recentHtml = (data.recent_likes || []).map(like => {
     const d = like.processed_at
-      ? new Date(like.processed_at + 'Z').toLocaleString('es-ES', { dateStyle: 'short', timeStyle: 'short' })
+      ? new Date(like.processed_at + 'Z').toLocaleString('es-MX', { dateStyle: 'short', timeStyle: 'short' })
       : '—';
+    const statusLabel = { processed: 'publicado', failed: 'error', processing: 'procesando' }[like.status] || like.status;
     return `
       <div class="x-like-item">
-        <span class="x-like-status ${escHtml(like.status)}">${escHtml(like.status)}</span>
+        <span class="x-like-status ${escHtml(like.status)}">${escHtml(statusLabel)}</span>
         <div class="x-like-info">
           <div class="x-like-author">@${escHtml(like.tweet_author || '—')}</div>
           <div class="x-like-url"><a href="${escHtml(like.tweet_url)}" target="_blank" rel="noopener">${escHtml(like.tweet_url)}</a></div>
@@ -654,24 +662,32 @@ function renderXMonitorStatus(data) {
     `;
   }).join('');
 
+  const seedInfo = data.seeded
+    ? `✅ Semilla hecha — ${escHtml(String(data.total_skipped))} likes anteriores omitidos`
+    : `⏳ Semilla pendiente — se ejecutará en el primer chequeo`;
+
   el.innerHTML = `
-    <div class="x-status-badge active">🟢 Activo — revisando cada ${escHtml(String(data.check_interval_minutes))} min</div>
+    ${badgeHtml}
+
+    <div style="font-size:12px;color:var(--text-muted);margin-bottom:14px;padding:8px 12px;background:var(--surface-2);border-radius:6px;border:1px solid var(--border)">
+      ${seedInfo}
+    </div>
 
     <div class="x-monitor-grid">
       <div class="x-stat">
-        <div class="x-stat-label">Posts auto-calendarizados pendientes</div>
+        <div class="x-stat-label">Posts auto-calendarizados</div>
         <div class="x-stat-value">${escHtml(String(data.pending_auto_posts))}</div>
       </div>
       <div class="x-stat">
-        <div class="x-stat-label">Total tweets procesados</div>
+        <div class="x-stat-label">Likes nuevos procesados</div>
         <div class="x-stat-value">${escHtml(String(data.total_processed))}</div>
       </div>
       <div class="x-stat">
-        <div class="x-stat-label">Último tweet procesado</div>
+        <div class="x-stat-label">Último procesado</div>
         <div class="x-stat-value" style="font-size:12px">${escHtml(lastDate)}</div>
       </div>
       <div class="x-stat">
-        <div class="x-stat-label">User ID configurado</div>
+        <div class="x-stat-label">User ID</div>
         <div class="x-stat-value" style="font-size:12px">${escHtml(data.user_id)}</div>
       </div>
     </div>
@@ -683,12 +699,12 @@ function renderXMonitorStatus(data) {
 
     ${recentHtml
       ? `<div class="x-likes-list">${recentHtml}</div>`
-      : '<div class="empty-state">Aún no se han procesado likes.</div>'
+      : `<div class="empty-state">${data.seeded ? 'Aún no hay likes nuevos desde el inicio.' : 'Esperando primera ejecución…'}</div>`
     }
 
     <p style="color:var(--text-faint);font-size:11px;margin-top:12px">
-      ℹ Los posts de la automatización se calendarizarán a las <strong>5:00 AM hora Monterrey</strong>,
-      máximo 1 auto-post por día. Las publicaciones manuales no afectan este límite.
+      ℹ Posts calendarizados a las <strong>5:00 AM hora Monterrey</strong>, máximo 1 auto-post por día.
+      Las publicaciones manuales no cuentan para ese límite.
     </p>
   `;
 }

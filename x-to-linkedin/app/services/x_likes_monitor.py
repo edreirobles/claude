@@ -15,7 +15,7 @@ from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 import httpx
-from sqlalchemy import select
+from sqlalchemy import select, func
 
 from ..database import AsyncSessionLocal
 from ..models import XLikedTweet, ScheduledPost
@@ -201,10 +201,45 @@ async def process_liked_tweet(tweet_id: str, tweet_url: str, tweet_username: str
             await db.commit()
 
 
+async def _seed_existing_likes(tweets: list[dict]) -> int:
+    """
+    Primera ejecución: marca todos los likes actuales como 'skipped' sin procesarlos.
+    Retorna cuántos se registraron.
+    """
+    count = 0
+    async with AsyncSessionLocal() as db:
+        for tweet in tweets:
+            tweet_id = tweet["id"]
+            username = tweet.get("username", "")
+            tweet_url = f"https://x.com/{username}/status/{tweet_id}" if username else ""
+
+            existing = await db.execute(
+                select(XLikedTweet).where(XLikedTweet.tweet_id == tweet_id)
+            )
+            if existing.scalar_one_or_none():
+                continue
+
+            liked = XLikedTweet(
+                tweet_id=tweet_id,
+                tweet_url=tweet_url,
+                tweet_author=tweet.get("username", ""),
+                status="skipped",
+                processed_at=datetime.utcnow(),
+            )
+            db.add(liked)
+            count += 1
+
+        await db.commit()
+    return count
+
+
 async def check_and_process_likes() -> None:
     """
     Función principal del monitor. Llamada periódicamente por el scheduler.
-    Obtiene los últimos 'me gusta' de X y procesa los que sean nuevos.
+
+    - Primera ejecución (tabla XLikedTweet vacía): semilla — marca todos los
+      likes actuales como 'skipped' para no procesarlos retroactivamente.
+    - Ejecuciones posteriores: procesa solo los likes genuinamente nuevos.
     """
     settings = get_settings()
 
@@ -217,23 +252,37 @@ async def check_and_process_likes() -> None:
     try:
         tweets = await fetch_liked_tweets(settings.x_bearer_token, settings.x_user_id)
     except httpx.HTTPStatusError as e:
-        logger.error(f"[X Monitor] Error HTTP al consultar la API de X: {e.response.status_code} - {e.response.text}")
+        logger.error(
+            f"[X Monitor] Error HTTP al consultar la API de X: "
+            f"{e.response.status_code} - {e.response.text}"
+        )
         return
     except Exception as e:
         logger.error(f"[X Monitor] Error al consultar la API de X: {e}")
         return
 
-    new_count = 0
+    # ── Semilla en primera ejecución ─────────────────────────────────────────
+    async with AsyncSessionLocal() as db:
+        count_result = await db.execute(select(func.count(XLikedTweet.id)))
+        is_first_run = count_result.scalar_one() == 0
+
+    if is_first_run:
+        seeded = await _seed_existing_likes(tweets)
+        logger.info(
+            f"[X Monitor] Primera ejecución — semilla completada: "
+            f"{seeded} likes existentes marcados como 'skipped'. "
+            f"Solo se procesarán los nuevos likes a partir de ahora."
+        )
+        return
+
+    # ── Procesamiento normal ─────────────────────────────────────────────────
     for tweet in tweets:
         tweet_id = tweet["id"]
         username = tweet.get("username", "")
-
         if not username:
             logger.warning(f"[X Monitor] Tweet {tweet_id} sin username, saltando")
             continue
-
         tweet_url = f"https://x.com/{username}/status/{tweet_id}"
         await process_liked_tweet(tweet_id, tweet_url, username)
-        new_count += 1
 
     logger.info(f"[X Monitor] Chequeo completo. Revisados: {len(tweets)} tweets.")
