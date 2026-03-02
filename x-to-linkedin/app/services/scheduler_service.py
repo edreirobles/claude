@@ -103,6 +103,10 @@ async def execute_scheduled_post(post_id: int):
 
             if media_type == "video":
                 video_bytes = await download_tweet_video(post.tweet_url)
+                if not video_bytes:
+                    # Fallback: usar imagen del poster del tweet si yt-dlp falla
+                    logger.warning(f"Post {post_id}: descarga de video fallida, usando imagen de poster")
+                    media_type = "image"
             elif media_type == "document":
                 pdf_url = getattr(post, "pdf_url", None)
                 if pdf_url:

@@ -307,7 +307,11 @@ async function publishNow() {
     return;
   }
 
-  const imageUrls = getSelectedImages();
+  // Para imagen: usar la imagen seleccionada en el UI.
+  // Para video: pasar también el thumbnail del tweet como fallback por si yt-dlp falla.
+  const imageUrls = state.mediaType === 'image'
+    ? getSelectedImages()
+    : state.suggestedImages.slice(0, 1);
 
   showLoading('Publicando en LinkedIn...');
   hidePublishResult();
@@ -375,7 +379,9 @@ async function schedulePost() {
     return;
   }
 
-  const imageUrls = getSelectedImages();
+  const imageUrls = state.mediaType === 'image'
+    ? getSelectedImages()
+    : state.suggestedImages.slice(0, 1);
 
   showLoading('Programando publicación...');
   hidePublishResult();
