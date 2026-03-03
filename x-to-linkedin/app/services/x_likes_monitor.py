@@ -146,10 +146,13 @@ async def scrape_liked_tweets(username: str, auth_token: str, ct0: str) -> list[
 
 # ── Scheduler helpers ──────────────────────────────────────────────────────────
 
+DAILY_SLOTS = [5, 16]  # Horas en Monterrey: 5 AM y 4 PM
+
+
 async def get_next_auto_slot(db) -> datetime:
     """
-    Retorna el próximo datetime UTC disponible para un auto-post a las 5 AM Monterrey.
-    Garantiza máximo 1 auto-post (x_auto) por día.
+    Retorna el próximo datetime UTC disponible para un auto-post.
+    Slots por día (hora Monterrey): 5 AM y 4 PM — máximo 2 auto-posts por día.
     """
     result = await db.execute(
         select(ScheduledPost).where(
@@ -159,25 +162,27 @@ async def get_next_auto_slot(db) -> datetime:
     )
     scheduled = result.scalars().all()
 
-    taken_dates: set = set()
+    # Slots ya ocupados: set de (date, hour)
+    taken_slots: set[tuple] = set()
     for post in scheduled:
         if post.scheduled_at:
             mty_dt = post.scheduled_at.replace(tzinfo=timezone.utc).astimezone(MONTERREY_TZ)
-            taken_dates.add(mty_dt.date())
+            taken_slots.add((mty_dt.date(), mty_dt.hour))
 
     now_mty = datetime.now(MONTERREY_TZ)
     candidate_date = now_mty.date()
 
     while True:
-        candidate_mty = datetime(
-            candidate_date.year,
-            candidate_date.month,
-            candidate_date.day,
-            5, 0, 0,
-            tzinfo=MONTERREY_TZ,
-        )
-        if candidate_mty > now_mty and candidate_date not in taken_dates:
-            return candidate_mty.astimezone(timezone.utc).replace(tzinfo=None)
+        for hour in DAILY_SLOTS:
+            candidate_mty = datetime(
+                candidate_date.year,
+                candidate_date.month,
+                candidate_date.day,
+                hour, 0, 0,
+                tzinfo=MONTERREY_TZ,
+            )
+            if candidate_mty > now_mty and (candidate_date, hour) not in taken_slots:
+                return candidate_mty.astimezone(timezone.utc).replace(tzinfo=None)
 
         candidate_date += timedelta(days=1)
 
