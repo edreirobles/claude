@@ -9,8 +9,18 @@ Regla de calendarización automática:
 - Máximo 1 publicación automática (x_auto) por día.
 - Si ya hay una programada para hoy, se mueve al siguiente día disponible.
 - Las publicaciones manuales desde la app NO cuentan para este límite.
+
+Autenticación:
+- Usa OAuth 1.0a (User Context) con las 4 credenciales de la Developer App.
+- Los likes son privados para todos desde 2024; Bearer Token ya no funciona.
 """
+import base64
+import hashlib
+import hmac
 import logging
+import secrets
+import time
+import urllib.parse
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
@@ -26,19 +36,103 @@ logger = logging.getLogger(__name__)
 MONTERREY_TZ = ZoneInfo("America/Monterrey")
 
 
-async def fetch_liked_tweets(bearer_token: str, user_id: str) -> list[dict]:
-    """Consulta la API de X v2 para obtener los tweets recientes con 'me gusta'."""
+# ── OAuth 1.0a helpers ─────────────────────────────────────────────────────────
+
+def _oauth1_header(
+    method: str,
+    url: str,
+    query_params: dict,
+    api_key: str,
+    api_key_secret: str,
+    access_token: str,
+    access_token_secret: str,
+) -> str:
+    """
+    Genera el header Authorization: OAuth 1.0a (HMAC-SHA1) para la URL y
+    parámetros de query dados.
+    """
+    oauth_params = {
+        "oauth_consumer_key": api_key,
+        "oauth_nonce": secrets.token_hex(16),
+        "oauth_signature_method": "HMAC-SHA1",
+        "oauth_timestamp": str(int(time.time())),
+        "oauth_token": access_token,
+        "oauth_version": "1.0",
+    }
+
+    # Todos los parámetros juntos para la firma
+    all_params = {**query_params, **oauth_params}
+    encoded_params = "&".join(
+        f"{urllib.parse.quote(k, safe='')}"
+        f"="
+        f"{urllib.parse.quote(str(v), safe='')}"
+        for k, v in sorted(all_params.items())
+    )
+
+    # Base string
+    base_string = "&".join([
+        method.upper(),
+        urllib.parse.quote(url, safe=""),
+        urllib.parse.quote(encoded_params, safe=""),
+    ])
+
+    # Signing key
+    signing_key = (
+        urllib.parse.quote(api_key_secret, safe="")
+        + "&"
+        + urllib.parse.quote(access_token_secret, safe="")
+    )
+
+    # HMAC-SHA1 signature
+    signature = base64.b64encode(
+        hmac.new(
+            signing_key.encode("ascii"),
+            base_string.encode("ascii"),
+            hashlib.sha1,
+        ).digest()
+    ).decode("ascii")
+
+    oauth_params["oauth_signature"] = signature
+
+    header_value = "OAuth " + ", ".join(
+        f'{urllib.parse.quote(k, safe="")}="{urllib.parse.quote(v, safe="")}"'
+        for k, v in sorted(oauth_params.items())
+    )
+    return header_value
+
+
+async def fetch_liked_tweets(
+    api_key: str,
+    api_key_secret: str,
+    access_token: str,
+    access_token_secret: str,
+    user_id: str,
+) -> list[dict]:
+    """Consulta la API de X v2 con OAuth 1.0a para obtener los likes del usuario."""
     url = f"https://api.twitter.com/2/users/{user_id}/liked_tweets"
     params = {
-        "max_results": 10,
+        "max_results": "10",
         "expansions": "author_id",
         "user.fields": "username,name",
         "tweet.fields": "created_at,author_id",
     }
-    headers = {"Authorization": f"Bearer {bearer_token}"}
+
+    auth_header = _oauth1_header(
+        method="GET",
+        url=url,
+        query_params=params,
+        api_key=api_key,
+        api_key_secret=api_key_secret,
+        access_token=access_token,
+        access_token_secret=access_token_secret,
+    )
 
     async with httpx.AsyncClient(timeout=15) as client:
-        r = await client.get(url, params=params, headers=headers)
+        r = await client.get(
+            url,
+            params=params,
+            headers={"Authorization": auth_header},
+        )
         r.raise_for_status()
         data = r.json()
 
@@ -243,14 +337,31 @@ async def check_and_process_likes() -> None:
     """
     settings = get_settings()
 
-    if not settings.x_bearer_token or not settings.x_user_id:
-        logger.debug("[X Monitor] Sin credenciales de X configuradas, saltando chequeo")
+    oauth_ready = all([
+        settings.x_api_key,
+        settings.x_api_key_secret,
+        settings.x_access_token,
+        settings.x_access_token_secret,
+        settings.x_user_id,
+    ])
+    if not oauth_ready:
+        logger.debug(
+            "[X Monitor] Faltan credenciales OAuth 1.0a de X "
+            "(X_API_KEY, X_API_KEY_SECRET, X_ACCESS_TOKEN, X_ACCESS_TOKEN_SECRET, X_USER_ID). "
+            "Saltando chequeo."
+        )
         return
 
-    logger.info("[X Monitor] Chequeando tweets con 'me gusta'...")
+    logger.info("[X Monitor] Chequeando tweets con 'me gusta' (OAuth 1.0a)...")
 
     try:
-        tweets = await fetch_liked_tweets(settings.x_bearer_token, settings.x_user_id)
+        tweets = await fetch_liked_tweets(
+            api_key=settings.x_api_key,
+            api_key_secret=settings.x_api_key_secret,
+            access_token=settings.x_access_token,
+            access_token_secret=settings.x_access_token_secret,
+            user_id=settings.x_user_id,
+        )
     except httpx.HTTPStatusError as e:
         logger.error(
             f"[X Monitor] Error HTTP al consultar la API de X: "

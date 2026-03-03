@@ -31,7 +31,13 @@ def _parse_start_date_utc(start_date_str: str):
 async def x_monitor_status(db: AsyncSession = Depends(get_db)):
     """Retorna el estado actual del monitoreo de likes en X."""
     settings = get_settings()
-    configured = bool(settings.x_bearer_token and settings.x_user_id)
+    configured = bool(
+        settings.x_api_key
+        and settings.x_api_key_secret
+        and settings.x_access_token
+        and settings.x_access_token_secret
+        and settings.x_user_id
+    )
 
     # Calcular si el monitor ya está activo (pasó la start_date)
     start_utc = _parse_start_date_utc(settings.x_monitor_start_date)
