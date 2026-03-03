@@ -30,8 +30,19 @@ def _start_x_monitor_job():
     """Registra el job periódico de monitoreo de likes en X si hay credenciales."""
     from ..config import get_settings
     settings = get_settings()
-    if not settings.x_bearer_token or not settings.x_user_id:
-        logger.info("X Monitor: credenciales no configuradas, job no registrado")
+    oauth_ready = all([
+        settings.x_api_key,
+        settings.x_api_key_secret,
+        settings.x_access_token,
+        settings.x_access_token_secret,
+        settings.x_user_id,
+    ])
+    if not oauth_ready:
+        logger.info(
+            "X Monitor: credenciales OAuth 1.0a no configuradas "
+            "(X_API_KEY / X_API_KEY_SECRET / X_ACCESS_TOKEN / X_ACCESS_TOKEN_SECRET / X_USER_ID), "
+            "job no registrado"
+        )
         return
 
     from .x_likes_monitor import check_and_process_likes
