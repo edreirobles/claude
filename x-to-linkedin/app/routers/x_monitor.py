@@ -32,11 +32,7 @@ async def x_monitor_status(db: AsyncSession = Depends(get_db)):
     """Retorna el estado actual del monitoreo de likes en X."""
     settings = get_settings()
     configured = bool(
-        settings.x_api_key
-        and settings.x_api_key_secret
-        and settings.x_access_token
-        and settings.x_access_token_secret
-        and settings.x_user_id
+        settings.x_username and settings.x_auth_token and settings.x_ct0
     )
 
     # Calcular si el monitor ya está activo (pasó la start_date)
@@ -89,7 +85,7 @@ async def x_monitor_status(db: AsyncSession = Depends(get_db)):
 
     return {
         "configured": configured,
-        "user_id": settings.x_user_id if configured else "",
+        "username": settings.x_username if configured else "",
         "check_interval_minutes": settings.x_check_interval_minutes,
         "start_date": settings.x_monitor_start_date,
         "start_date_utc": start_utc.isoformat() if start_utc else None,

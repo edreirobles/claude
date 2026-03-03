@@ -1,30 +1,25 @@
 """
 Monitor de tweets con "me gusta" en X.
 
-Cada N minutos consulta la API de X para obtener los tweets que el usuario
-marcó como "me gusta". Por cada tweet nuevo, genera un post de LinkedIn y
-lo calendariza automáticamente a las 5 AM hora de Monterrey.
+Cada N minutos scrapea la página de likes del usuario con Playwright
+(gratis, sin API de pago). Por cada tweet nuevo, genera un post de
+LinkedIn y lo calendariza automáticamente a las 5 AM hora de Monterrey.
 
 Regla de calendarización automática:
 - Máximo 1 publicación automática (x_auto) por día.
 - Si ya hay una programada para hoy, se mueve al siguiente día disponible.
 - Las publicaciones manuales desde la app NO cuentan para este límite.
 
-Autenticación:
-- Usa OAuth 1.0a (User Context) con las 4 credenciales de la Developer App.
-- Los likes son privados para todos desde 2024; Bearer Token ya no funciona.
+Configuración necesaria en .env:
+    X_USERNAME     → tu @ handle sin el @ (ej: johndoe)
+    X_AUTH_TOKEN   → cookie "auth_token" de x.com (DevTools → Application → Cookies)
+    X_CT0          → cookie "ct0" de x.com
 """
-import base64
-import hashlib
-import hmac
+import re
 import logging
-import secrets
-import time
-import urllib.parse
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
-import httpx
 from sqlalchemy import select, func
 
 from ..database import AsyncSessionLocal
@@ -36,131 +31,126 @@ logger = logging.getLogger(__name__)
 MONTERREY_TZ = ZoneInfo("America/Monterrey")
 
 
-# ── OAuth 1.0a helpers ─────────────────────────────────────────────────────────
+# ── Playwright scraper ─────────────────────────────────────────────────────────
 
-def _oauth1_header(
-    method: str,
-    url: str,
-    query_params: dict,
-    api_key: str,
-    api_key_secret: str,
-    access_token: str,
-    access_token_secret: str,
-) -> str:
+async def scrape_liked_tweets(username: str, auth_token: str, ct0: str) -> list[dict]:
     """
-    Genera el header Authorization: OAuth 1.0a (HMAC-SHA1) para la URL y
-    parámetros de query dados.
+    Navega a x.com/{username}/likes con las cookies de sesión y extrae
+    los últimos tweets con 'me gusta'. Retorna lista de dicts con
+    {id, username, name}.
     """
-    oauth_params = {
-        "oauth_consumer_key": api_key,
-        "oauth_nonce": secrets.token_hex(16),
-        "oauth_signature_method": "HMAC-SHA1",
-        "oauth_timestamp": str(int(time.time())),
-        "oauth_token": access_token,
-        "oauth_version": "1.0",
-    }
+    try:
+        from playwright.async_api import async_playwright, TimeoutError as PWTimeout
+    except ImportError:
+        logger.error("[X Monitor] playwright no está instalado")
+        return []
 
-    # Todos los parámetros juntos para la firma
-    all_params = {**query_params, **oauth_params}
-    encoded_params = "&".join(
-        f"{urllib.parse.quote(k, safe='')}"
-        f"="
-        f"{urllib.parse.quote(str(v), safe='')}"
-        for k, v in sorted(all_params.items())
-    )
+    try:
+        async with async_playwright() as p:
+            browser = await p.chromium.launch(headless=True)
+            context = await browser.new_context(
+                user_agent=(
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/122.0.0.0 Safari/537.36"
+                ),
+                viewport={"width": 1280, "height": 900},
+            )
 
-    # Base string
-    base_string = "&".join([
-        method.upper(),
-        urllib.parse.quote(url, safe=""),
-        urllib.parse.quote(encoded_params, safe=""),
-    ])
+            await context.add_cookies([
+                {
+                    "name": "auth_token",
+                    "value": auth_token,
+                    "domain": ".x.com",
+                    "path": "/",
+                    "secure": True,
+                    "httpOnly": True,
+                },
+                {
+                    "name": "ct0",
+                    "value": ct0,
+                    "domain": ".x.com",
+                    "path": "/",
+                    "secure": True,
+                },
+            ])
 
-    # Signing key
-    signing_key = (
-        urllib.parse.quote(api_key_secret, safe="")
-        + "&"
-        + urllib.parse.quote(access_token_secret, safe="")
-    )
+            page = await context.new_page()
+            await page.goto(
+                f"https://x.com/{username}/likes",
+                wait_until="domcontentloaded",
+                timeout=30000,
+            )
 
-    # HMAC-SHA1 signature
-    signature = base64.b64encode(
-        hmac.new(
-            signing_key.encode("ascii"),
-            base_string.encode("ascii"),
-            hashlib.sha1,
-        ).digest()
-    ).decode("ascii")
+            # Esperar que carguen los tweets
+            try:
+                await page.wait_for_selector('[data-testid="tweet"]', timeout=15000)
+            except PWTimeout:
+                # Detectar si fuimos redirigidos al login (cookie expirada)
+                current_url = page.url
+                if "login" in current_url or "i/flow" in current_url:
+                    logger.warning(
+                        "[X Monitor] Redirigido al login — las cookies X_AUTH_TOKEN / X_CT0 "
+                        "expiraron o son incorrectas. Actualízalas en el .env."
+                    )
+                else:
+                    logger.warning(
+                        "[X Monitor] Timeout esperando tweets en la página de likes. "
+                        f"URL actual: {current_url}"
+                    )
+                await browser.close()
+                return []
 
-    oauth_params["oauth_signature"] = signature
+            # Extraer tweet IDs desde los links /status/
+            tweets: list[dict] = []
+            seen_ids: set[str] = set()
 
-    header_value = "OAuth " + ", ".join(
-        f'{urllib.parse.quote(k, safe="")}="{urllib.parse.quote(v, safe="")}"'
-        for k, v in sorted(oauth_params.items())
-    )
-    return header_value
+            link_els = await page.query_selector_all('a[href*="/status/"]')
+            for link_el in link_els:
+                href = await link_el.get_attribute("href")
+                if not href:
+                    continue
+
+                # El href es relativo: /{author_handle}/status/{tweet_id}
+                match = re.match(r"^/([^/]+)/status/(\d+)$", href)
+                if not match:
+                    continue
+
+                author_handle = match.group(1)
+                tweet_id = match.group(2)
+
+                # Saltar handles del sistema
+                if author_handle in ("i", "search", "home", "explore"):
+                    continue
+                if tweet_id in seen_ids:
+                    continue
+
+                seen_ids.add(tweet_id)
+                tweets.append({
+                    "id": tweet_id,
+                    "username": author_handle,
+                    "name": author_handle,
+                })
+
+                if len(tweets) >= 10:
+                    break
+
+            await browser.close()
+            logger.info(f"[X Monitor] Playwright: {len(tweets)} likes encontrados en la página")
+            return tweets
+
+    except Exception as e:
+        logger.error(f"[X Monitor] Error en scraping de likes con Playwright: {e}")
+        return []
 
 
-async def fetch_liked_tweets(
-    api_key: str,
-    api_key_secret: str,
-    access_token: str,
-    access_token_secret: str,
-    user_id: str,
-) -> list[dict]:
-    """Consulta la API de X v2 con OAuth 1.0a para obtener los likes del usuario."""
-    url = f"https://api.twitter.com/2/users/{user_id}/liked_tweets"
-    params = {
-        "max_results": "10",
-        "expansions": "author_id",
-        "user.fields": "username,name",
-        "tweet.fields": "created_at,author_id",
-    }
-
-    auth_header = _oauth1_header(
-        method="GET",
-        url=url,
-        query_params=params,
-        api_key=api_key,
-        api_key_secret=api_key_secret,
-        access_token=access_token,
-        access_token_secret=access_token_secret,
-    )
-
-    async with httpx.AsyncClient(timeout=15) as client:
-        r = await client.get(
-            url,
-            params=params,
-            headers={"Authorization": auth_header},
-        )
-        r.raise_for_status()
-        data = r.json()
-
-    # Construir mapa de usuarios para obtener usernames
-    user_map: dict[str, dict] = {}
-    for user in data.get("includes", {}).get("users", []):
-        user_map[user["id"]] = user
-
-    tweets = []
-    for tweet in data.get("data", []):
-        author = user_map.get(tweet.get("author_id", ""), {})
-        tweets.append({
-            "id": tweet["id"],
-            "text": tweet.get("text", ""),
-            "author_id": tweet.get("author_id", ""),
-            "username": author.get("username", ""),
-            "name": author.get("name", ""),
-        })
-
-    return tweets
-
+# ── Scheduler helpers ──────────────────────────────────────────────────────────
 
 async def get_next_auto_slot(db) -> datetime:
     """
     Retorna el próximo datetime UTC disponible para un auto-post a las 5 AM Monterrey.
     Garantiza máximo 1 auto-post (x_auto) por día.
     """
-    # Obtener todos los auto-posts futuros programados
     result = await db.execute(
         select(ScheduledPost).where(
             ScheduledPost.source == "x_auto",
@@ -169,14 +159,12 @@ async def get_next_auto_slot(db) -> datetime:
     )
     scheduled = result.scalars().all()
 
-    # Fechas (en TZ Monterrey) ya ocupadas por auto-posts
     taken_dates: set = set()
     for post in scheduled:
         if post.scheduled_at:
             mty_dt = post.scheduled_at.replace(tzinfo=timezone.utc).astimezone(MONTERREY_TZ)
             taken_dates.add(mty_dt.date())
 
-    # Buscar el primer día disponible comenzando desde hoy
     now_mty = datetime.now(MONTERREY_TZ)
     candidate_date = now_mty.date()
 
@@ -188,12 +176,13 @@ async def get_next_auto_slot(db) -> datetime:
             5, 0, 0,
             tzinfo=MONTERREY_TZ,
         )
-        # Debe ser en el futuro y la fecha no debe estar ocupada
         if candidate_mty > now_mty and candidate_date not in taken_dates:
             return candidate_mty.astimezone(timezone.utc).replace(tzinfo=None)
 
         candidate_date += timedelta(days=1)
 
+
+# ── Tweet processing ───────────────────────────────────────────────────────────
 
 async def process_liked_tweet(tweet_id: str, tweet_url: str, tweet_username: str) -> None:
     """
@@ -208,14 +197,12 @@ async def process_liked_tweet(tweet_id: str, tweet_url: str, tweet_username: str
     from .scheduler_service import schedule_post
 
     async with AsyncSessionLocal() as db:
-        # Verificar si ya fue procesado
         existing_result = await db.execute(
             select(XLikedTweet).where(XLikedTweet.tweet_id == tweet_id)
         )
         if existing_result.scalar_one_or_none():
-            return  # Ya procesado, saltar
+            return
 
-        # Crear registro de seguimiento
         liked = XLikedTweet(
             tweet_id=tweet_id,
             tweet_url=tweet_url,
@@ -229,20 +216,16 @@ async def process_liked_tweet(tweet_id: str, tweet_url: str, tweet_username: str
         try:
             settings = get_settings()
 
-            # Scraping del tweet
             tweet_data = await scrape_tweet(tweet_url)
             liked.tweet_author = tweet_data.author_name or tweet_username
 
-            # Generar post de LinkedIn
             linkedin_text = await generate_linkedin_post(
                 tweet=tweet_data,
                 language=settings.post_language,
             )
 
-            # Calcular próxima ranura disponible a 5 AM Monterrey
             run_at_utc = await get_next_auto_slot(db)
 
-            # Determinar tipo de media
             if tweet_data.has_video:
                 media_type = "video"
             elif tweet_data.pdf_url:
@@ -252,7 +235,6 @@ async def process_liked_tweet(tweet_id: str, tweet_url: str, tweet_username: str
             else:
                 media_type = "generate"
 
-            # Crear post programado
             post = ScheduledPost(
                 tweet_url=tweet_url,
                 tweet_text=tweet_data.text,
@@ -274,10 +256,8 @@ async def process_liked_tweet(tweet_id: str, tweet_url: str, tweet_username: str
             await db.commit()
             await db.refresh(post)
 
-            # Registrar en el scheduler
             schedule_post(post.id, run_at_utc)
 
-            # Actualizar registro de liked tweet
             liked.post_id = post.id
             liked.status = "processed"
             liked.processed_at = datetime.utcnow()
@@ -316,7 +296,7 @@ async def _seed_existing_likes(tweets: list[dict]) -> int:
             liked = XLikedTweet(
                 tweet_id=tweet_id,
                 tweet_url=tweet_url,
-                tweet_author=tweet.get("username", ""),
+                tweet_author=username,
                 status="skipped",
                 processed_at=datetime.utcnow(),
             )
@@ -326,6 +306,8 @@ async def _seed_existing_likes(tweets: list[dict]) -> int:
         await db.commit()
     return count
 
+
+# ── Main entry point ───────────────────────────────────────────────────────────
 
 async def check_and_process_likes() -> None:
     """
@@ -337,39 +319,27 @@ async def check_and_process_likes() -> None:
     """
     settings = get_settings()
 
-    oauth_ready = all([
-        settings.x_api_key,
-        settings.x_api_key_secret,
-        settings.x_access_token,
-        settings.x_access_token_secret,
-        settings.x_user_id,
-    ])
-    if not oauth_ready:
+    if not settings.x_username or not settings.x_auth_token or not settings.x_ct0:
         logger.debug(
-            "[X Monitor] Faltan credenciales OAuth 1.0a de X "
-            "(X_API_KEY, X_API_KEY_SECRET, X_ACCESS_TOKEN, X_ACCESS_TOKEN_SECRET, X_USER_ID). "
-            "Saltando chequeo."
+            "[X Monitor] Faltan credenciales de sesión de X "
+            "(X_USERNAME, X_AUTH_TOKEN, X_CT0). Saltando chequeo."
         )
         return
 
-    logger.info("[X Monitor] Chequeando tweets con 'me gusta' (OAuth 1.0a)...")
+    logger.info(
+        f"[X Monitor] Chequeando likes de @{settings.x_username} con Playwright..."
+    )
 
-    try:
-        tweets = await fetch_liked_tweets(
-            api_key=settings.x_api_key,
-            api_key_secret=settings.x_api_key_secret,
-            access_token=settings.x_access_token,
-            access_token_secret=settings.x_access_token_secret,
-            user_id=settings.x_user_id,
+    tweets = await scrape_liked_tweets(
+        username=settings.x_username,
+        auth_token=settings.x_auth_token,
+        ct0=settings.x_ct0,
+    )
+
+    if not tweets:
+        logger.warning(
+            "[X Monitor] No se obtuvieron likes — revisa X_AUTH_TOKEN y X_CT0 en el .env."
         )
-    except httpx.HTTPStatusError as e:
-        logger.error(
-            f"[X Monitor] Error HTTP al consultar la API de X: "
-            f"{e.response.status_code} - {e.response.text}"
-        )
-        return
-    except Exception as e:
-        logger.error(f"[X Monitor] Error al consultar la API de X: {e}")
         return
 
     # ── Semilla en primera ejecución ─────────────────────────────────────────
@@ -380,9 +350,9 @@ async def check_and_process_likes() -> None:
     if is_first_run:
         seeded = await _seed_existing_likes(tweets)
         logger.info(
-            f"[X Monitor] Primera ejecución — semilla completada: "
+            f"[X Monitor] Primera ejecución — semilla: "
             f"{seeded} likes existentes marcados como 'skipped'. "
-            f"Solo se procesarán los nuevos likes a partir de ahora."
+            f"Solo se procesarán los nuevos a partir de ahora."
         )
         return
 
@@ -391,7 +361,6 @@ async def check_and_process_likes() -> None:
         tweet_id = tweet["id"]
         username = tweet.get("username", "")
         if not username:
-            logger.warning(f"[X Monitor] Tweet {tweet_id} sin username, saltando")
             continue
         tweet_url = f"https://x.com/{username}/status/{tweet_id}"
         await process_liked_tweet(tweet_id, tweet_url, username)
