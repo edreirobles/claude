@@ -1,0 +1,11 @@
+services:
+  saas:
+    build: .
+    ports:
+      - "8001:8001"
+    volumes:
+      - ./saas.db:/app/saas.db
+      - ./.env:/app/.env
+    environment:
+      - ENVIRONMENT=development
+    restart: unless-stopped

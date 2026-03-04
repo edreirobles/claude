@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>X → LinkedIn Automator</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: system-ui, sans-serif; background: #fff; color: #111; }
+
+    nav { display: flex; justify-content: space-between; align-items: center; padding: 1rem 2rem; border-bottom: 1px solid #eee; }
+    nav .logo { font-weight: 700; font-size: 1.2rem; color: #0a66c2; }
+    nav a { color: #111; text-decoration: none; margin-left: 1.5rem; font-size: .95rem; }
+    nav .cta { background: #0a66c2; color: white !important; padding: .5rem 1.2rem; border-radius: 6px; }
+
+    .hero { text-align: center; padding: 5rem 1rem 3rem; }
+    .hero h1 { font-size: 3rem; font-weight: 800; line-height: 1.15; max-width: 700px; margin: 0 auto 1rem; }
+    .hero h1 span { color: #0a66c2; }
+    .hero p { font-size: 1.2rem; color: #555; max-width: 550px; margin: 0 auto 2rem; }
+    .hero .buttons a { display: inline-block; margin: .3rem; padding: .8rem 1.8rem; border-radius: 8px; font-size: 1rem; text-decoration: none; font-weight: 600; }
+    .hero .buttons .primary { background: #0a66c2; color: white; }
+    .hero .buttons .secondary { border: 2px solid #0a66c2; color: #0a66c2; }
+
+    .how { padding: 4rem 1rem; max-width: 900px; margin: 0 auto; }
+    .how h2 { text-align: center; font-size: 2rem; margin-bottom: 2.5rem; }
+    .steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 2rem; }
+    .step { text-align: center; }
+    .step .icon { font-size: 2.5rem; margin-bottom: .8rem; }
+    .step h3 { margin-bottom: .4rem; }
+    .step p { color: #666; font-size: .95rem; }
+
+    .pricing { background: #f9fafb; padding: 4rem 1rem; }
+    .pricing h2 { text-align: center; font-size: 2rem; margin-bottom: 2.5rem; }
+    .plans { display: flex; gap: 1.5rem; justify-content: center; flex-wrap: wrap; }
+    .plan { background: white; border-radius: 12px; padding: 2rem; width: 280px; box-shadow: 0 1px 3px rgba(0,0,0,.1); }
+    .plan h3 { margin-bottom: .5rem; }
+    .plan .price { font-size: 2rem; font-weight: 800; color: #0a66c2; margin-bottom: 1rem; }
+    .plan ul { list-style: none; margin-bottom: 1.5rem; }
+    .plan ul li { padding: .3rem 0; color: #444; font-size: .95rem; }
+    .plan ul li::before { content: "✓ "; color: #059669; }
+    .plan a { display: block; text-align: center; background: #0a66c2; color: white; padding: .7rem; border-radius: 8px; text-decoration: none; font-weight: 600; }
+
+    footer { text-align: center; padding: 2rem; color: #888; font-size: .85rem; }
+  </style>
+</head>
+<body>
+
+<nav>
+  <div class="logo">X → LinkedIn</div>
+  <div>
+    <a href="/app/">Entrar</a>
+    <a href="/app/" class="cta">Empezar gratis</a>
+  </div>
+</nav>
+
+<section class="hero">
+  <h1>Convierte tus tweets en <span>posts de LinkedIn</span> automáticamente</h1>
+  <p>Monitorea tu cuenta de X, genera contenido adaptado y publica en LinkedIn mientras duermes.</p>
+  <div class="buttons">
+    <a href="/app/" class="primary">Empezar gratis</a>
+    <a href="#como-funciona" class="secondary">Ver cómo funciona</a>
+  </div>
+</section>
+
+<section class="how" id="como-funciona">
+  <h2>Cómo funciona</h2>
+  <div class="steps">
+    <div class="step">
+      <div class="icon">🔗</div>
+      <h3>1. Conecta tus cuentas</h3>
+      <p>Dinos qué cuenta de X quieres monitorear y conecta tu LinkedIn.</p>
+    </div>
+    <div class="step">
+      <div class="icon">🤖</div>
+      <h3>2. IA adapta el contenido</h3>
+      <p>Claude AI transforma cada tweet en un post optimizado para LinkedIn.</p>
+    </div>
+    <div class="step">
+      <div class="icon">🚀</div>
+      <h3>3. Publica automáticamente</h3>
+      <p>Los posts se publican en LinkedIn sin que muevas un dedo.</p>
+    </div>
+  </div>
+</section>
+
+<section class="pricing" id="precios">
+  <h2>Precios simples</h2>
+  <div class="plans">
+    <div class="plan">
+      <h3>Gratis</h3>
+      <div class="price">$0<span style="font-size:1rem;font-weight:400">/mes</span></div>
+      <ul>
+        <li>3 posts al mes</li>
+        <li>1 cuenta de X</li>
+        <li>Generación con IA</li>
+        <li>Dashboard básico</li>
+      </ul>
+      <a href="/app/">Empezar gratis</a>
+    </div>
+    <div class="plan" style="border: 2px solid #0a66c2;">
+      <h3>Pro</h3>
+      <div class="price">$19<span style="font-size:1rem;font-weight:400">/mes</span></div>
+      <ul>
+        <li>Posts ilimitados</li>
+        <li>1 cuenta de X</li>
+        <li>Generación con IA</li>
+        <li>Historial completo</li>
+        <li>Soporte prioritario</li>
+      </ul>
+      <a href="/app/">Empezar ahora</a>
+    </div>
+  </div>
+</section>
+
+<footer>
+  © 2026 X to LinkedIn Automator · <a href="#">Términos</a> · <a href="#">Privacidad</a>
+</footer>
+
+</body>
+</html>

@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Dashboard - X to LinkedIn</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: system-ui, sans-serif; background: #f5f5f5; color: #111; }
+    header { background: #0a66c2; color: white; padding: 1rem 2rem; display: flex; justify-content: space-between; align-items: center; }
+    main { max-width: 900px; margin: 2rem auto; padding: 0 1rem; }
+    .card { background: white; border-radius: 8px; padding: 1.5rem; margin-bottom: 1.5rem; box-shadow: 0 1px 3px rgba(0,0,0,.1); }
+    .card h2 { font-size: 1rem; color: #555; margin-bottom: 1rem; text-transform: uppercase; letter-spacing: .05em; }
+    .stat-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; }
+    .stat { text-align: center; }
+    .stat .number { font-size: 2rem; font-weight: bold; color: #0a66c2; }
+    .stat .label { font-size: .85rem; color: #888; }
+    .badge { display: inline-block; padding: .2rem .7rem; border-radius: 999px; font-size: .8rem; font-weight: 600; }
+    .badge.active { background: #d1fae5; color: #065f46; }
+    .badge.free { background: #e5e7eb; color: #374151; }
+    .badge.monthly { background: #dbeafe; color: #1e40af; }
+    form label { display: block; margin-bottom: .3rem; font-size: .9rem; font-weight: 500; }
+    form input { width: 100%; padding: .5rem .75rem; border: 1px solid #ddd; border-radius: 6px; font-size: 1rem; margin-bottom: 1rem; }
+    button { background: #0a66c2; color: white; border: none; padding: .6rem 1.2rem; border-radius: 6px; cursor: pointer; font-size: 1rem; }
+    button:hover { background: #004182; }
+    button.danger { background: #dc2626; }
+    table { width: 100%; border-collapse: collapse; font-size: .9rem; }
+    th { text-align: left; padding: .5rem; border-bottom: 2px solid #eee; color: #555; }
+    td { padding: .5rem; border-bottom: 1px solid #eee; }
+    .status-published { color: #059669; font-weight: 600; }
+    .status-failed { color: #dc2626; font-weight: 600; }
+    .status-pending { color: #d97706; }
+    #auth-screen { max-width: 400px; margin: 4rem auto; background: white; padding: 2rem; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,.1); }
+    #auth-screen h1 { margin-bottom: 1.5rem; color: #0a66c2; }
+    .toggle-auth { margin-top: 1rem; font-size: .9rem; color: #555; text-align: center; }
+    .toggle-auth a { color: #0a66c2; cursor: pointer; }
+    .error { background: #fee2e2; color: #991b1b; padding: .5rem 1rem; border-radius: 6px; margin-bottom: 1rem; font-size: .9rem; }
+    #loading { text-align: center; padding: 4rem; color: #888; }
+    .hidden { display: none !important; }
+  </style>
+</head>
+<body>
+
+<!-- Pantalla de autenticación -->
+<div id="auth-screen" class="hidden">
+  <h1>X → LinkedIn</h1>
+  <div id="auth-error" class="error hidden"></div>
+
+  <div id="login-form">
+    <form onsubmit="handleLogin(event)">
+      <label>Email</label>
+      <input type="email" id="login-email" required />
+      <label>Contraseña</label>
+      <input type="password" id="login-password" required />
+      <button type="submit">Entrar</button>
+    </form>
+    <div class="toggle-auth">¿No tienes cuenta? <a onclick="showRegister()">Regístrate gratis</a></div>
+  </div>
+
+  <div id="register-form" class="hidden">
+    <form onsubmit="handleRegister(event)">
+      <label>Nombre</label>
+      <input type="text" id="reg-name" placeholder="Opcional" />
+      <label>Email</label>
+      <input type="email" id="reg-email" required />
+      <label>Contraseña</label>
+      <input type="password" id="reg-password" required minlength="8" />
+      <button type="submit">Crear cuenta</button>
+    </form>
+    <div class="toggle-auth">¿Ya tienes cuenta? <a onclick="showLogin()">Inicia sesión</a></div>
+  </div>
+</div>
+
+<!-- Dashboard -->
+<div id="dashboard" class="hidden">
+  <header>
+    <strong>X → LinkedIn Automator</strong>
+    <span>
+      <span id="header-email"></span> &nbsp;|&nbsp;
+      <a href="#" onclick="logout()" style="color:white">Salir</a>
+    </span>
+  </header>
+
+  <main>
+    <!-- Stats -->
+    <div class="card">
+      <h2>Resumen</h2>
+      <div class="stat-grid">
+        <div class="stat">
+          <div class="number" id="stat-total">—</div>
+          <div class="label">Posts publicados</div>
+        </div>
+        <div class="stat">
+          <div class="number" id="stat-plan">—</div>
+          <div class="label">Plan actual</div>
+        </div>
+        <div class="stat">
+          <div class="number" id="stat-this-month">—</div>
+          <div class="label">Este mes</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Configuración -->
+    <div class="card">
+      <h2>Configuración de cuentas</h2>
+      <form onsubmit="saveCredentials(event)">
+        <label>Username de X a monitorear (sin @)</label>
+        <input type="text" id="x-username" placeholder="ej: elonmusk" />
+        <label>Access Token de LinkedIn</label>
+        <input type="text" id="linkedin-token" placeholder="Pega tu token aquí" />
+        <label>LinkedIn Person ID (urn:li:person:XXXX)</label>
+        <input type="text" id="linkedin-person-id" placeholder="urn:li:person:..." />
+        <label>
+          <input type="checkbox" id="automation-enabled" />
+          &nbsp;Activar automatización
+        </label>
+        <br/><br/>
+        <button type="submit">Guardar configuración</button>
+      </form>
+    </div>
+
+    <!-- Historial -->
+    <div class="card">
+      <h2>Últimos posts</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Fecha</th>
+            <th>Tweet original</th>
+            <th>Estado</th>
+          </tr>
+        </thead>
+        <tbody id="logs-table">
+          <tr><td colspan="3" style="color:#aaa;text-align:center">Sin actividad aún</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </main>
+</div>
+
+<div id="loading">Cargando...</div>
+
+<script>
+const API = '';  // mismo origen
+
+function token() { return localStorage.getItem('token'); }
+
+async function apiFetch(path, options = {}) {
+  const res = await fetch(API + path, {
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token() ? { Authorization: 'Bearer ' + token() } : {}),
+      ...options.headers,
+    },
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.detail || 'Error desconocido');
+  return data;
+}
+
+async function init() {
+  document.getElementById('loading').classList.remove('hidden');
+  if (!token()) {
+    showAuth();
+    return;
+  }
+  try {
+    await loadDashboard();
+  } catch {
+    localStorage.removeItem('token');
+    showAuth();
+  }
+}
+
+function showAuth() {
+  document.getElementById('loading').classList.add('hidden');
+  document.getElementById('auth-screen').classList.remove('hidden');
+  document.getElementById('dashboard').classList.add('hidden');
+}
+
+function showLogin() {
+  document.getElementById('login-form').classList.remove('hidden');
+  document.getElementById('register-form').classList.add('hidden');
+}
+
+function showRegister() {
+  document.getElementById('login-form').classList.add('hidden');
+  document.getElementById('register-form').classList.remove('hidden');
+}
+
+function showError(msg) {
+  const el = document.getElementById('auth-error');
+  el.textContent = msg;
+  el.classList.remove('hidden');
+}
+
+async function handleLogin(e) {
+  e.preventDefault();
+  document.getElementById('auth-error').classList.add('hidden');
+  try {
+    const body = new URLSearchParams({
+      username: document.getElementById('login-email').value,
+      password: document.getElementById('login-password').value,
+    });
+    const data = await fetch(API + '/auth/login', { method: 'POST', body }).then(r => r.json());
+    if (!data.access_token) throw new Error(data.detail || 'Error al iniciar sesión');
+    localStorage.setItem('token', data.access_token);
+    await loadDashboard();
+  } catch (err) {
+    showError(err.message);
+  }
+}
+
+async function handleRegister(e) {
+  e.preventDefault();
+  document.getElementById('auth-error').classList.add('hidden');
+  try {
+    const data = await apiFetch('/auth/register', {
+      method: 'POST',
+      body: JSON.stringify({
+        email: document.getElementById('reg-email').value,
+        password: document.getElementById('reg-password').value,
+        full_name: document.getElementById('reg-name').value || null,
+      }),
+    });
+    localStorage.setItem('token', data.access_token);
+    await loadDashboard();
+  } catch (err) {
+    showError(err.message);
+  }
+}
+
+async function loadDashboard() {
+  const dash = await apiFetch('/dashboard');
+
+  document.getElementById('loading').classList.add('hidden');
+  document.getElementById('auth-screen').classList.add('hidden');
+  document.getElementById('dashboard').classList.remove('hidden');
+
+  // Header
+  document.getElementById('header-email').textContent = dash.user.email;
+
+  // Stats
+  document.getElementById('stat-total').textContent = dash.total_posts_published;
+  document.getElementById('stat-plan').textContent = dash.subscription?.plan ?? '—';
+  document.getElementById('stat-this-month').textContent =
+    dash.subscription ? `${dash.subscription.posts_used_this_month}/${dash.subscription.free_posts_limit || '∞'}` : '—';
+
+  // Credenciales
+  if (dash.credentials) {
+    document.getElementById('x-username').value = dash.credentials.x_username || '';
+    document.getElementById('linkedin-person-id').value = dash.credentials.linkedin_person_id || '';
+    document.getElementById('automation-enabled').checked = dash.credentials.automation_enabled;
+  }
+
+  // Logs
+  const tbody = document.getElementById('logs-table');
+  if (dash.recent_logs.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="3" style="color:#aaa;text-align:center">Sin actividad aún</td></tr>';
+  } else {
+    tbody.innerHTML = dash.recent_logs.map(log => `
+      <tr>
+        <td>${new Date(log.created_at).toLocaleDateString('es')}</td>
+        <td><a href="${log.tweet_url || '#'}" target="_blank">${(log.tweet_text || '').slice(0, 60)}...</a></td>
+        <td class="status-${log.status}">${log.status}</td>
+      </tr>
+    `).join('');
+  }
+}
+
+async function saveCredentials(e) {
+  e.preventDefault();
+  try {
+    await apiFetch('/dashboard/credentials', {
+      method: 'PUT',
+      body: JSON.stringify({
+        x_username: document.getElementById('x-username').value || null,
+        linkedin_access_token: document.getElementById('linkedin-token').value || null,
+        linkedin_person_id: document.getElementById('linkedin-person-id').value || null,
+        automation_enabled: document.getElementById('automation-enabled').checked,
+      }),
+    });
+    alert('Configuración guardada ✓');
+  } catch (err) {
+    alert('Error: ' + err.message);
+  }
+}
+
+function logout() {
+  localStorage.removeItem('token');
+  showAuth();
+}
+
+init();
+</script>
+</body>
+</html>

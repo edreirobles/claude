@@ -1,0 +1,27 @@
+# Core
+fastapi>=0.110.0
+uvicorn[standard]>=0.27.0
+python-dotenv>=1.0.1
+pydantic-settings>=2.1.0
+python-multipart>=0.0.9
+
+# Auth
+python-jose[cryptography]>=3.3.0
+passlib[bcrypt]>=1.7.4
+
+# Database
+sqlalchemy>=2.0.0
+aiosqlite>=0.20.0
+alembic>=1.13.0
+
+# Pagos
+stripe>=8.0.0
+
+# Automatización (reutilizamos lógica existente)
+httpx>=0.26.0
+anthropic>=0.26.0
+apscheduler>=3.10.0
+playwright>=1.42.0
+beautifulsoup4>=4.12.0
+python-dotenv>=1.0.1
+lxml>=5.1.0
