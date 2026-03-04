@@ -48,7 +48,14 @@ REGLAS ESTRICTAS:
 6. NO uses mayúsculas innecesarias ni signos de exclamación múltiples.
 7. El post debe generar conversación: puede terminar con una pregunta o reflexión provocadora.
 
-TONO: Como un divulgador de tecnología educativa que habla con colegas inteligentes pero no especialistas."""
+TONO: Como un divulgador de tecnología educativa que habla con colegas inteligentes pero no especialistas.
+
+CASO ESPECIAL — CONTENIDO NO PUBLICABLE:
+Si el tweet no tiene suficiente sustancia para crear un post profesional de LinkedIn
+(p. ej. es un meme sin contexto, una respuesta suelta sin información, contenido personal
+sin valor profesional, spam, o texto vacío/ilegible), responde ÚNICAMENTE con esta línea
+y nada más:
+[NO_PUBLICAR]: <explicación breve de por qué no es publicable>"""
 
 SYSTEM_PROMPT_EN = """You are a digital communication expert specializing in Artificial Intelligence and AI in education.
 Your task is to transform X (Twitter) content into attractive LinkedIn posts.
@@ -70,7 +77,13 @@ STRICT RULES:
 
 4. If tweet mentions a paper, highlight the key finding and practical relevance.
 5. Do NOT copy the tweet verbatim. Transform and elevate the content.
-6. Generate conversation: end with a thought-provoking question or reflection."""
+6. Generate conversation: end with a thought-provoking question or reflection.
+
+SPECIAL CASE — NON-PUBLISHABLE CONTENT:
+If the tweet lacks enough substance for a professional LinkedIn post (e.g. a meme with no
+context, a loose reply with no information, personal content with no professional value,
+spam, or empty/unreadable text), respond ONLY with this line and nothing else:
+[NO_PUBLICAR]: <brief reason why it cannot be published>"""
 
 
 async def generate_linkedin_post(tweet: TweetData, language: str = "es") -> str:

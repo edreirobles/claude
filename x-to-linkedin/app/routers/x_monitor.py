@@ -50,8 +50,14 @@ async def x_monitor_status(db: AsyncSession = Depends(get_db)):
     )
     total_skipped = skipped_result.scalar_one()
 
-    # Conteo de procesados (excluye skipped)
-    total_processed = total_in_db - total_skipped
+    # Conteo de rechazados (no publicables)
+    rejected_result = await db.execute(
+        select(func.count(XLikedTweet.id)).where(XLikedTweet.status == "rejected")
+    )
+    total_rejected = rejected_result.scalar_one()
+
+    # Conteo de procesados (solo los que generaron un post)
+    total_processed = total_in_db - total_skipped - total_rejected
 
     # ¿Ya se hizo la semilla? (si hay registros en la tabla)
     seeded = total_in_db > 0
@@ -92,6 +98,7 @@ async def x_monitor_status(db: AsyncSession = Depends(get_db)):
         "waiting_for_start": waiting_for_start,
         "seeded": seeded,
         "total_skipped": total_skipped,
+        "total_rejected": total_rejected,
         "pending_auto_posts": pending_auto,
         "total_processed": total_processed,
         "last_tweet_url": last.tweet_url if last else None,

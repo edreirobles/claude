@@ -654,14 +654,16 @@ function renderXMonitorStatus(data) {
     const d = like.processed_at
       ? new Date(like.processed_at + 'Z').toLocaleString('es-MX', { dateStyle: 'short', timeStyle: 'short' })
       : '—';
-    const statusLabel = { processed: 'publicado', failed: 'error', processing: 'procesando' }[like.status] || like.status;
+    const statusLabel = { processed: 'publicado', failed: 'error', processing: 'procesando', rejected: 'rechazado' }[like.status] || like.status;
+    const isRejected = like.status === 'rejected';
     return `
-      <div class="x-like-item">
+      <div class="x-like-item${isRejected ? ' x-like-rejected' : ''}">
         <span class="x-like-status ${escHtml(like.status)}">${escHtml(statusLabel)}</span>
         <div class="x-like-info">
           <div class="x-like-author">@${escHtml(like.tweet_author || '—')}</div>
           <div class="x-like-url"><a href="${escHtml(like.tweet_url)}" target="_blank" rel="noopener">${escHtml(like.tweet_url)}</a></div>
-          ${like.error_message ? `<div style="color:var(--error);font-size:11px">⚠ ${escHtml(like.error_message)}</div>` : ''}
+          ${isRejected && like.error_message ? `<div class="x-like-reject-reason">No publicado: ${escHtml(like.error_message)}</div>` : ''}
+          ${!isRejected && like.error_message ? `<div style="color:var(--error);font-size:11px">⚠ ${escHtml(like.error_message)}</div>` : ''}
         </div>
         <span class="x-like-date">${escHtml(d)}</span>
       </div>
@@ -689,12 +691,12 @@ function renderXMonitorStatus(data) {
         <div class="x-stat-value">${escHtml(String(data.total_processed))}</div>
       </div>
       <div class="x-stat">
-        <div class="x-stat-label">Último procesado</div>
-        <div class="x-stat-value" style="font-size:12px">${escHtml(lastDate)}</div>
+        <div class="x-stat-label">No publicables</div>
+        <div class="x-stat-value" style="${(data.total_rejected || 0) > 0 ? 'color:var(--warning)' : ''}">${escHtml(String(data.total_rejected || 0))}</div>
       </div>
       <div class="x-stat">
-        <div class="x-stat-label">User ID</div>
-        <div class="x-stat-value" style="font-size:12px">${escHtml(data.user_id)}</div>
+        <div class="x-stat-label">Último procesado</div>
+        <div class="x-stat-value" style="font-size:12px">${escHtml(lastDate)}</div>
       </div>
     </div>
 
@@ -709,7 +711,7 @@ function renderXMonitorStatus(data) {
     }
 
     <p style="color:var(--text-faint);font-size:11px;margin-top:12px">
-      ℹ Posts calendarizados a las <strong>5:00 AM hora Monterrey</strong>, máximo 1 auto-post por día.
+      ℹ Posts calendarizados a las <strong>5:00 AM y 4:00 PM hora Monterrey</strong>, máximo 2 auto-posts por día.
       Las publicaciones manuales no cuentan para ese límite.
     </p>
   `;

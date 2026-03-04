@@ -229,6 +229,18 @@ async def process_liked_tweet(tweet_id: str, tweet_url: str, tweet_username: str
                 language=settings.post_language,
             )
 
+            # Si Claude indica que el tweet no tiene sustancia para publicar, rechazarlo
+            if linkedin_text.startswith("[NO_PUBLICAR]"):
+                reason = linkedin_text.split(":", 1)[-1].strip()
+                liked.status = "rejected"
+                liked.error_message = reason
+                liked.processed_at = datetime.utcnow()
+                await db.commit()
+                logger.info(
+                    f"[X Monitor] Tweet {tweet_id} rechazado (no publicable): {reason}"
+                )
+                return
+
             run_at_utc = await get_next_auto_slot(db)
 
             if tweet_data.has_video:

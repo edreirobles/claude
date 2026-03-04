@@ -867,9 +867,21 @@ body {
   font-weight: 600;
 }
 
-.x-like-status.processed { background: rgba(16,185,129,0.15); color: var(--success); }
-.x-like-status.failed { background: rgba(239,68,68,0.15); color: var(--error); }
-.x-like-status.processing { background: rgba(245,158,11,0.15); color: var(--warning); }
+.x-like-status.processed   { background: rgba(16,185,129,0.15);  color: var(--success); }
+.x-like-status.failed      { background: rgba(239,68,68,0.15);   color: var(--error); }
+.x-like-status.processing  { background: rgba(245,158,11,0.15);  color: var(--warning); }
+.x-like-status.rejected    { background: rgba(245,158,11,0.15);  color: var(--warning); }
+
+.x-like-rejected {
+  border-left: 3px solid var(--warning);
+  background: rgba(245,158,11,0.05);
+}
+
+.x-like-reject-reason {
+  font-size: 11px;
+  color: var(--warning);
+  margin-top: 2px;
+}
 
 .x-like-info {
   flex: 1;
