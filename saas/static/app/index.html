@@ -15,15 +15,22 @@
     .stat { text-align: center; }
     .stat .number { font-size: 2rem; font-weight: bold; color: #0a66c2; }
     .stat .label { font-size: .85rem; color: #888; }
-    .badge { display: inline-block; padding: .2rem .7rem; border-radius: 999px; font-size: .8rem; font-weight: 600; }
-    .badge.active { background: #d1fae5; color: #065f46; }
-    .badge.free { background: #e5e7eb; color: #374151; }
-    .badge.monthly { background: #dbeafe; color: #1e40af; }
+    .badge { display: inline-block; padding: .25rem .8rem; border-radius: 999px; font-size: .8rem; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; }
+    .badge-free { background: #e5e7eb; color: #374151; }
+    .badge-monthly { background: #dbeafe; color: #1e40af; }
+    .badge-active { background: #d1fae5; color: #065f46; }
+    .badge-past_due { background: #fee2e2; color: #991b1b; }
+    .badge-canceled { background: #f3f4f6; color: #6b7280; }
     form label { display: block; margin-bottom: .3rem; font-size: .9rem; font-weight: 500; }
-    form input { width: 100%; padding: .5rem .75rem; border: 1px solid #ddd; border-radius: 6px; font-size: 1rem; margin-bottom: 1rem; }
-    button { background: #0a66c2; color: white; border: none; padding: .6rem 1.2rem; border-radius: 6px; cursor: pointer; font-size: 1rem; }
+    form input[type=text], form input[type=email], form input[type=password] {
+      width: 100%; padding: .5rem .75rem; border: 1px solid #ddd; border-radius: 6px; font-size: 1rem; margin-bottom: 1rem;
+    }
+    button { background: #0a66c2; color: white; border: none; padding: .6rem 1.2rem; border-radius: 6px; cursor: pointer; font-size: 1rem; font-weight: 600; }
     button:hover { background: #004182; }
-    button.danger { background: #dc2626; }
+    button.btn-upgrade { background: #7c3aed; }
+    button.btn-upgrade:hover { background: #5b21b6; }
+    button.btn-manage { background: #374151; }
+    button.btn-manage:hover { background: #111827; }
     table { width: 100%; border-collapse: collapse; font-size: .9rem; }
     th { text-align: left; padding: .5rem; border-bottom: 2px solid #eee; color: #555; }
     td { padding: .5rem; border-bottom: 1px solid #eee; }
@@ -35,8 +42,14 @@
     .toggle-auth { margin-top: 1rem; font-size: .9rem; color: #555; text-align: center; }
     .toggle-auth a { color: #0a66c2; cursor: pointer; }
     .error { background: #fee2e2; color: #991b1b; padding: .5rem 1rem; border-radius: 6px; margin-bottom: 1rem; font-size: .9rem; }
+    .success-banner { background: #d1fae5; color: #065f46; padding: .75rem 1rem; border-radius: 6px; margin-bottom: 1rem; font-size: .9rem; font-weight: 500; }
     #loading { text-align: center; padding: 4rem; color: #888; }
     .hidden { display: none !important; }
+    .plan-row { display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; }
+    .plan-info { flex: 1; }
+    .plan-info p { font-size: .9rem; color: #666; margin-top: .3rem; }
+    .limit-bar { background: #e5e7eb; border-radius: 999px; height: 6px; margin-top: .5rem; overflow: hidden; }
+    .limit-bar-fill { background: #0a66c2; height: 100%; border-radius: 999px; transition: width .3s; }
   </style>
 </head>
 <body>
@@ -52,7 +65,7 @@
       <input type="email" id="login-email" required />
       <label>Contraseña</label>
       <input type="password" id="login-password" required />
-      <button type="submit">Entrar</button>
+      <button type="submit" style="width:100%">Entrar</button>
     </form>
     <div class="toggle-auth">¿No tienes cuenta? <a onclick="showRegister()">Regístrate gratis</a></div>
   </div>
@@ -65,7 +78,7 @@
       <input type="email" id="reg-email" required />
       <label>Contraseña</label>
       <input type="password" id="reg-password" required minlength="8" />
-      <button type="submit">Crear cuenta</button>
+      <button type="submit" style="width:100%">Crear cuenta gratis</button>
     </form>
     <div class="toggle-auth">¿Ya tienes cuenta? <a onclick="showLogin()">Inicia sesión</a></div>
   </div>
@@ -82,6 +95,14 @@
   </header>
 
   <main>
+    <!-- Banner de pago exitoso / cancelado -->
+    <div id="payment-success" class="success-banner hidden">
+      Pago procesado. Tu plan Pro ya está activo.
+    </div>
+    <div id="payment-canceled" class="error hidden">
+      El pago fue cancelado. Puedes intentarlo de nuevo cuando quieras.
+    </div>
+
     <!-- Stats -->
     <div class="card">
       <h2>Resumen</h2>
@@ -96,8 +117,27 @@
         </div>
         <div class="stat">
           <div class="number" id="stat-this-month">—</div>
-          <div class="label">Este mes</div>
+          <div class="label">Usados este mes</div>
         </div>
+      </div>
+    </div>
+
+    <!-- Suscripción -->
+    <div class="card">
+      <h2>Suscripción</h2>
+      <div class="plan-row">
+        <div class="plan-info">
+          <div>
+            Plan: <span id="plan-badge">—</span>
+            &nbsp;
+            Estado: <span id="plan-status-badge">—</span>
+          </div>
+          <p id="plan-description"></p>
+          <div class="limit-bar" id="limit-bar-wrap" style="display:none">
+            <div class="limit-bar-fill" id="limit-bar-fill"></div>
+          </div>
+        </div>
+        <div id="billing-actions"></div>
       </div>
     </div>
 
@@ -109,7 +149,7 @@
         <input type="text" id="x-username" placeholder="ej: elonmusk" />
         <label>Access Token de LinkedIn</label>
         <input type="text" id="linkedin-token" placeholder="Pega tu token aquí" />
-        <label>LinkedIn Person ID (urn:li:person:XXXX)</label>
+        <label>LinkedIn Person ID</label>
         <input type="text" id="linkedin-person-id" placeholder="urn:li:person:..." />
         <label>
           <input type="checkbox" id="automation-enabled" />
@@ -142,7 +182,7 @@
 <div id="loading">Cargando...</div>
 
 <script>
-const API = '';  // mismo origen
+const API = '';
 
 function token() { return localStorage.getItem('token'); }
 
@@ -162,10 +202,18 @@ async function apiFetch(path, options = {}) {
 
 async function init() {
   document.getElementById('loading').classList.remove('hidden');
-  if (!token()) {
-    showAuth();
-    return;
+
+  // Mostrar banners según resultado del pago
+  const params = new URLSearchParams(location.search);
+  if (params.get('payment') === 'success') {
+    document.getElementById('payment-success').classList.remove('hidden');
+    history.replaceState({}, '', location.pathname);
+  } else if (params.get('payment') === 'canceled') {
+    document.getElementById('payment-canceled').classList.remove('hidden');
+    history.replaceState({}, '', location.pathname);
   }
+
+  if (!token()) { showAuth(); return; }
   try {
     await loadDashboard();
   } catch {
@@ -244,9 +292,46 @@ async function loadDashboard() {
 
   // Stats
   document.getElementById('stat-total').textContent = dash.total_posts_published;
-  document.getElementById('stat-plan').textContent = dash.subscription?.plan ?? '—';
-  document.getElementById('stat-this-month').textContent =
-    dash.subscription ? `${dash.subscription.posts_used_this_month}/${dash.subscription.free_posts_limit || '∞'}` : '—';
+  const sub = dash.subscription;
+
+  if (sub) {
+    document.getElementById('stat-plan').textContent = sub.plan === 'monthly' ? 'Pro' : 'Free';
+    document.getElementById('stat-this-month').textContent =
+      sub.plan === 'monthly' ? `${sub.posts_used_this_month} / ∞` : `${sub.posts_used_this_month} / ${sub.free_posts_limit}`;
+
+    // Plan badge
+    document.getElementById('plan-badge').innerHTML =
+      `<span class="badge badge-${sub.plan}">${sub.plan === 'monthly' ? 'Pro' : 'Free'}</span>`;
+    document.getElementById('plan-status-badge').innerHTML =
+      `<span class="badge badge-${sub.status}">${sub.status}</span>`;
+
+    // Descripción y barra de uso
+    if (sub.plan === 'free') {
+      const pct = Math.round((sub.posts_used_this_month / sub.free_posts_limit) * 100);
+      document.getElementById('plan-description').textContent =
+        `Has usado ${sub.posts_used_this_month} de ${sub.free_posts_limit} posts gratuitos este mes.`;
+      document.getElementById('limit-bar-wrap').style.display = 'block';
+      document.getElementById('limit-bar-fill').style.width = `${Math.min(pct, 100)}%`;
+      if (pct >= 100) document.getElementById('limit-bar-fill').style.background = '#dc2626';
+
+      document.getElementById('billing-actions').innerHTML =
+        `<button class="btn-upgrade" onclick="upgrade()">⚡ Upgrade a Pro — $19/mes</button>`;
+    } else {
+      const exp = sub.current_period_end
+        ? `Próxima renovación: ${new Date(sub.current_period_end).toLocaleDateString('es')}`
+        : 'Posts ilimitados';
+      document.getElementById('plan-description').textContent = exp;
+      document.getElementById('limit-bar-wrap').style.display = 'none';
+
+      if (sub.status === 'past_due') {
+        document.getElementById('plan-description').textContent =
+          'Tu pago falló. Actualiza tu tarjeta para continuar usando el servicio.';
+      }
+
+      document.getElementById('billing-actions').innerHTML =
+        `<button class="btn-manage" onclick="manageSubscription()">Gestionar suscripción</button>`;
+    }
+  }
 
   // Credenciales
   if (dash.credentials) {
@@ -267,6 +352,24 @@ async function loadDashboard() {
         <td class="status-${log.status}">${log.status}</td>
       </tr>
     `).join('');
+  }
+}
+
+async function upgrade() {
+  try {
+    const { url } = await apiFetch('/billing/checkout', { method: 'POST' });
+    window.location.href = url;
+  } catch (err) {
+    alert('Error al iniciar el pago: ' + err.message);
+  }
+}
+
+async function manageSubscription() {
+  try {
+    const { url } = await apiFetch('/billing/portal');
+    window.location.href = url;
+  } catch (err) {
+    alert('Error al abrir el portal: ' + err.message);
   }
 }
 

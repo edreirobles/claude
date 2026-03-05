@@ -5,7 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from app.database import init_db
-from app.routers import auth, dashboard
+from app.routers import auth, billing, dashboard
 
 
 @asynccontextmanager
@@ -33,6 +33,7 @@ app.add_middleware(
 # Routers de la API
 app.include_router(auth.router)
 app.include_router(dashboard.router)
+app.include_router(billing.router)
 
 # Archivos estáticos (frontend)
 app.mount("/", StaticFiles(directory="static", html=True), name="static")
