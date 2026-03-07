@@ -69,6 +69,20 @@ class CredentialsResponse(BaseModel):
         from_attributes = True
 
 
+# --- Configuración del prompt ---
+
+class SettingsUpdate(BaseModel):
+    custom_prompt: Optional[str] = None  # None = restablecer al default del sistema
+
+
+class SettingsResponse(BaseModel):
+    custom_prompt: Optional[str]        # None significa que se usa el prompt default
+    default_prompt: str                  # El prompt default del sistema (solo lectura)
+
+    class Config:
+        from_attributes = True
+
+
 # --- Logs ---
 
 class AutomationLogResponse(BaseModel):
@@ -79,6 +93,10 @@ class AutomationLogResponse(BaseModel):
     linkedin_post_id: Optional[str]
     status: str
     error_message: Optional[str]
+    li_likes: Optional[int]
+    li_comments: Optional[int]
+    li_impressions: Optional[int]
+    metrics_updated_at: Optional[datetime]
     created_at: datetime
 
     class Config:

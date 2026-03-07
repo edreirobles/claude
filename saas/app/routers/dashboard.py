@@ -5,15 +5,28 @@ Rutas del dashboard del usuario:
   PUT  /dashboard/credentials - Guardar X username y token de LinkedIn
 """
 
-from fastapi import APIRouter, Depends
+from datetime import datetime
+
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.auth import get_current_user
 from app.database import get_db
-from app.models import AutomationLog, User
-from app.schemas import AutomationLogResponse, CredentialsResponse, CredentialsUpdate, DashboardResponse, SubscriptionResponse, UserResponse
+from app.models import AutomationLog, User, UserCredentials
+from app.schemas import (
+    AutomationLogResponse,
+    CredentialsResponse,
+    CredentialsUpdate,
+    DashboardResponse,
+    SettingsResponse,
+    SettingsUpdate,
+    SubscriptionResponse,
+    UserResponse,
+)
+from app.services.linkedin_client import LinkedInClient
+from app.services.post_generator import DEFAULT_SYSTEM_PROMPT
 
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
 
@@ -76,6 +89,93 @@ async def get_logs(
         .limit(limit)
     )
     return result.scalars().all()
+
+
+@router.get("/settings", response_model=SettingsResponse)
+async def get_settings(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Devuelve el prompt personalizado del usuario y el prompt default del sistema."""
+    result = await db.execute(
+        select(User).options(selectinload(User.credentials)).where(User.id == current_user.id)
+    )
+    user = result.scalar_one()
+    return SettingsResponse(
+        custom_prompt=user.credentials.custom_prompt if user.credentials else None,
+        default_prompt=DEFAULT_SYSTEM_PROMPT,
+    )
+
+
+@router.put("/settings", response_model=SettingsResponse)
+async def update_settings(
+    data: SettingsUpdate,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Guarda el prompt personalizado del usuario.
+    Enviar custom_prompt=null (o no incluirlo) restablece al prompt default del sistema.
+    """
+    result = await db.execute(
+        select(User).options(selectinload(User.credentials)).where(User.id == current_user.id)
+    )
+    user = result.scalar_one()
+    if not user.credentials:
+        raise HTTPException(status_code=400, detail="Configura tus credenciales antes de personalizar el prompt")
+
+    user.credentials.custom_prompt = data.custom_prompt  # None = usar default
+    await db.commit()
+    return SettingsResponse(
+        custom_prompt=user.credentials.custom_prompt,
+        default_prompt=DEFAULT_SYSTEM_PROMPT,
+    )
+
+
+@router.post("/logs/{log_id}/refresh-metrics", response_model=AutomationLogResponse)
+async def refresh_post_metrics(
+    log_id: int,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Actualiza las métricas (likes, comentarios) de un post publicado consultando la API de LinkedIn.
+    Las impresiones solo están disponibles para páginas de empresa, no para perfiles personales.
+    """
+    log_result = await db.execute(
+        select(AutomationLog).where(
+            AutomationLog.id == log_id,
+            AutomationLog.user_id == current_user.id,
+        )
+    )
+    log = log_result.scalar_one_or_none()
+    if not log:
+        raise HTTPException(status_code=404, detail="Publicación no encontrada")
+    if log.status != "published" or not log.linkedin_post_id:
+        raise HTTPException(status_code=400, detail="Esta publicación aún no fue publicada en LinkedIn")
+
+    # Obtener credenciales del usuario
+    creds_result = await db.execute(
+        select(UserCredentials).where(UserCredentials.user_id == current_user.id)
+    )
+    creds = creds_result.scalar_one_or_none()
+    if not creds or not creds.linkedin_access_token or not creds.linkedin_person_id:
+        raise HTTPException(status_code=400, detail="No hay credenciales de LinkedIn configuradas")
+
+    li = LinkedInClient(
+        access_token=creds.linkedin_access_token,
+        person_urn=creds.linkedin_person_id,
+    )
+    metrics = await li.get_post_metrics(log.linkedin_post_id)
+
+    log.li_likes = metrics["likes"]
+    log.li_comments = metrics["comments"]
+    log.li_impressions = metrics["impressions"]
+    log.metrics_updated_at = datetime.utcnow()
+
+    await db.commit()
+    await db.refresh(log)
+    return log
 
 
 @router.put("/credentials", response_model=CredentialsResponse)

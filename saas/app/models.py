@@ -103,6 +103,9 @@ class UserCredentials(Base):
     automation_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
     post_frequency_hours: Mapped[int] = mapped_column(Integer, default=24)  # cada cuántas horas revisar X
 
+    # Prompt personalizado para generar publicaciones (None = usar el default del sistema)
+    custom_prompt: Mapped[str] = mapped_column(Text, nullable=True)
+
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     # Relaciones
@@ -131,6 +134,12 @@ class AutomationLog(Base):
 
     status: Mapped[str] = mapped_column(String(50), default="pending")  # pending, published, failed
     error_message: Mapped[str] = mapped_column(Text, nullable=True)
+
+    # Métricas de LinkedIn (se actualizan periódicamente vía refresh)
+    li_likes: Mapped[int] = mapped_column(Integer, nullable=True)
+    li_comments: Mapped[int] = mapped_column(Integer, nullable=True)
+    li_impressions: Mapped[int] = mapped_column(Integer, nullable=True)  # Solo disponible en cuentas empresa
+    metrics_updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 

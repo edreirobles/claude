@@ -150,8 +150,12 @@ async def _process_new_tweets(user: User) -> None:
         # Scraping del tweet
         tweet_data = await scrape_tweet(tweet_ref.tweet_url)
 
-        # Generar post de LinkedIn
-        linkedin_text = await generate_linkedin_post(tweet=tweet_data, language="es")
+        # Generar post de LinkedIn (usa el prompt personalizado si el usuario configuró uno)
+        linkedin_text = await generate_linkedin_post(
+            tweet=tweet_data,
+            language="es",
+            custom_prompt=creds.custom_prompt or None,
+        )
 
         # Si Claude dice que no es publicable, marcar como rechazado
         if linkedin_text.startswith("[NO_PUBLICAR]"):
