@@ -28,8 +28,23 @@
   </div>
 </header>
 
+<!-- TAB NAV -->
+<nav class="tab-nav">
+  <div class="tab-nav-inner">
+    <button class="tab-btn active" id="tab-btn-publish" onclick="switchTab('publish')">
+      <span>✨</span> Publicar
+    </button>
+    <button class="tab-btn" id="tab-btn-analytics" onclick="switchTab('analytics')">
+      <span>📊</span> Analytics
+    </button>
+  </div>
+</nav>
+
 <!-- MAIN -->
 <main class="main">
+
+<!-- PAGE: PUBLICAR -->
+<div id="page-publish">
 
   <!-- STEP 1: Ingresar URL -->
   <section class="card" id="section-input">
@@ -218,6 +233,78 @@
     </div>
   </section>
 
+</div><!-- /page-publish -->
+
+<!-- PAGE: ANALYTICS -->
+<div id="page-analytics" class="hidden">
+
+  <section class="card" id="section-analytics">
+    <div class="card-header">
+      <span class="step-badge history-badge">📊</span>
+      <h2>Dashboard de métricas</h2>
+      <button class="btn btn-ghost btn-sm" onclick="loadAnalytics()">↺ Actualizar</button>
+    </div>
+
+    <!-- KPIs -->
+    <div class="analytics-kpis" id="analytics-kpis">
+      <div class="kpi-card">
+        <div class="kpi-label">Publicaciones</div>
+        <div class="kpi-value" id="kpi-published">—</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Total likes</div>
+        <div class="kpi-value" id="kpi-likes">—</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Total comentarios</div>
+        <div class="kpi-value" id="kpi-comments">—</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Promedio likes/post</div>
+        <div class="kpi-value" id="kpi-avg">—</div>
+      </div>
+    </div>
+
+    <p class="analytics-note">
+      💡 Los likes y comentarios se actualizan manualmente desde el historial. Actualiza las métricas de tus posts publicados para ver datos más precisos.
+    </p>
+
+    <!-- Fila de gráficas 1 -->
+    <div class="analytics-row">
+      <div class="chart-box chart-box--wide">
+        <div class="chart-title">Publicaciones por día (últimos 30 días)</div>
+        <canvas id="chart-by-day"></canvas>
+      </div>
+    </div>
+
+    <!-- Fila de gráficas 2 -->
+    <div class="analytics-row">
+      <div class="chart-box">
+        <div class="chart-title">Mejor horario para publicar</div>
+        <canvas id="chart-by-hour"></canvas>
+      </div>
+      <div class="chart-box">
+        <div class="chart-title">Estado de publicaciones</div>
+        <canvas id="chart-status"></canvas>
+      </div>
+      <div class="chart-box">
+        <div class="chart-title">Tipo de contenido</div>
+        <canvas id="chart-media"></canvas>
+      </div>
+    </div>
+
+    <!-- Top posts -->
+    <div class="chart-box" style="margin-top:16px">
+      <div class="chart-title">Top posts por engagement (likes + comentarios)</div>
+      <div id="top-posts-list" class="top-posts-list">
+        <div class="empty-state">Actualiza las métricas de tus posts para ver el ranking.</div>
+      </div>
+    </div>
+
+  </section>
+
+</div><!-- /page-analytics -->
+
 </main>
 
 <!-- MODAL: Conectar LinkedIn -->
@@ -255,6 +342,7 @@
   </div>
 </div>
 
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script src="/static/js/app.js"></script>
 </body>
 </html>

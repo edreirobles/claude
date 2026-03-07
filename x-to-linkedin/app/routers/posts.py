@@ -386,6 +386,79 @@ async def update_settings(data: SettingsUpdate, db: AsyncSession = Depends(get_d
 
 # ── Métricas de LinkedIn ────────────────────────────────────────────────────
 
+@router.get("/analytics")
+async def get_analytics(db: AsyncSession = Depends(get_db)):
+    """Devuelve estadísticas agregadas para el dashboard."""
+    from datetime import timedelta
+
+    result = await db.execute(select(ScheduledPost))
+    posts = result.scalars().all()
+
+    published = [p for p in posts if p.status == "published"]
+
+    # KPIs
+    total_published = len(published)
+    total_likes = sum(p.li_likes or 0 for p in published)
+    total_comments = sum(p.li_comments or 0 for p in published)
+    avg_likes = round(total_likes / total_published, 1) if total_published else 0
+
+    # Posts por día — últimos 30 días
+    today = datetime.utcnow().date()
+    days: dict = {(today - timedelta(days=i)).isoformat(): 0 for i in range(29, -1, -1)}
+    for p in posts:
+        d = (p.published_at or p.created_at).date().isoformat()
+        if d in days:
+            days[d] += 1
+    posts_by_day = [{"date": d, "count": c} for d, c in days.items()]
+
+    # Posts por hora del día (de publicados)
+    hours: dict = {i: 0 for i in range(24)}
+    for p in published:
+        if p.published_at:
+            hours[p.published_at.hour] += 1
+    posts_by_hour = [{"hour": h, "count": hours[h]} for h in range(24)]
+
+    # Breakdown de estado
+    status_counts: dict = {}
+    for p in posts:
+        status_counts[p.status] = status_counts.get(p.status, 0) + 1
+
+    # Breakdown de tipo de media
+    media_counts: dict = {}
+    for p in published:
+        k = p.media_type or "auto"
+        media_counts[k] = media_counts.get(k, 0) + 1
+
+    # Top posts por engagement
+    top_posts = sorted(
+        [
+            {
+                "id": p.id,
+                "text": (p.linkedin_text or "")[:120],
+                "likes": p.li_likes or 0,
+                "comments": p.li_comments or 0,
+                "total": (p.li_likes or 0) + (p.li_comments or 0),
+                "published_at": p.published_at.isoformat() if p.published_at else None,
+            }
+            for p in published
+        ],
+        key=lambda x: x["total"],
+        reverse=True,
+    )[:10]
+
+    return {
+        "total_published": total_published,
+        "total_likes": total_likes,
+        "total_comments": total_comments,
+        "avg_likes": avg_likes,
+        "posts_by_day": posts_by_day,
+        "posts_by_hour": posts_by_hour,
+        "status_breakdown": status_counts,
+        "media_type_breakdown": media_counts,
+        "top_posts": top_posts,
+    }
+
+
 @router.post("/posts/{post_id}/refresh-metrics", response_model=PostResponse)
 async def refresh_post_metrics(post_id: int, db: AsyncSession = Depends(get_db)):
     """

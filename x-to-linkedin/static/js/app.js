@@ -802,6 +802,183 @@ async function resetPrompt() {
   }
 }
 
+// ── Tab navigation ──────────────────────────────────────
+
+function switchTab(tab) {
+  const isPublish = tab === 'publish';
+  document.getElementById('page-publish').classList.toggle('hidden', !isPublish);
+  document.getElementById('page-analytics').classList.toggle('hidden', isPublish);
+  document.getElementById('tab-btn-publish').classList.toggle('active', isPublish);
+  document.getElementById('tab-btn-analytics').classList.toggle('active', !isPublish);
+  if (!isPublish) loadAnalytics();
+}
+
+// ── Analytics dashboard ─────────────────────────────────
+
+const _charts = {};
+
+function _destroyChart(id) {
+  if (_charts[id]) { _charts[id].destroy(); delete _charts[id]; }
+}
+
+function _chartDefaults() {
+  return {
+    color: '#8892a4',
+    borderColor: '#252538',
+    plugins: { legend: { labels: { color: '#8892a4', boxWidth: 12, font: { size: 12 } } } },
+    scales: {
+      x: { ticks: { color: '#8892a4', font: { size: 11 } }, grid: { color: '#1c1c2e' } },
+      y: { ticks: { color: '#8892a4', font: { size: 11 } }, grid: { color: '#1c1c2e' }, beginAtZero: true },
+    },
+  };
+}
+
+async function loadAnalytics() {
+  try {
+    const res = await fetch('/api/analytics');
+    if (!res.ok) return;
+    const data = await res.json();
+    renderAnalytics(data);
+  } catch (e) {
+    console.error('Error cargando analytics:', e);
+  }
+}
+
+function renderAnalytics(data) {
+  // KPIs
+  document.getElementById('kpi-published').textContent = data.total_published ?? 0;
+  document.getElementById('kpi-likes').textContent = data.total_likes ?? 0;
+  document.getElementById('kpi-comments').textContent = data.total_comments ?? 0;
+  document.getElementById('kpi-avg').textContent = data.avg_likes ?? 0;
+
+  // Chart: posts por día
+  _destroyChart('by-day');
+  const dayCtx = document.getElementById('chart-by-day').getContext('2d');
+  _charts['by-day'] = new Chart(dayCtx, {
+    type: 'bar',
+    data: {
+      labels: (data.posts_by_day || []).map(d => {
+        const dt = new Date(d.date + 'T00:00:00');
+        return dt.toLocaleDateString('es-MX', { month: 'short', day: 'numeric' });
+      }),
+      datasets: [{
+        label: 'Publicaciones',
+        data: (data.posts_by_day || []).map(d => d.count),
+        backgroundColor: 'rgba(99,102,241,0.7)',
+        borderRadius: 4,
+        borderSkipped: false,
+      }],
+    },
+    options: {
+      ..._chartDefaults(),
+      plugins: { legend: { display: false } },
+      responsive: true,
+      maintainAspectRatio: true,
+    },
+  });
+
+  // Chart: posts por hora
+  _destroyChart('by-hour');
+  const hourCtx = document.getElementById('chart-by-hour').getContext('2d');
+  const hourCounts = (data.posts_by_hour || []).map(h => h.count);
+  const maxHour = Math.max(...hourCounts, 1);
+  _charts['by-hour'] = new Chart(hourCtx, {
+    type: 'bar',
+    data: {
+      labels: Array.from({ length: 24 }, (_, i) => `${String(i).padStart(2, '0')}h`),
+      datasets: [{
+        label: 'Posts publicados',
+        data: hourCounts,
+        backgroundColor: hourCounts.map(v =>
+          v === maxHour && v > 0 ? 'rgba(16,185,129,0.8)' : 'rgba(99,102,241,0.5)'
+        ),
+        borderRadius: 3,
+        borderSkipped: false,
+      }],
+    },
+    options: {
+      ..._chartDefaults(),
+      plugins: { legend: { display: false } },
+      responsive: true,
+      maintainAspectRatio: true,
+    },
+  });
+
+  // Chart: status
+  _destroyChart('status');
+  const statusCtx = document.getElementById('chart-status').getContext('2d');
+  const statusMap = data.status_breakdown || {};
+  const statusLabels = { published: 'Publicados', scheduled: 'Programados', failed: 'Errores', cancelled: 'Cancelados', pending: 'Pendientes' };
+  const statusColors = { published: '#10b981', scheduled: '#6366f1', failed: '#ef4444', cancelled: '#64748b', pending: '#f59e0b' };
+  const statusKeys = Object.keys(statusMap);
+  _charts['status'] = new Chart(statusCtx, {
+    type: 'doughnut',
+    data: {
+      labels: statusKeys.map(k => statusLabels[k] || k),
+      datasets: [{
+        data: statusKeys.map(k => statusMap[k]),
+        backgroundColor: statusKeys.map(k => statusColors[k] || '#8892a4'),
+        borderColor: '#141420',
+        borderWidth: 2,
+      }],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: true,
+      plugins: { legend: { position: 'bottom', labels: { color: '#8892a4', boxWidth: 10, font: { size: 11 } } } },
+    },
+  });
+
+  // Chart: media type
+  _destroyChart('media');
+  const mediaCtx = document.getElementById('chart-media').getContext('2d');
+  const mediaMap = data.media_type_breakdown || {};
+  const mediaLabels = { image: 'Imagen', video: 'Video', document: 'Documento', generate: 'IA generada', auto: 'Auto' };
+  const mediaColors = ['#6366f1', '#0a66c2', '#10b981', '#f59e0b', '#8892a4'];
+  const mediaKeys = Object.keys(mediaMap);
+  _charts['media'] = new Chart(mediaCtx, {
+    type: 'doughnut',
+    data: {
+      labels: mediaKeys.map(k => mediaLabels[k] || k),
+      datasets: [{
+        data: mediaKeys.map(k => mediaMap[k]),
+        backgroundColor: mediaColors.slice(0, mediaKeys.length),
+        borderColor: '#141420',
+        borderWidth: 2,
+      }],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: true,
+      plugins: { legend: { position: 'bottom', labels: { color: '#8892a4', boxWidth: 10, font: { size: 11 } } } },
+    },
+  });
+
+  // Top posts
+  const topEl = document.getElementById('top-posts-list');
+  const topPosts = data.top_posts || [];
+  if (!topPosts.length) {
+    topEl.innerHTML = '<div class="empty-state">Actualiza las métricas de tus posts publicados para ver el ranking.</div>';
+    return;
+  }
+  const maxTotal = Math.max(...topPosts.map(p => p.total), 1);
+  topEl.innerHTML = topPosts.map((p, i) => `
+    <div class="top-post-row">
+      <span class="top-post-rank">#${i + 1}</span>
+      <div class="top-post-body">
+        <div class="top-post-text">${escHtml(p.text)}${p.text.length >= 120 ? '…' : ''}</div>
+        <div class="top-post-bar-wrap">
+          <div class="top-post-bar" style="width:${Math.round(p.total / maxTotal * 100)}%"></div>
+        </div>
+      </div>
+      <div class="top-post-stats">
+        <span title="Likes">👍 ${p.likes}</span>
+        <span title="Comentarios">💬 ${p.comments}</span>
+      </div>
+    </div>
+  `).join('');
+}
+
 // ── Métricas de LinkedIn ────────────────────────────────
 
 async function refreshMetrics(postId) {
