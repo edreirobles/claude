@@ -174,7 +174,13 @@
     <div class="card-header">
       <span class="step-badge history-badge">📋</span>
       <h2>Historial de publicaciones</h2>
-      <button class="btn btn-ghost btn-sm" onclick="loadHistory()">↺ Actualizar</button>
+      <div style="display:flex;align-items:center;gap:8px;margin-left:auto">
+        <div class="view-toggle">
+          <button class="view-toggle-btn active" id="btn-view-list" onclick="switchHistoryView('list')" title="Vista lista">☰ Lista</button>
+          <button class="view-toggle-btn" id="btn-view-cal" onclick="switchHistoryView('calendar')" title="Vista calendario">📅 Mes</button>
+        </div>
+        <button class="btn btn-ghost btn-sm" onclick="loadHistory()">↺ Actualizar</button>
+      </div>
     </div>
 
     <!-- Exportar CSV -->
@@ -193,8 +199,25 @@
       </div>
     </div>
 
+    <!-- Vista lista -->
     <div id="history-list" class="history-list">
       <div class="empty-state">Aún no hay publicaciones. ¡Genera tu primer post!</div>
+    </div>
+
+    <!-- Vista calendario -->
+    <div id="history-calendar" class="hidden">
+      <div class="cal-nav">
+        <button class="cal-nav-btn" onclick="calNavigate(-1)">‹</button>
+        <span class="cal-month-label" id="cal-month-label">—</span>
+        <button class="cal-nav-btn" onclick="calNavigate(1)">›</button>
+      </div>
+      <div class="cal-weekdays">
+        <span>Dom</span><span>Lun</span><span>Mar</span>
+        <span>Mié</span><span>Jue</span><span>Vie</span><span>Sáb</span>
+      </div>
+      <div id="cal-grid" class="cal-grid"></div>
+      <!-- Panel de detalle del día seleccionado -->
+      <div id="cal-day-detail" class="cal-day-detail hidden"></div>
     </div>
   </section>
 

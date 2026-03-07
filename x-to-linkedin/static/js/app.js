@@ -429,14 +429,142 @@ function getSelectedImages() {
 }
 
 // ── Historial ──────────────────────────────────────────
+
+// Calendar state
+const calState = {
+  view: 'list',       // 'list' | 'calendar'
+  year: new Date().getFullYear(),
+  month: new Date().getMonth(), // 0-based
+  posts: [],
+  selectedDay: null,
+};
+
 async function loadHistory() {
   try {
     const res = await fetch('/api/posts');
     const posts = await res.json();
+    calState.posts = posts || [];
     renderHistory(posts);
   } catch (e) {
     console.error('Error loading history:', e);
   }
+}
+
+function switchHistoryView(view) {
+  calState.view = view;
+  const isList = view === 'list';
+  document.getElementById('history-list').classList.toggle('hidden', !isList);
+  document.getElementById('history-calendar').classList.toggle('hidden', isList);
+  document.getElementById('btn-view-list').classList.toggle('active', isList);
+  document.getElementById('btn-view-cal').classList.toggle('active', !isList);
+  if (!isList) renderCalendar();
+}
+
+function calNavigate(delta) {
+  calState.month += delta;
+  if (calState.month > 11) { calState.month = 0; calState.year++; }
+  if (calState.month < 0)  { calState.month = 11; calState.year--; }
+  calState.selectedDay = null;
+  document.getElementById('cal-day-detail').classList.add('hidden');
+  renderCalendar();
+}
+
+function renderCalendar() {
+  const { year, month, posts } = calState;
+
+  // Label del mes
+  const label = new Date(year, month, 1).toLocaleDateString('es-MX', { month: 'long', year: 'numeric' });
+  document.getElementById('cal-month-label').textContent =
+    label.charAt(0).toUpperCase() + label.slice(1);
+
+  // Agrupar posts por fecha local YYYY-MM-DD
+  const byDay = {};
+  posts.forEach(p => {
+    const raw = p.scheduled_at || p.published_at || p.created_at;
+    if (!raw) return;
+    // raw viene sin 'Z' pero está en UTC; convertir a local
+    const dt = new Date(raw + (raw.includes('Z') ? '' : 'Z'));
+    const key = `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}-${String(dt.getDate()).padStart(2,'0')}`;
+    if (!byDay[key]) byDay[key] = [];
+    byDay[key].push(p);
+  });
+
+  // Construir el grid
+  const firstDay = new Date(year, month, 1).getDay(); // 0=Dom
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const today = new Date();
+
+  let html = '';
+
+  // Celdas vacías antes del primer día
+  for (let i = 0; i < firstDay; i++) {
+    html += '<div class="cal-cell cal-cell--empty"></div>';
+  }
+
+  for (let d = 1; d <= daysInMonth; d++) {
+    const key = `${year}-${String(month+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+    const dayPosts = byDay[key] || [];
+    const isToday = today.getFullYear() === year && today.getMonth() === month && today.getDate() === d;
+    const isSelected = calState.selectedDay === key;
+
+    // Contar por estado
+    const counts = { published: 0, scheduled: 0, failed: 0, cancelled: 0 };
+    dayPosts.forEach(p => { if (counts[p.status] !== undefined) counts[p.status]++; });
+
+    const dots = [
+      counts.published  ? `<span class="cal-dot cal-dot--published" title="${counts.published} publicado(s)"></span>` : '',
+      counts.scheduled  ? `<span class="cal-dot cal-dot--scheduled" title="${counts.scheduled} programado(s)"></span>` : '',
+      counts.failed     ? `<span class="cal-dot cal-dot--failed"    title="${counts.failed} error(es)"></span>` : '',
+      counts.cancelled  ? `<span class="cal-dot cal-dot--cancelled" title="${counts.cancelled} cancelado(s)"></span>` : '',
+    ].join('');
+
+    html += `
+      <div
+        class="cal-cell${isToday ? ' cal-cell--today' : ''}${dayPosts.length ? ' cal-cell--has-posts' : ''}${isSelected ? ' cal-cell--selected' : ''}"
+        onclick="calSelectDay('${key}')"
+        data-key="${key}"
+      >
+        <span class="cal-day-num">${d}</span>
+        ${dots ? `<div class="cal-dots">${dots}</div>` : ''}
+      </div>`;
+  }
+
+  document.getElementById('cal-grid').innerHTML = html;
+}
+
+function calSelectDay(key) {
+  calState.selectedDay = key;
+  // Re-render para marcar el selected
+  renderCalendar();
+
+  const dayPosts = calState.posts.filter(p => {
+    const raw = p.scheduled_at || p.published_at || p.created_at;
+    if (!raw) return false;
+    const dt = new Date(raw + (raw.includes('Z') ? '' : 'Z'));
+    const k = `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}-${String(dt.getDate()).padStart(2,'0')}`;
+    return k === key;
+  });
+
+  const detailEl = document.getElementById('cal-day-detail');
+  if (!dayPosts.length) {
+    detailEl.innerHTML = `<div class="cal-detail-empty">Sin publicaciones este día.</div>`;
+  } else {
+    const [y, m, d] = key.split('-');
+    const dateLabel = new Date(+y, +m-1, +d).toLocaleDateString('es-MX', { weekday: 'long', day: 'numeric', month: 'long' });
+    const statusLabel = { published: 'Publicado', scheduled: 'Programado', failed: 'Error', cancelled: 'Cancelado', pending: 'Pendiente' };
+    detailEl.innerHTML = `
+      <div class="cal-detail-header">${dateLabel.charAt(0).toUpperCase() + dateLabel.slice(1)}</div>
+      ${dayPosts.map(p => `
+        <div class="cal-detail-item">
+          <span class="history-status status-${escHtml(p.status)}">${escHtml(statusLabel[p.status] || p.status)}</span>
+          <span class="cal-detail-text">${escHtml((p.linkedin_text || '').slice(0, 140))}${(p.linkedin_text || '').length > 140 ? '…' : ''}</span>
+          ${p.li_likes != null || p.li_comments != null
+            ? `<span class="cal-detail-metrics">👍 ${p.li_likes ?? '—'} &nbsp; 💬 ${p.li_comments ?? '—'}</span>`
+            : ''}
+        </div>`).join('')}
+    `;
+  }
+  detailEl.classList.remove('hidden');
 }
 
 function renderHistory(posts) {
