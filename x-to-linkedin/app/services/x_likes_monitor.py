@@ -324,6 +324,67 @@ async def _seed_existing_likes(tweets: list[dict]) -> int:
     return count
 
 
+# ── Reempaquetado de schedule ───────────────────────────────────────────────────
+
+async def repack_schedule() -> dict:
+    """
+    Reordena todos los posts 'scheduled' futuros para que ocupen los slots
+    5 AM y 4 PM (hora Monterrey) de forma consecutiva sin huecos.
+    Si hoy a las 5 AM ya está ocupado, empieza desde el siguiente slot libre.
+    Retorna {"repacked": N, "slots": [lista de nuevos datetimes como strings]}.
+    """
+    from .scheduler_service import schedule_post
+
+    async with AsyncSessionLocal() as db:
+        now_utc = datetime.utcnow()
+
+        result = await db.execute(
+            select(ScheduledPost)
+            .where(
+                ScheduledPost.status == "scheduled",
+                ScheduledPost.scheduled_at > now_utc,
+            )
+            .order_by(ScheduledPost.scheduled_at)
+        )
+        future_posts = result.scalars().all()
+
+        if not future_posts:
+            return {"repacked": 0, "slots": []}
+
+        now_mty = datetime.now(MONTERREY_TZ)
+        candidate_date = now_mty.date()
+
+        # Generar suficientes slots consecutivos
+        slots: list[datetime] = []
+        while len(slots) < len(future_posts):
+            for hour in DAILY_SLOTS:
+                candidate_mty = datetime(
+                    candidate_date.year, candidate_date.month, candidate_date.day,
+                    hour, 0, 0, tzinfo=MONTERREY_TZ,
+                )
+                if candidate_mty > now_mty:
+                    slots.append(candidate_mty.astimezone(timezone.utc).replace(tzinfo=None))
+                if len(slots) >= len(future_posts):
+                    break
+            candidate_date += timedelta(days=1)
+
+        count = 0
+        slot_strs = []
+        for post, new_dt in zip(future_posts, slots):
+            slot_strs.append(
+                new_dt.replace(tzinfo=timezone.utc)
+                .astimezone(MONTERREY_TZ)
+                .strftime("%Y-%m-%d %H:%M MTY")
+            )
+            if abs((post.scheduled_at - new_dt).total_seconds()) > 60:
+                post.scheduled_at = new_dt
+                schedule_post(post.id, new_dt)
+                count += 1
+
+        await db.commit()
+        return {"repacked": count, "slots": slot_strs}
+
+
 # ── Main entry point ───────────────────────────────────────────────────────────
 
 async def check_and_process_likes() -> None:

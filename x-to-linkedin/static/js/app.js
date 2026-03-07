@@ -847,9 +847,12 @@ function renderXMonitorStatus(data) {
       </div>
     </div>
 
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:10px">
       <div style="color:var(--text-muted);font-size:13px">Últimos likes procesados</div>
-      <button class="btn btn-ghost btn-sm" onclick="checkXNow()">⚡ Revisar ahora</button>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-ghost btn-sm" onclick="checkXNow()">⚡ Revisar ahora</button>
+        <button class="btn btn-ghost btn-sm" onclick="repackSchedule()" title="Compacta los posts programados a 5 AM y 4 PM sin huecos">📅 Repaquetar horario</button>
+      </div>
     </div>
 
     ${recentHtml
@@ -872,6 +875,24 @@ async function checkXNow() {
     setTimeout(loadXMonitorStatus, 5000);
   } catch (e) {
     showToast('Error al iniciar chequeo', 'error');
+  }
+}
+
+async function repackSchedule() {
+  if (!confirm('¿Reordenar todos los posts programados a los slots 5 AM y 4 PM consecutivos sin huecos?')) return;
+  try {
+    showToast('Reordenando programación...', 'info');
+    const res = await fetch('/api/posts/repack-schedule', { method: 'POST' });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || 'Error');
+    const msg = data.repacked === 0
+      ? 'La programación ya está compacta, no hubo cambios.'
+      : `✅ ${data.repacked} post(s) reordenado(s). Próximos slots:\n${data.slots.join('\n')}`;
+    alert(msg);
+    loadHistory();
+    if (calState.view === 'calendar') renderCalendar();
+  } catch (e) {
+    showToast(`Error: ${e.message}`, 'error');
   }
 }
 

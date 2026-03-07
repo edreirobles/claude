@@ -482,3 +482,14 @@ async def refresh_post_metrics(post_id: int, db: AsyncSession = Depends(get_db))
     await db.commit()
     await db.refresh(post)
     return post
+
+
+@router.post("/posts/repack-schedule")
+async def repack_schedule_endpoint():
+    """
+    Reordena todos los posts 'scheduled' futuros para que ocupen
+    los slots 5 AM y 4 PM (hora Monterrey) consecutivamente sin huecos.
+    """
+    from ..services.x_likes_monitor import repack_schedule
+    result = await repack_schedule()
+    return result
