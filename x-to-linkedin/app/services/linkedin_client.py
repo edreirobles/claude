@@ -336,6 +336,30 @@ class LinkedInClient:
         # 5. Solo texto
         return await self._create_text_post(text)
 
+    async def get_post_metrics(self, post_id: str) -> dict:
+        """
+        Obtiene likes y comentarios de un post publicado vía /v2/socialActions.
+        Las impresiones no están disponibles para perfiles personales (solo empresa).
+        """
+        import urllib.parse
+        urn = f"urn:li:ugcPost:{post_id}"
+        encoded_urn = urllib.parse.quote(urn, safe="")
+        url = f"{LINKEDIN_API_BASE}/socialActions/{encoded_urn}"
+        try:
+            async with httpx.AsyncClient(timeout=15) as client:
+                r = await client.get(url, headers=self._headers)
+                if r.status_code == 200:
+                    data = r.json()
+                    return {
+                        "likes": data.get("likesSummary", {}).get("totalLikes", 0),
+                        "comments": data.get("commentsSummary", {}).get("totalFirstLevelComments", 0),
+                        "impressions": None,
+                    }
+                logger.warning(f"socialActions devolvió {r.status_code} para {post_id}")
+        except Exception as e:
+            logger.error(f"Error obteniendo métricas de LinkedIn: {e}")
+        return {"likes": None, "comments": None, "impressions": None}
+
 
 def get_oauth_url(client_id: str, redirect_uri: str, state: str) -> str:
     """Genera la URL de autorización OAuth 2.0 de LinkedIn."""

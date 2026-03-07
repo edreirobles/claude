@@ -15,13 +15,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, desc
 
 from ..database import get_db
-from ..models import ScheduledPost, LinkedInToken
+from ..models import AppSettings, ScheduledPost, LinkedInToken
 from ..schemas import (
     ScrapeRequest,
     GenerateResponse,
     PublishRequest,
     ScheduleRequest,
     PostResponse,
+    SettingsUpdate,
+    SettingsResponse,
     TweetData as TweetDataSchema,
 )
 from ..services.x_scraper import scrape_tweet
@@ -30,6 +32,7 @@ from ..services.post_generator import (
     generate_free_image,
     download_tweet_video,
     download_pdf,
+    SYSTEM_PROMPT_ES,
 )
 from ..services.linkedin_client import LinkedInClient
 from ..services.scheduler_service import schedule_post, cancel_scheduled_post
@@ -57,7 +60,7 @@ async def get_linkedin_client(db: AsyncSession) -> LinkedInClient:
 
 
 @router.post("/generate", response_model=GenerateResponse)
-async def generate_post(request: ScrapeRequest):
+async def generate_post(request: ScrapeRequest, db: AsyncSession = Depends(get_db)):
     """
     Extrae el contenido del tweet y genera una publicación LinkedIn con IA.
     No requiere LinkedIn conectado.
@@ -74,11 +77,17 @@ async def generate_post(request: ScrapeRequest):
     except Exception as e:
         raise HTTPException(status_code=422, detail=f"No se pudo extraer el tweet: {e}")
 
+    # Cargar prompt personalizado si existe
+    cfg_result = await db.execute(select(AppSettings).where(AppSettings.id == 1))
+    cfg = cfg_result.scalar_one_or_none()
+    custom_prompt = cfg.custom_prompt if cfg else None
+
     # Generación con Claude
     try:
         linkedin_text = await generate_linkedin_post(
             tweet=tweet,
             language=request.language or settings.post_language,
+            custom_prompt=custom_prompt,
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error generando el post: {e}")
@@ -340,3 +349,63 @@ async def update_post_text(
     await db.commit()
 
     return {"message": "Post actualizado"}
+
+
+# ── Configuración del prompt ────────────────────────────────────────────────
+
+@router.get("/settings", response_model=SettingsResponse)
+async def get_settings(db: AsyncSession = Depends(get_db)):
+    """Devuelve el prompt personalizado actual y el prompt default del sistema."""
+    result = await db.execute(select(AppSettings).where(AppSettings.id == 1))
+    cfg = result.scalar_one_or_none()
+    return SettingsResponse(
+        custom_prompt=cfg.custom_prompt if cfg else None,
+        default_prompt=SYSTEM_PROMPT_ES,
+    )
+
+
+@router.put("/settings", response_model=SettingsResponse)
+async def update_settings(data: SettingsUpdate, db: AsyncSession = Depends(get_db)):
+    """
+    Guarda el prompt personalizado.
+    Enviar custom_prompt=null restablece al prompt default del sistema.
+    """
+    result = await db.execute(select(AppSettings).where(AppSettings.id == 1))
+    cfg = result.scalar_one_or_none()
+    if cfg:
+        cfg.custom_prompt = data.custom_prompt
+    else:
+        cfg = AppSettings(id=1, custom_prompt=data.custom_prompt)
+        db.add(cfg)
+    await db.commit()
+    return SettingsResponse(
+        custom_prompt=cfg.custom_prompt,
+        default_prompt=SYSTEM_PROMPT_ES,
+    )
+
+
+# ── Métricas de LinkedIn ────────────────────────────────────────────────────
+
+@router.post("/posts/{post_id}/refresh-metrics", response_model=PostResponse)
+async def refresh_post_metrics(post_id: int, db: AsyncSession = Depends(get_db)):
+    """
+    Actualiza las métricas (likes, comentarios) de un post publicado
+    consultando la API de LinkedIn.
+    """
+    result = await db.execute(select(ScheduledPost).where(ScheduledPost.id == post_id))
+    post = result.scalar_one_or_none()
+    if not post:
+        raise HTTPException(status_code=404, detail="Post no encontrado")
+    if post.status != "published" or not post.linkedin_post_id:
+        raise HTTPException(status_code=400, detail="Este post aún no fue publicado en LinkedIn")
+
+    li_client = await get_linkedin_client(db)
+    metrics = await li_client.get_post_metrics(post.linkedin_post_id)
+
+    post.li_likes = metrics["likes"]
+    post.li_comments = metrics["comments"]
+    post.li_impressions = metrics["impressions"]
+    post.metrics_updated_at = datetime.utcnow()
+    await db.commit()
+    await db.refresh(post)
+    return post

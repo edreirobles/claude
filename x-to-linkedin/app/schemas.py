@@ -54,6 +54,10 @@ class PostResponse(BaseModel):
     published_at: Optional[datetime]
     created_at: datetime
     error_message: Optional[str]
+    li_likes: Optional[int] = None
+    li_comments: Optional[int] = None
+    li_impressions: Optional[int] = None
+    metrics_updated_at: Optional[datetime] = None
 
     model_config = {"from_attributes": True}
 
@@ -63,3 +67,12 @@ class AuthStatusResponse(BaseModel):
     person_name: str = ""
     person_picture: str = ""
     person_urn: str = ""
+
+
+class SettingsUpdate(BaseModel):
+    custom_prompt: Optional[str] = None  # None = restaurar al default del sistema
+
+
+class SettingsResponse(BaseModel):
+    custom_prompt: Optional[str]
+    default_prompt: str
