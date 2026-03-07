@@ -24,6 +24,7 @@ document.addEventListener('DOMContentLoaded', () => {
   checkUrlParams();
   setDefaultScheduleTime();
   loadXMonitorStatus();
+  loadSettings();
 });
 
 function checkUrlParams() {
@@ -463,8 +464,25 @@ function renderHistory(posts) {
       ? `<button class="btn-cancel-small" onclick="cancelPost(${post.id})" title="Cancelar">Cancelar</button>`
       : '';
 
+    // Métricas
+    let metricsHtml = '';
+    if (post.status === 'published') {
+      const likes = post.li_likes != null ? post.li_likes : '—';
+      const comments = post.li_comments != null ? post.li_comments : '—';
+      const updatedAt = post.metrics_updated_at
+        ? new Date(post.metrics_updated_at + 'Z').toLocaleString('es-MX', { dateStyle: 'short', timeStyle: 'short' })
+        : null;
+      metricsHtml = `
+        <div class="history-metrics">
+          <span title="Likes">👍 ${likes}</span>
+          <span title="Comentarios">💬 ${comments}</span>
+          <button class="btn-refresh-metrics" onclick="refreshMetrics(${post.id})" title="Actualizar métricas">↺ Métricas</button>
+          ${updatedAt ? `<span class="metrics-date">actualizado ${updatedAt}</span>` : ''}
+        </div>`;
+    }
+
     return `
-      <div class="history-item">
+      <div class="history-item" id="history-item-${post.id}">
         <span class="history-status status-${escHtml(post.status)}">${escHtml(statusLabel)}</span>
         <div class="history-content">
           <div class="history-text">${escHtml(post.linkedin_text)}</div>
@@ -473,6 +491,7 @@ function renderHistory(posts) {
             ${post.tweet_author ? `<span>🐦 ${escHtml(post.tweet_author)}</span>` : ''}
             ${post.error_message ? `<span style="color:var(--error)">⚠ ${escHtml(post.error_message)}</span>` : ''}
           </div>
+          ${metricsHtml}
         </div>
         <div class="history-actions">${cancelBtn}</div>
       </div>
@@ -725,5 +744,74 @@ async function checkXNow() {
     setTimeout(loadXMonitorStatus, 5000);
   } catch (e) {
     showToast('Error al iniciar chequeo', 'error');
+  }
+}
+
+// ── Configuración del prompt ────────────────────────────
+
+let _defaultPrompt = '';
+
+async function loadSettings() {
+  try {
+    const res = await fetch('/api/settings');
+    if (!res.ok) return;
+    const data = await res.json();
+    _defaultPrompt = data.default_prompt;
+    const ta = document.getElementById('settings-prompt');
+    if (ta) ta.value = data.custom_prompt || data.default_prompt;
+  } catch (e) {
+    console.error('Error cargando settings:', e);
+  }
+}
+
+async function savePrompt() {
+  const ta = document.getElementById('settings-prompt');
+  const resultEl = document.getElementById('settings-result');
+  const prompt = ta.value.trim() || null;
+  try {
+    const res = await fetch('/api/settings', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ custom_prompt: prompt }),
+    });
+    if (!res.ok) throw new Error((await res.json()).detail);
+    resultEl.textContent = 'Prompt guardado correctamente.';
+    resultEl.className = 'publish-result publish-result--success';
+    show('settings-result');
+    setTimeout(() => hide('settings-result'), 3000);
+  } catch (e) {
+    resultEl.textContent = `Error: ${e.message}`;
+    resultEl.className = 'publish-result publish-result--error';
+    show('settings-result');
+  }
+}
+
+async function resetPrompt() {
+  if (!confirm('¿Restablecer el prompt al texto original del sistema?')) return;
+  try {
+    await fetch('/api/settings', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ custom_prompt: null }),
+    });
+    const ta = document.getElementById('settings-prompt');
+    if (ta) ta.value = _defaultPrompt;
+    showToast('Prompt restablecido al default', 'success');
+  } catch (e) {
+    showToast('Error al restablecer prompt', 'error');
+  }
+}
+
+// ── Métricas de LinkedIn ────────────────────────────────
+
+async function refreshMetrics(postId) {
+  try {
+    showToast('Consultando métricas en LinkedIn...', 'info');
+    const res = await fetch(`/api/posts/${postId}/refresh-metrics`, { method: 'POST' });
+    if (!res.ok) throw new Error((await res.json()).detail);
+    showToast('Métricas actualizadas', 'success');
+    loadHistory();
+  } catch (e) {
+    showToast(`Error: ${e.message}`, 'error');
   }
 }
