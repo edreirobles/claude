@@ -478,55 +478,61 @@ function renderCalendar() {
   document.getElementById('cal-month-label').textContent =
     label.charAt(0).toUpperCase() + label.slice(1);
 
-  // Agrupar posts por fecha local YYYY-MM-DD
+  // Agrupar posts por fecha local YYYY-MM-DD, guardar también el datetime
   const byDay = {};
   posts.forEach(p => {
     const raw = p.scheduled_at || p.published_at || p.created_at;
     if (!raw) return;
-    // raw viene sin 'Z' pero está en UTC; convertir a local
     const dt = new Date(raw + (raw.includes('Z') ? '' : 'Z'));
     const key = `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}-${String(dt.getDate()).padStart(2,'0')}`;
     if (!byDay[key]) byDay[key] = [];
-    byDay[key].push(p);
+    byDay[key].push({ post: p, dt });
   });
 
-  // Construir el grid
-  const firstDay = new Date(year, month, 1).getDay(); // 0=Dom
+  // Ordenar dentro de cada día por hora
+  Object.values(byDay).forEach(arr => arr.sort((a, b) => a.dt - b.dt));
+
+  const firstDay = new Date(year, month, 1).getDay();
   const daysInMonth = new Date(year, month + 1, 0).getDate();
   const today = new Date();
 
   let html = '';
 
-  // Celdas vacías antes del primer día
   for (let i = 0; i < firstDay; i++) {
     html += '<div class="cal-cell cal-cell--empty"></div>';
   }
 
   for (let d = 1; d <= daysInMonth; d++) {
     const key = `${year}-${String(month+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
-    const dayPosts = byDay[key] || [];
+    const dayEntries = byDay[key] || [];
     const isToday = today.getFullYear() === year && today.getMonth() === month && today.getDate() === d;
     const isSelected = calState.selectedDay === key;
 
-    // Contar por estado
-    const counts = { published: 0, scheduled: 0, failed: 0, cancelled: 0 };
-    dayPosts.forEach(p => { if (counts[p.status] !== undefined) counts[p.status]++; });
-
-    const dots = [
-      counts.published  ? `<span class="cal-dot cal-dot--published" title="${counts.published} publicado(s)"></span>` : '',
-      counts.scheduled  ? `<span class="cal-dot cal-dot--scheduled" title="${counts.scheduled} programado(s)"></span>` : '',
-      counts.failed     ? `<span class="cal-dot cal-dot--failed"    title="${counts.failed} error(es)"></span>` : '',
-      counts.cancelled  ? `<span class="cal-dot cal-dot--cancelled" title="${counts.cancelled} cancelado(s)"></span>` : '',
-    ].join('');
+    const chips = dayEntries.map(({ post: p, dt }) => {
+      const timeStr = dt.toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit', hour12: true });
+      const snippet = (p.linkedin_text || '').replace(/\s+/g, ' ').trim().slice(0, 32);
+      const statusClass = {
+        published: 'cal-chip--published',
+        scheduled: 'cal-chip--scheduled',
+        failed:    'cal-chip--failed',
+        cancelled: 'cal-chip--cancelled',
+      }[p.status] || 'cal-chip--scheduled';
+      return `<div class="cal-chip ${statusClass}" title="${escHtml((p.linkedin_text||'').slice(0,200))}">
+        <span class="cal-chip-time">${escHtml(timeStr)}</span>
+        <span class="cal-chip-text">${escHtml(snippet)}${snippet.length >= 32 ? '…' : ''}</span>
+      </div>`;
+    }).join('');
 
     html += `
       <div
-        class="cal-cell${isToday ? ' cal-cell--today' : ''}${dayPosts.length ? ' cal-cell--has-posts' : ''}${isSelected ? ' cal-cell--selected' : ''}"
-        onclick="calSelectDay('${key}')"
+        class="cal-cell${isToday ? ' cal-cell--today' : ''}${dayEntries.length ? ' cal-cell--has-posts' : ''}${isSelected ? ' cal-cell--selected' : ''}"
+        onclick="${dayEntries.length ? `calSelectDay('${key}')` : ''}"
         data-key="${key}"
       >
-        <span class="cal-day-num">${d}</span>
-        ${dots ? `<div class="cal-dots">${dots}</div>` : ''}
+        <div class="cal-cell-head">
+          <span class="cal-day-num">${d}</span>
+        </div>
+        ${chips ? `<div class="cal-chips">${chips}</div>` : ''}
       </div>`;
   }
 
