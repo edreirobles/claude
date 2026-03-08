@@ -1,45 +1,66 @@
 """
-Scraping de métricas de LinkedIn con Playwright.
+Métricas de LinkedIn via API Voyager (API interna de linkedin.com).
 
-Usa cookies de sesión (li_at + JSESSIONID) para navegar a cada post
-publicado y extraer las estadísticas que LinkedIn muestra al autor:
-  - Reacciones (likes)
-  - Comentarios
-  - Impresiones
+LinkedIn Voyager es la API REST que usa la propia web de LinkedIn.
+Se autentica con cookies de sesión (li_at + JSESSIONID), igual que
+el browser. No requiere Playwright — son llamadas HTTP directas,
+más rápidas y confiables.
 
-Configuración requerida en .env:
-    LINKEDIN_LI_AT     → Cookie "li_at" de linkedin.com
-    LINKEDIN_JSESSIONID → Cookie "JSESSIONID" (sin las comillas externas)
-
-Cómo obtenerlas:
-    1. Abre linkedin.com en Chrome/Firefox, inicia sesión.
-    2. F12 → Application → Cookies → https://www.linkedin.com
-    3. Copia el Value de "li_at" y "JSESSIONID".
+Configuración en .env:
+    LINKEDIN_LI_AT      → Cookie "li_at" de linkedin.com
+    LINKEDIN_JSESSIONID → Cookie "JSESSIONID" (sin las comillas del valor)
 """
 import re
+import httpx
 import logging
+import urllib.parse
 from typing import Optional
 
 logger = logging.getLogger(__name__)
 
 
-def _parse_li_count(text: str) -> Optional[int]:
+def _find_int(pattern: str, text: str) -> Optional[int]:
+    """Busca el primer int que coincida con el patrón en el texto."""
+    m = re.search(pattern, text)
+    return int(m.group(1)) if m else None
+
+
+def _normalize_post_id(raw_id: str) -> str:
     """
-    Convierte strings de LinkedIn como '1,234', '1.2K', '4.5M' a int.
-    Devuelve None si no puede parsear.
+    Normaliza el linkedin_post_id guardado en la BD.
+    Puede venir como:
+      - "7234567890123456789"              → numérico puro
+      - "urn:li:ugcPost:7234567890123456789" → URN completo
+    Devuelve siempre el ID numérico.
     """
-    if not text:
-        return None
-    text = text.strip().replace(",", "").replace("\xa0", "").replace(" ", "")
-    text = re.sub(r"[^\d.KkMm]", "", text)
-    try:
-        if text.lower().endswith("m"):
-            return int(float(text[:-1]) * 1_000_000)
-        if text.lower().endswith("k"):
-            return int(float(text[:-1]) * 1_000)
-        return int(float(text)) if text else None
-    except (ValueError, OverflowError):
-        return None
+    raw_id = (raw_id or "").strip()
+    if raw_id.startswith("urn:li:ugcPost:"):
+        return raw_id.split(":")[-1]
+    if raw_id.startswith("urn:li:share:"):
+        return raw_id.split(":")[-1]
+    return raw_id
+
+
+def _build_headers(li_at: str, jsessionid: str) -> dict:
+    raw_jid = jsessionid.strip('"') if jsessionid else ""
+    cookie = f"li_at={li_at}"
+    if raw_jid:
+        cookie += f'; JSESSIONID="{raw_jid}"'
+
+    return {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/122.0.0.0 Safari/537.36"
+        ),
+        "Accept": "application/vnd.linkedin.normalized+json+2.1",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Cookie": cookie,
+        "Csrf-Token": raw_jid if raw_jid else "ajax:0",
+        "x-restli-protocol-version": "2.0.0",
+        "x-li-lang": "en_US",
+        "Referer": "https://www.linkedin.com/feed/",
+    }
 
 
 async def scrape_linkedin_post_metrics(
@@ -48,174 +69,130 @@ async def scrape_linkedin_post_metrics(
     jsessionid: str = "",
 ) -> dict:
     """
-    Navega a la página del post en LinkedIn y extrae métricas visibles al autor.
-
-    Retorna dict con claves: likes, comments, impressions (int o None).
+    Obtiene likes, comentarios e impresiones de un post de LinkedIn
+    usando la API Voyager (interna). No necesita Playwright.
     """
-    try:
-        from playwright.async_api import async_playwright, TimeoutError as PWTimeout
-    except ImportError:
-        logger.error("[LinkedIn Scraper] playwright no instalado. Ejecuta: pip install playwright && playwright install chromium")
+    numeric_id = _normalize_post_id(post_id)
+    if not numeric_id:
+        logger.error(f"[Voyager] post_id inválido: '{post_id}'")
         return {"likes": None, "comments": None, "impressions": None}
 
-    post_url = f"https://www.linkedin.com/feed/update/urn:li:ugcPost:{post_id}/"
+    urn = f"urn:li:ugcPost:{numeric_id}"
+    encoded_urn = urllib.parse.quote(urn, safe="")
+    headers = _build_headers(li_at, jsessionid)
+
     result: dict = {"likes": None, "comments": None, "impressions": None}
 
-    try:
-        async with async_playwright() as p:
-            browser = await p.chromium.launch(headless=True)
-            ctx = await browser.new_context(
-                user_agent=(
-                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                    "AppleWebKit/537.36 (KHTML, like Gecko) "
-                    "Chrome/122.0.0.0 Safari/537.36"
-                ),
-                viewport={"width": 1280, "height": 900},
-                locale="es-MX",
-            )
+    # Patrones regex para extraer métricas del JSON de respuesta.
+    # LinkedIn usa distintos nombres según el endpoint.
+    LIKE_PATTERNS = [
+        r'"numLikes"\s*:\s*(\d+)',
+        r'"totalLikes"\s*:\s*(\d+)',
+        r'"likeCount"\s*:\s*(\d+)',
+        r'"reactionCount"\s*:\s*(\d+)',
+    ]
+    COMMENT_PATTERNS = [
+        r'"numComments"\s*:\s*(\d+)',
+        r'"totalFirstLevelComments"\s*:\s*(\d+)',
+        r'"commentCount"\s*:\s*(\d+)',
+    ]
+    IMPRESSION_PATTERNS = [
+        r'"numViews"\s*:\s*(\d+)',
+        r'"viewCount"\s*:\s*(\d+)',
+        r'"impressionCount"\s*:\s*(\d+)',
+        r'"numImpressions"\s*:\s*(\d+)',
+    ]
 
-            # Agregar cookies de sesión
-            cookies = [
-                {
-                    "name": "li_at",
-                    "value": li_at,
-                    "domain": ".linkedin.com",
-                    "path": "/",
-                    "secure": True,
-                    "httpOnly": True,
-                },
-            ]
-            if jsessionid:
-                # LinkedIn almacena JSESSIONID con comillas; normalizar
-                raw_jid = jsessionid.strip('"')
-                cookies.append({
-                    "name": "JSESSIONID",
-                    "value": f'"{raw_jid}"',
-                    "domain": ".linkedin.com",
-                    "path": "/",
-                    "secure": True,
-                })
-            await ctx.add_cookies(cookies)
+    endpoints = [
+        # feed/updates — devuelve el update completo con socialDetail
+        f"https://www.linkedin.com/voyager/api/feed/updates/{encoded_urn}",
+        # socialActions — like/comment counts directos
+        f"https://www.linkedin.com/voyager/api/socialActions/{encoded_urn}",
+        # updateSocialDetail — detalle social específico
+        f"https://www.linkedin.com/voyager/api/feed/updates/{encoded_urn}/updateSocialDetail",
+    ]
 
-            page = await ctx.new_page()
-
-            # Ir a la página del post
+    async with httpx.AsyncClient(timeout=20, follow_redirects=False) as client:
+        for url in endpoints:
             try:
-                await page.goto(post_url, wait_until="domcontentloaded", timeout=30_000)
-            except PWTimeout:
-                logger.warning(f"[LinkedIn Scraper] Timeout navegando a {post_url}")
-                await browser.close()
-                return result
+                r = await client.get(url, headers=headers)
+                logger.info(f"[Voyager] {url.rsplit('/', 2)[-2]} → HTTP {r.status_code}")
 
-            # Verificar que no fuimos al login
-            current = page.url
-            if any(x in current for x in ("authwall", "/login", "checkpoint", "/uas/login")):
-                logger.warning(
-                    "[LinkedIn Scraper] Redirigido al login — "
-                    "LINKEDIN_LI_AT expirada o incorrecta. Actualízala en .env"
-                )
-                await browser.close()
-                return result
+                if r.status_code in (401, 403):
+                    logger.warning(
+                        "[Voyager] Cookie li_at inválida o expirada — "
+                        "actualiza LINKEDIN_LI_AT en .env"
+                    )
+                    break
 
-            # Esperar a que cargue el contenido social
-            try:
-                await page.wait_for_selector(
-                    ".social-details-social-counts, .feed-shared-social-counts, "
-                    "[data-test-id='social-counts-reactions']",
-                    timeout=12_000,
-                )
-            except PWTimeout:
-                pass  # Continuamos con lo que hay
+                if r.status_code != 200:
+                    continue
 
-            # Dar un poco más de tiempo para el JS
-            await page.wait_for_timeout(2_000)
+                text = r.text
 
-            html = await page.content()
-
-            # ── Estrategia 1: JSON embebido en la página ────────────────────────
-            # LinkedIn a veces incrusta los conteos en atributos data o JSON-LD
-            m = re.search(r'"numLikes"\s*:\s*(\d+)', html)
-            if m:
-                result["likes"] = int(m.group(1))
-
-            m = re.search(r'"numComments"\s*:\s*(\d+)', html)
-            if m:
-                result["comments"] = int(m.group(1))
-
-            m = re.search(r'"numViews"\s*:\s*(\d+)', html)
-            if m:
-                result["impressions"] = int(m.group(1))
-
-            # ── Estrategia 2: selectores del DOM ───────────────────────────────
-            # Reacciones
-            if result["likes"] is None:
-                for sel in [
-                    ".social-details-social-counts__reactions-count",
-                    "button[aria-label*='reaction'] .artdeco-button__text",
-                    "button[aria-label*='Like'] .artdeco-button__text",
-                    ".social-details-social-counts__reactions button span[aria-hidden='true']",
-                    "span.social-details-social-counts__reactions-count",
+                # Buscar cada métrica con todos sus patrones alternativos
+                for key, patterns in [
+                    ("likes",       LIKE_PATTERNS),
+                    ("comments",    COMMENT_PATTERNS),
+                    ("impressions", IMPRESSION_PATTERNS),
                 ]:
-                    el = await page.query_selector(sel)
-                    if el:
-                        txt = await el.inner_text()
-                        val = _parse_li_count(txt.strip())
-                        if val is not None:
-                            result["likes"] = val
-                            break
+                    if result[key] is None:
+                        for pat in patterns:
+                            val = _find_int(pat, text)
+                            if val is not None:
+                                result[key] = val
+                                break
 
-            # Comentarios
-            if result["comments"] is None:
-                for sel in [
-                    ".social-details-social-counts__comments",
-                    "button[aria-label*='comment']",
-                    ".feed-shared-social-counts__num-comments",
-                ]:
-                    el = await page.query_selector(sel)
-                    if el:
-                        txt = await el.inner_text()
-                        m2 = re.search(r"([\d,]+(?:\.\d+)?[KkMm]?)", txt.replace("\xa0", ""))
-                        if m2:
-                            result["comments"] = _parse_li_count(m2.group(1))
-                            break
+                if result["likes"] is not None or result["comments"] is not None:
+                    logger.info(
+                        f"[Voyager] ✓ Post {numeric_id}: "
+                        f"likes={result['likes']}, "
+                        f"comments={result['comments']}, "
+                        f"impressions={result['impressions']}"
+                    )
+                    break
 
-            # Impresiones — visibles solo para el autor del post
-            if result["impressions"] is None:
-                for sel in [
-                    ".analytics-entry-point",
-                    "a[data-control-name='analytics_post_impression']",
-                    "button[aria-label*='impression']",
-                    "span[aria-label*='impression']",
-                    ".member-analytics-addon-premium-entry-point",
-                ]:
-                    el = await page.query_selector(sel)
-                    if el:
-                        txt = await el.inner_text()
-                        m2 = re.search(r"([\d,]+(?:\.\d+)?[KkMm]?)", txt.replace("\xa0", ""))
-                        if m2:
-                            result["impressions"] = _parse_li_count(m2.group(1))
-                            break
-
-            # ── Estrategia 3: buscar en el texto de la página ──────────────────
-            # LinkedIn renderiza algo como "• 1,234 impresiones" visible al autor
-            if result["impressions"] is None:
-                m = re.search(
-                    r"([\d,]+(?:\.\d+)?[KkMm]?)\s*(?:impression|impresion)",
-                    html,
-                    re.IGNORECASE,
-                )
-                if m:
-                    result["impressions"] = _parse_li_count(m.group(1))
-
-            logger.info(
-                f"[LinkedIn Scraper] Post {post_id} → "
-                f"likes={result['likes']}, comments={result['comments']}, "
-                f"impressions={result['impressions']}"
-            )
-
-            await browser.close()
-
-    except Exception as e:
-        logger.error(f"[LinkedIn Scraper] Error inesperado scrapeando post {post_id}: {e}")
+            except Exception as e:
+                logger.warning(f"[Voyager] Error en {url}: {e}")
 
     return result
+
+
+async def debug_post_metrics(
+    post_id: str,
+    li_at: str,
+    jsessionid: str = "",
+) -> dict:
+    """
+    Endpoint de diagnóstico: devuelve el status HTTP y un fragmento
+    de la respuesta cruda de cada endpoint Voyager.
+    """
+    numeric_id = _normalize_post_id(post_id)
+    urn = f"urn:li:ugcPost:{numeric_id}"
+    encoded_urn = urllib.parse.quote(urn, safe="")
+    headers = _build_headers(li_at, jsessionid)
+
+    responses = []
+    endpoints = [
+        f"https://www.linkedin.com/voyager/api/feed/updates/{encoded_urn}",
+        f"https://www.linkedin.com/voyager/api/socialActions/{encoded_urn}",
+    ]
+
+    async with httpx.AsyncClient(timeout=20, follow_redirects=False) as client:
+        for url in endpoints:
+            try:
+                r = await client.get(url, headers=headers)
+                snippet = r.text[:600] if r.text else "(vacío)"
+                responses.append({
+                    "url": url,
+                    "status": r.status_code,
+                    "snippet": snippet,
+                })
+            except Exception as e:
+                responses.append({"url": url, "status": "error", "snippet": str(e)})
+
+    return {
+        "numeric_id": numeric_id,
+        "urn": urn,
+        "responses": responses,
+    }

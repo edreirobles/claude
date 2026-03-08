@@ -462,22 +462,39 @@ async def get_analytics(db: AsyncSession = Depends(get_db)):
 @router.post("/posts/{post_id}/refresh-metrics", response_model=PostResponse)
 async def refresh_post_metrics(post_id: int, db: AsyncSession = Depends(get_db)):
     """
-    Actualiza las métricas (likes, comentarios) de un post publicado
-    consultando la API de LinkedIn.
+    Actualiza las métricas (likes, comentarios, impresiones) de un post publicado
+    via API Voyager de LinkedIn (con cookies li_at) o la API pública como fallback.
     """
+    import logging
+    log = logging.getLogger(__name__)
+
     result = await db.execute(select(ScheduledPost).where(ScheduledPost.id == post_id))
     post = result.scalar_one_or_none()
     if not post:
         raise HTTPException(status_code=404, detail="Post no encontrado")
-    if post.status != "published" or not post.linkedin_post_id:
+    if post.status != "published":
         raise HTTPException(status_code=400, detail="Este post aún no fue publicado en LinkedIn")
+    if not post.linkedin_post_id:
+        raise HTTPException(
+            status_code=400,
+            detail="Este post no tiene ID de LinkedIn guardado. "
+                   "Fue publicado antes de que se implementara el tracking.",
+        )
+
+    log.info(f"[Metrics] Solicitando métricas para post DB={post_id}, LI_ID={post.linkedin_post_id}")
 
     li_client = await get_linkedin_client(db)
     metrics = await li_client.get_post_metrics(post.linkedin_post_id)
 
-    post.li_likes = metrics["likes"]
-    post.li_comments = metrics["comments"]
-    post.li_impressions = metrics["impressions"]
+    log.info(f"[Metrics] Resultado para post {post_id}: {metrics}")
+
+    # Solo actualizar si obtuvimos al menos un valor
+    if metrics["likes"] is not None:
+        post.li_likes = metrics["likes"]
+    if metrics["comments"] is not None:
+        post.li_comments = metrics["comments"]
+    if metrics["impressions"] is not None:
+        post.li_impressions = metrics["impressions"]
     post.metrics_updated_at = datetime.utcnow()
     await db.commit()
     await db.refresh(post)
@@ -493,6 +510,36 @@ async def linkedin_scraper_status():
     return {
         "configured": bool(s.linkedin_li_at),
         "has_jsessionid": bool(s.linkedin_jsessionid),
+    }
+
+
+@router.get("/linkedin-scraper/debug/{post_id}")
+async def linkedin_scraper_debug(post_id: int, db: AsyncSession = Depends(get_db)):
+    """
+    Diagnóstico: muestra el post_id guardado y la respuesta cruda de los
+    endpoints Voyager de LinkedIn para ese post.
+    """
+    from ..services.linkedin_scraper import debug_post_metrics
+
+    result = await db.execute(select(ScheduledPost).where(ScheduledPost.id == post_id))
+    post = result.scalar_one_or_none()
+    if not post:
+        raise HTTPException(status_code=404, detail="Post no encontrado")
+
+    s = get_settings()
+    if not s.linkedin_li_at:
+        return {"error": "LINKEDIN_LI_AT no configurado en .env"}
+
+    debug_info = await debug_post_metrics(
+        post_id=post.linkedin_post_id or "",
+        li_at=s.linkedin_li_at,
+        jsessionid=s.linkedin_jsessionid,
+    )
+    return {
+        "db_post_id": post.id,
+        "db_linkedin_post_id": post.linkedin_post_id,
+        "db_status": post.status,
+        **debug_info,
     }
 
 

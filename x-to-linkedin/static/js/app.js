@@ -604,6 +604,7 @@ function renderHistory(posts) {
     if (post.status === 'published') {
       const likes = post.li_likes != null ? post.li_likes : '—';
       const comments = post.li_comments != null ? post.li_comments : '—';
+      const impressions = post.li_impressions != null ? post.li_impressions : '—';
       const updatedAt = post.metrics_updated_at
         ? new Date(post.metrics_updated_at + 'Z').toLocaleString('es-MX', { dateStyle: 'short', timeStyle: 'short' })
         : null;
@@ -611,7 +612,9 @@ function renderHistory(posts) {
         <div class="history-metrics">
           <span title="Likes">👍 ${likes}</span>
           <span title="Comentarios">💬 ${comments}</span>
+          <span title="Impresiones">👁 ${impressions}</span>
           <button class="btn-refresh-metrics" onclick="refreshMetrics(${post.id})" title="Actualizar métricas">↺ Métricas</button>
+          <button class="btn-refresh-metrics" onclick="debugMetrics(${post.id})" title="Ver diagnóstico" style="opacity:0.5">🔍</button>
           ${updatedAt ? `<span class="metrics-date">actualizado ${updatedAt}</span>` : ''}
         </div>`;
     }
@@ -1185,10 +1188,31 @@ async function refreshMetrics(postId) {
   try {
     showToast('Consultando métricas en LinkedIn...', 'info');
     const res = await fetch(`/api/posts/${postId}/refresh-metrics`, { method: 'POST' });
-    if (!res.ok) throw new Error((await res.json()).detail);
-    showToast('Métricas actualizadas', 'success');
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail);
+    const li = data.li_likes != null ? `👍 ${data.li_likes}` : '';
+    const co = data.li_comments != null ? `💬 ${data.li_comments}` : '';
+    const im = data.li_impressions != null ? `👁 ${data.li_impressions}` : '';
+    const summary = [li, co, im].filter(Boolean).join('  ') || '(sin datos)';
+    showToast(`Métricas: ${summary}`, data.li_likes != null ? 'success' : 'info');
     loadHistory();
   } catch (e) {
     showToast(`Error: ${e.message}`, 'error');
+  }
+}
+
+async function debugMetrics(postId) {
+  try {
+    showToast('Obteniendo diagnóstico...', 'info');
+    const res = await fetch(`/api/linkedin-scraper/debug/${postId}`);
+    const data = await res.json();
+    if (!res.ok) { alert(JSON.stringify(data, null, 2)); return; }
+    let msg = `Post DB #${data.db_post_id}\nLinkedIn ID: ${data.db_linkedin_post_id || '(vacío)'}\nURN: ${data.urn}\n\n`;
+    for (const r of (data.responses || [])) {
+      msg += `─── ${r.url.split('/').slice(-2).join('/')}\nHTTP ${r.status}\n${r.snippet}\n\n`;
+    }
+    alert(msg);
+  } catch (e) {
+    alert(`Error de diagnóstico: ${e.message}`);
   }
 }
