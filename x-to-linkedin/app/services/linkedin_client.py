@@ -338,9 +338,37 @@ class LinkedInClient:
 
     async def get_post_metrics(self, post_id: str) -> dict:
         """
-        Obtiene likes y comentarios de un post publicado vía /v2/socialActions.
-        Las impresiones no están disponibles para perfiles personales (solo empresa).
+        Obtiene métricas de un post publicado.
+
+        Estrategia:
+        1. Playwright (scraping con cookies li_at/JSESSIONID) — devuelve
+           likes, comentarios e impresiones para cuentas personales.
+        2. API /v2/socialActions — fallback; solo devuelve likes/comentarios,
+           impresiones = None (LinkedIn no las expone en la API para personas).
         """
+        from ..config import get_settings
+        settings = get_settings()
+
+        # ── Intento 1: Playwright ───────────────────────────────────────────
+        if settings.linkedin_li_at:
+            try:
+                from .linkedin_scraper import scrape_linkedin_post_metrics
+                metrics = await scrape_linkedin_post_metrics(
+                    post_id=post_id,
+                    li_at=settings.linkedin_li_at,
+                    jsessionid=settings.linkedin_jsessionid,
+                )
+                # Si al menos uno de los valores se obtuvo, retornar
+                if any(v is not None for v in metrics.values()):
+                    return metrics
+                logger.warning(
+                    f"[LinkedIn] Playwright no extrajo métricas para {post_id}, "
+                    "intentando con API..."
+                )
+            except Exception as e:
+                logger.warning(f"[LinkedIn] Playwright falló ({e}), cayendo a API...")
+
+        # ── Intento 2: API /v2/socialActions (solo likes/comentarios) ───────
         import urllib.parse
         urn = f"urn:li:ugcPost:{post_id}"
         encoded_urn = urllib.parse.quote(urn, safe="")
@@ -351,13 +379,14 @@ class LinkedInClient:
                 if r.status_code == 200:
                     data = r.json()
                     return {
-                        "likes": data.get("likesSummary", {}).get("totalLikes", 0),
-                        "comments": data.get("commentsSummary", {}).get("totalFirstLevelComments", 0),
-                        "impressions": None,
+                        "likes": data.get("likesSummary", {}).get("totalLikes"),
+                        "comments": data.get("commentsSummary", {}).get("totalFirstLevelComments"),
+                        "impressions": None,  # No disponible en API para personas
                     }
-                logger.warning(f"socialActions devolvió {r.status_code} para {post_id}")
+                logger.warning(f"[LinkedIn] socialActions devolvió {r.status_code} para {post_id}")
         except Exception as e:
-            logger.error(f"Error obteniendo métricas de LinkedIn: {e}")
+            logger.error(f"[LinkedIn] Error en API de métricas: {e}")
+
         return {"likes": None, "comments": None, "impressions": None}
 
 

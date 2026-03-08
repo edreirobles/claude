@@ -25,6 +25,7 @@ document.addEventListener('DOMContentLoaded', () => {
   setDefaultScheduleTime();
   loadXMonitorStatus();
   loadSettings();
+  loadLinkedInScraperStatus();
 });
 
 function checkUrlParams() {
@@ -739,6 +740,50 @@ function exportCsv() {
 
   const url = '/api/posts/export' + (params.toString() ? '?' + params.toString() : '');
   window.location.href = url;
+}
+
+// ── LinkedIn Scraper status ──────────────────────────────
+let _liScraperConfigured = false;
+
+async function loadLinkedInScraperStatus() {
+  try {
+    const res = await fetch('/api/linkedin-scraper/status');
+    if (!res.ok) return;
+    const data = await res.json();
+    _liScraperConfigured = data.configured;
+
+    const el = document.getElementById('li-scraper-status');
+    if (!el) return;
+
+    if (data.configured) {
+      el.innerHTML = `
+        <div class="li-scraper-badge li-scraper-badge--ok">
+          🟢 Cookies de LinkedIn configuradas — las métricas se obtienen con Playwright
+          ${data.has_jsessionid ? '' : '<span style="color:var(--warning)"> · Falta JSESSIONID (opcional pero recomendado)</span>'}
+        </div>`;
+    } else {
+      el.innerHTML = `
+        <div class="li-scraper-badge li-scraper-badge--warn">
+          ⚠️ Cookies de LinkedIn no configuradas — las métricas no se pueden obtener
+        </div>
+        <div class="x-setup-box" style="margin-top:10px">
+          <h4>Cómo activar las métricas (likes, comentarios, impresiones)</h4>
+          <ol>
+            <li>Abre <strong>linkedin.com</strong> en Chrome con tu cuenta iniciada.</li>
+            <li>Presiona <strong>F12</strong> → pestaña <strong>Application</strong> → <strong>Cookies</strong> → <code>https://www.linkedin.com</code></li>
+            <li>Copia el valor de la cookie <code>li_at</code></li>
+            <li>Copia el valor de la cookie <code>JSESSIONID</code> (sin las comillas que lo rodean)</li>
+            <li>Edita el archivo <code>.env</code> y agrega:<br/>
+              <code>LINKEDIN_LI_AT=tu_valor_aquí</code><br/>
+              <code>LINKEDIN_JSESSIONID=tu_valor_aquí</code>
+            </li>
+            <li>Reinicia la app con <code>uvicorn app.main:app --reload</code></li>
+          </ol>
+        </div>`;
+    }
+  } catch (e) {
+    console.error('Error cargando estado del scraper LinkedIn:', e);
+  }
 }
 
 // ── X Monitor ───────────────────────────────────────────

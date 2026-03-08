@@ -13,6 +13,11 @@ class Settings(BaseSettings):
     linkedin_client_secret: str = ""
     linkedin_redirect_uri: str = "http://localhost:8000/auth/linkedin/callback"
 
+    # LinkedIn — Cookies de sesión para scraping de métricas con Playwright
+    # Obtener en: linkedin.com → F12 → Application → Cookies → linkedin.com
+    linkedin_li_at: str = ""       # Cookie "li_at"  (auth principal)
+    linkedin_jsessionid: str = ""  # Cookie "JSESSIONID" (sin las comillas que rodean el valor)
+
     # App
     secret_key: str = "dev-secret-key-change-in-production"
     app_host: str = "0.0.0.0"

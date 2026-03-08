@@ -712,6 +712,26 @@ body {
   font-size: 14px;
 }
 
+/* ── LINKEDIN SCRAPER STATUS ─────────────────────── */
+.li-scraper-badge {
+  padding: 10px 14px;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.li-scraper-badge--ok {
+  background: rgba(16, 185, 129, 0.08);
+  border: 1px solid rgba(16, 185, 129, 0.25);
+  color: var(--success);
+}
+
+.li-scraper-badge--warn {
+  background: rgba(245, 158, 11, 0.08);
+  border: 1px solid rgba(245, 158, 11, 0.25);
+  color: var(--warning);
+}
+
 /* ── HISTORY VIEW TOGGLE ─────────────────────────── */
 .view-toggle {
   display: flex;

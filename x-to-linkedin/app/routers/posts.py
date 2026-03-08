@@ -484,6 +484,18 @@ async def refresh_post_metrics(post_id: int, db: AsyncSession = Depends(get_db))
     return post
 
 
+@router.get("/linkedin-scraper/status")
+async def linkedin_scraper_status():
+    """
+    Informa si las cookies de LinkedIn para scraping de métricas están configuradas.
+    """
+    s = get_settings()
+    return {
+        "configured": bool(s.linkedin_li_at),
+        "has_jsessionid": bool(s.linkedin_jsessionid),
+    }
+
+
 @router.post("/posts/repack-schedule")
 async def repack_schedule_endpoint():
     """
