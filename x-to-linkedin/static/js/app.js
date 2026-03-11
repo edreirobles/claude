@@ -596,7 +596,8 @@ function renderHistory(posts) {
     }[post.status] || post.status;
 
     const cancelBtn = post.status === 'scheduled'
-      ? `<button class="btn-cancel-small" onclick="cancelPost(${post.id})" title="Cancelar">Cancelar</button>`
+      ? `<button class="btn-edit-small" onclick="editPost(${post.id})" title="Editar">Editar</button>
+         <button class="btn-cancel-small" onclick="cancelPost(${post.id})" title="Cancelar">Cancelar</button>`
       : '';
 
     // Métricas
@@ -619,19 +620,37 @@ function renderHistory(posts) {
         </div>`;
     }
 
+    // ISO string for datetime-local input (strip seconds)
+    const scheduledIso = post.scheduled_at
+      ? new Date(post.scheduled_at + 'Z').toISOString().slice(0, 16)
+      : '';
+
     return `
       <div class="history-item" id="history-item-${post.id}">
         <span class="history-status status-${escHtml(post.status)}">${escHtml(statusLabel)}</span>
         <div class="history-content">
-          <div class="history-text">${escHtml(post.linkedin_text)}</div>
+          <div class="history-text" id="post-text-${post.id}">${escHtml(post.linkedin_text)}</div>
           <div class="history-meta">
-            <span>${post.status === 'scheduled' ? '📅 Programado: ' : '📤 '}${escHtml(dateStr)}</span>
+            <span id="post-date-${post.id}">${post.status === 'scheduled' ? '📅 Programado: ' : '📤 '}${escHtml(dateStr)}</span>
             ${post.tweet_author ? `<span>🐦 ${escHtml(post.tweet_author)}</span>` : ''}
             ${post.error_message ? `<span style="color:var(--error)">⚠ ${escHtml(post.error_message)}</span>` : ''}
           </div>
           ${metricsHtml}
         </div>
         <div class="history-actions">${cancelBtn}</div>
+        ${post.status === 'scheduled' ? `
+        <div class="post-edit-form hidden" id="edit-form-${post.id}">
+          <textarea class="edit-textarea" id="edit-text-${post.id}" rows="6">${escHtml(post.linkedin_text)}</textarea>
+          <div class="edit-form-row">
+            <label>Fecha y hora:
+              <input type="datetime-local" class="edit-datetime" id="edit-dt-${post.id}" value="${scheduledIso}">
+            </label>
+            <div class="edit-form-btns">
+              <button class="btn-save-edit" onclick="savePost(${post.id})">Guardar</button>
+              <button class="btn-cancel-edit" onclick="cancelEdit(${post.id})">Cancelar</button>
+            </div>
+          </div>
+        </div>` : ''}
       </div>
     `;
   }).join('');
@@ -644,6 +663,38 @@ async function cancelPost(postId) {
     const data = await res.json();
     if (!res.ok) throw new Error(data.detail);
     showToast('Post cancelado', 'info');
+    loadHistory();
+  } catch (e) {
+    showToast(`Error: ${e.message}`, 'error');
+  }
+}
+
+function editPost(postId) {
+  document.getElementById(`edit-form-${postId}`)?.classList.remove('hidden');
+}
+
+function cancelEdit(postId) {
+  document.getElementById(`edit-form-${postId}`)?.classList.add('hidden');
+}
+
+async function savePost(postId) {
+  const textEl = document.getElementById(`edit-text-${postId}`);
+  const dtEl = document.getElementById(`edit-dt-${postId}`);
+  const body = {};
+  if (textEl) body.linkedin_text = textEl.value;
+  if (dtEl && dtEl.value) {
+    // datetime-local is local time, convert to UTC ISO
+    body.scheduled_at = new Date(dtEl.value).toISOString();
+  }
+  try {
+    const res = await fetch(`/api/posts/${postId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail);
+    showToast('Post actualizado', 'success');
     loadHistory();
   } catch (e) {
     showToast(`Error: ${e.message}`, 'error');

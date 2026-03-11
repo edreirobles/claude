@@ -22,6 +22,7 @@ from ..schemas import (
     PublishRequest,
     ScheduleRequest,
     PostResponse,
+    PostUpdate,
     SettingsUpdate,
     SettingsResponse,
     TweetData as TweetDataSchema,
@@ -325,30 +326,35 @@ async def cancel_post(
     return {"message": "Post cancelado exitosamente"}
 
 
-@router.put("/posts/{post_id}")
-async def update_post_text(
+@router.put("/posts/{post_id}", response_model=PostResponse)
+async def update_post(
     post_id: int,
-    body: dict,
+    data: PostUpdate,
     db: AsyncSession = Depends(get_db),
 ):
-    """Actualiza el texto de un post programado antes de que se publique."""
+    """Actualiza contenido y/o fecha de un post programado."""
+
     result = await db.execute(
         select(ScheduledPost).where(ScheduledPost.id == post_id)
     )
     post = result.scalar_one_or_none()
     if not post:
         raise HTTPException(status_code=404, detail="Post no encontrado")
-    if post.status != "scheduled":
+    if post.status not in ("scheduled", "pending"):
         raise HTTPException(
             status_code=400,
-            detail="Solo se pueden editar posts con estado 'scheduled'.",
+            detail="Solo se pueden editar posts en estado 'scheduled' o 'pending'.",
         )
 
-    if "linkedin_text" in body:
-        post.linkedin_text = body["linkedin_text"]
+    if data.linkedin_text is not None:
+        post.linkedin_text = data.linkedin_text.strip()
+    if data.scheduled_at is not None:
+        cancel_scheduled_post(post_id)
+        post.scheduled_at = data.scheduled_at
+        schedule_post(post_id, data.scheduled_at)
     await db.commit()
-
-    return {"message": "Post actualizado"}
+    await db.refresh(post)
+    return post
 
 
 # ── Configuración del prompt ────────────────────────────────────────────────

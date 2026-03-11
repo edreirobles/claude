@@ -156,14 +156,99 @@ async def generate_linkedin_post(
     return generated
 
 
-async def generate_free_image(prompt: str) -> Optional[bytes]:
+def _build_image_prompt(linkedin_text: str) -> str:
     """
-    Genera una imagen gratis usando Pollinations.ai (sin API key).
-    Retorna los bytes de la imagen o None si falla.
+    Construye un prompt visual compacto a partir del texto del post de LinkedIn.
+    Extrae la primera línea (gancho) y añade estilo profesional.
     """
-    # Limpiar y acortar el prompt
-    clean_prompt = prompt[:300].replace("\n", " ").strip()
-    encoded = urllib.parse.quote(clean_prompt)
+    first_line = linkedin_text.strip().split("\n")[0][:180]
+    return (
+        f"Professional data visualization or conceptual diagram about: {first_line}. "
+        "Style: clean minimalist infographic, dark navy background, accent colors purple and teal, "
+        "geometric shapes, no people, no text, abstract tech visualization. "
+        "High quality, 1:1 aspect ratio."
+    )
+
+
+async def generate_free_image(linkedin_text: str) -> Optional[bytes]:
+    """
+    Genera una imagen para el post usando:
+    1. Google Imagen 3 (si GOOGLE_API_KEY está configurado)
+    2. Google Gemini 2.0 Flash image generation (fallback con la misma key)
+    3. Pollinations.ai (fallback gratuito sin key)
+    """
+    img_prompt = _build_image_prompt(linkedin_text)
+    key = settings.google_api_key
+
+    if key:
+        # ── Intento 1: Google Imagen 3 ──────────────────────────────
+        result = await _generate_imagen3(img_prompt, key)
+        if result:
+            return result
+
+        # ── Intento 2: Gemini 2.0 Flash image generation ────────────
+        result = await _generate_gemini_image(img_prompt, key)
+        if result:
+            return result
+
+        logger.warning("Google API falló para imagen, usando Pollinations como fallback")
+
+    # ── Intento 3: Pollinations.ai (sin API key, gratis) ────────────
+    return await _generate_pollinations(img_prompt)
+
+
+async def _generate_imagen3(prompt: str, api_key: str) -> Optional[bytes]:
+    """Genera imagen con Google Imagen 3."""
+    import base64
+    url = (
+        f"https://generativelanguage.googleapis.com/v1beta"
+        f"/models/imagen-3.0-generate-002:predict?key={api_key}"
+    )
+    payload = {
+        "instances": [{"prompt": prompt}],
+        "parameters": {"sampleCount": 1, "aspectRatio": "1:1"},
+    }
+    try:
+        async with httpx.AsyncClient(timeout=60) as client:
+            r = await client.post(url, json=payload)
+            if r.status_code == 200:
+                predictions = r.json().get("predictions", [])
+                if predictions and "bytesBase64Encoded" in predictions[0]:
+                    return base64.b64decode(predictions[0]["bytesBase64Encoded"])
+            logger.warning(f"Imagen 3 devolvió {r.status_code}: {r.text[:200]}")
+    except Exception as e:
+        logger.warning(f"Error con Imagen 3: {e}")
+    return None
+
+
+async def _generate_gemini_image(prompt: str, api_key: str) -> Optional[bytes]:
+    """Genera imagen con Gemini 2.0 Flash (image generation mode)."""
+    import base64
+    url = (
+        f"https://generativelanguage.googleapis.com/v1beta"
+        f"/models/gemini-2.0-flash-preview-image-generation:generateContent?key={api_key}"
+    )
+    payload = {
+        "contents": [{"parts": [{"text": prompt}]}],
+        "generationConfig": {"responseModalities": ["IMAGE"]},
+    }
+    try:
+        async with httpx.AsyncClient(timeout=60) as client:
+            r = await client.post(url, json=payload)
+            if r.status_code == 200:
+                for candidate in r.json().get("candidates", []):
+                    for part in candidate.get("content", {}).get("parts", []):
+                        if "inlineData" in part:
+                            return base64.b64decode(part["inlineData"]["data"])
+            logger.warning(f"Gemini image gen devolvió {r.status_code}: {r.text[:200]}")
+    except Exception as e:
+        logger.warning(f"Error con Gemini image gen: {e}")
+    return None
+
+
+async def _generate_pollinations(prompt: str) -> Optional[bytes]:
+    """Fallback gratuito: Pollinations.ai."""
+    encoded = urllib.parse.quote(prompt[:300])
     url = (
         f"https://image.pollinations.ai/prompt/{encoded}"
         f"?width=1024&height=1024&nologo=true&model=flux"
@@ -173,9 +258,9 @@ async def generate_free_image(prompt: str) -> Optional[bytes]:
             r = await client.get(url)
             if r.status_code == 200 and r.headers.get("content-type", "").startswith("image/"):
                 return r.content
-            logger.warning(f"Pollinations devolvió status {r.status_code}")
+            logger.warning(f"Pollinations devolvió {r.status_code}")
     except Exception as e:
-        logger.error(f"Error generando imagen con Pollinations.ai: {e}")
+        logger.error(f"Error con Pollinations.ai: {e}")
     return None
 
 

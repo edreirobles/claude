@@ -69,6 +69,11 @@ class AuthStatusResponse(BaseModel):
     person_urn: str = ""
 
 
+class PostUpdate(BaseModel):
+    linkedin_text: Optional[str] = None
+    scheduled_at: Optional[datetime] = None
+
+
 class SettingsUpdate(BaseModel):
     custom_prompt: Optional[str] = None  # None = restaurar al default del sistema
 

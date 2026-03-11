@@ -18,6 +18,9 @@ class Settings(BaseSettings):
     linkedin_li_at: str = ""       # Cookie "li_at"  (auth principal)
     linkedin_jsessionid: str = ""  # Cookie "JSESSIONID" (sin las comillas que rodean el valor)
 
+    # Google AI — generación de imágenes con Imagen 3 / Gemini
+    google_api_key: str = ""  # AIzaSy... desde aistudio.google.com
+
     # App
     secret_key: str = "dev-secret-key-change-in-production"
     app_host: str = "0.0.0.0"
