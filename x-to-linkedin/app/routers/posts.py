@@ -221,7 +221,7 @@ async def schedule_linkedin_post(
 
 @router.get("/posts", response_model=list[PostResponse])
 async def list_posts(
-    limit: int = 50,
+    limit: int = 500,
     db: AsyncSession = Depends(get_db),
 ):
     """Retorna el historial de posts publicados y programados."""
@@ -408,9 +408,9 @@ async def get_analytics(db: AsyncSession = Depends(get_db)):
     total_comments = sum(p.li_comments or 0 for p in published)
     avg_likes = round(total_likes / total_published, 1) if total_published else 0
 
-    # Posts por día — últimos 30 días
+    # Posts por día — últimos 60 días
     today = datetime.utcnow().date()
-    days: dict = {(today - timedelta(days=i)).isoformat(): 0 for i in range(29, -1, -1)}
+    days: dict = {(today - timedelta(days=i)).isoformat(): 0 for i in range(59, -1, -1)}
     for p in posts:
         d = (p.published_at or p.created_at).date().isoformat()
         if d in days:
