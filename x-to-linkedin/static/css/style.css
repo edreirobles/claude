@@ -1137,9 +1137,17 @@ body {
 
 .cal-detail-item {
   display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border);
+}
+.cal-detail-item:last-child { border-bottom: none; padding-bottom: 0; }
+
+.cal-detail-item-top {
+  display: flex;
   align-items: flex-start;
   gap: 10px;
-  flex-wrap: wrap;
 }
 
 .cal-detail-text {
@@ -1160,8 +1168,7 @@ body {
 .cal-detail-actions {
   display: flex;
   gap: 6px;
-  flex-shrink: 0;
-  margin-left: auto;
+  padding-left: 2px;
 }
 
 /* ── EXPORT BAR ──────────────────────────────────── */

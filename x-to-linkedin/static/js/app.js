@@ -558,12 +558,14 @@ function calSelectDay(key) {
              </div>`;
         return `
         <div class="cal-detail-item">
-          <span class="history-status status-${escHtml(p.status)}">${escHtml(statusLabel[p.status] || p.status)}</span>
-          <span class="cal-detail-text">${escHtml((p.linkedin_text || '').slice(0, 140))}${(p.linkedin_text || '').length > 140 ? '…' : ''}</span>
-          ${mediaBadge}
-          ${p.li_likes != null || p.li_comments != null
-            ? `<span class="cal-detail-metrics">👍 ${p.li_likes ?? '—'} &nbsp; 💬 ${p.li_comments ?? '—'}</span>`
-            : ''}
+          <div class="cal-detail-item-top">
+            <span class="history-status status-${escHtml(p.status)}">${escHtml(statusLabel[p.status] || p.status)}</span>
+            <span class="cal-detail-text">${escHtml((p.linkedin_text || '').slice(0, 140))}${(p.linkedin_text || '').length > 140 ? '…' : ''}</span>
+            ${mediaBadge}
+            ${p.li_likes != null || p.li_comments != null
+              ? `<span class="cal-detail-metrics">👍 ${p.li_likes ?? '—'} &nbsp; 💬 ${p.li_comments ?? '—'}</span>`
+              : ''}
+          </div>
           ${actions}
         </div>`;
       }).join('')}
