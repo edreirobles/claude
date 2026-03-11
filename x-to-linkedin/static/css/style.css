@@ -1157,6 +1157,13 @@ body {
   flex-shrink: 0;
 }
 
+.cal-detail-actions {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
 /* ── EXPORT BAR ──────────────────────────────────── */
 .export-bar {
   display: flex;

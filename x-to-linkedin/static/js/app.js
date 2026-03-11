@@ -542,14 +542,31 @@ function calSelectDay(key) {
     const statusLabel = { published: 'Publicado', scheduled: 'Programado', failed: 'Error', cancelled: 'Cancelado', pending: 'Pendiente' };
     detailEl.innerHTML = `
       <div class="cal-detail-header">${dateLabel.charAt(0).toUpperCase() + dateLabel.slice(1)}</div>
-      ${dayPosts.map(p => `
+      ${dayPosts.map(p => {
+        const mediaIcon = { image: '🖼', video: '🎬', document: '📄' }[p.media_type] || '';
+        const hasImages = p.image_urls && p.image_urls.length > 0;
+        const mediaBadge = (p.media_type && p.media_type !== 'auto' && p.media_type !== 'none')
+          ? `<span class="media-badge">${mediaIcon} ${escHtml(p.media_type)}</span>`
+          : (hasImages ? `<span class="media-badge">🖼 ${p.image_urls.length} img</span>` : '');
+        const actions = p.status === 'scheduled'
+          ? `<div class="cal-detail-actions">
+               <button class="btn-edit-small" onclick="editPost(${p.id})">Editar</button>
+               <button class="btn-cancel-small" onclick="cancelPost(${p.id})">Cancelar</button>
+             </div>`
+          : `<div class="cal-detail-actions">
+               <button class="btn-edit-small" onclick="editPost(${p.id})">Ver</button>
+             </div>`;
+        return `
         <div class="cal-detail-item">
           <span class="history-status status-${escHtml(p.status)}">${escHtml(statusLabel[p.status] || p.status)}</span>
           <span class="cal-detail-text">${escHtml((p.linkedin_text || '').slice(0, 140))}${(p.linkedin_text || '').length > 140 ? '…' : ''}</span>
+          ${mediaBadge}
           ${p.li_likes != null || p.li_comments != null
             ? `<span class="cal-detail-metrics">👍 ${p.li_likes ?? '—'} &nbsp; 💬 ${p.li_comments ?? '—'}</span>`
             : ''}
-        </div>`).join('')}
+          ${actions}
+        </div>`;
+      }).join('')}
     `;
   }
   detailEl.classList.remove('hidden');
