@@ -25,8 +25,30 @@
         Conectar LinkedIn
       </button>
     </div>
+    <div class="admin-controls">
+      <button class="btn btn-admin btn-sm" onclick="adminGitPull()" title="Descargar últimos cambios del repositorio">
+        ⬇ Git Pull
+      </button>
+      <button class="btn btn-admin btn-sm" onclick="adminRestart()" title="Reiniciar el servidor">
+        🔄 Reiniciar
+      </button>
+      <button class="btn btn-admin-primary btn-sm" onclick="adminPullAndRestart()" title="Git Pull + Reiniciar">
+        ⚡ Pull & Restart
+      </button>
+    </div>
   </div>
 </header>
+
+<!-- Modal de output admin -->
+<div id="admin-modal" class="admin-modal hidden">
+  <div class="admin-modal-box">
+    <div class="admin-modal-header">
+      <span id="admin-modal-title">Resultado</span>
+      <button onclick="document.getElementById('admin-modal').classList.add('hidden')" class="admin-modal-close">✕</button>
+    </div>
+    <pre id="admin-modal-output" class="admin-modal-output"></pre>
+  </div>
+</div>
 
 <!-- TAB NAV -->
 <nav class="tab-nav">
@@ -379,5 +401,63 @@
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script src="/static/js/app.js"></script>
+<script>
+// ── Admin: Git Pull / Restart ──────────────────────────────────────
+function adminSetLoading(loading) {
+  document.querySelectorAll('.btn-admin, .btn-admin-primary').forEach(b => {
+    b.disabled = loading;
+  });
+}
+
+function adminShowResult(title, output, success) {
+  document.getElementById('admin-modal-title').textContent =
+    (success ? '✅ ' : '❌ ') + title;
+  document.getElementById('admin-modal-output').textContent = output;
+  document.getElementById('admin-modal').classList.remove('hidden');
+}
+
+async function adminGitPull() {
+  adminSetLoading(true);
+  try {
+    const r = await fetch('/admin/git-pull', { method: 'POST' });
+    const data = await r.json();
+    adminShowResult('Git Pull', data.output, data.success);
+  } catch(e) {
+    adminShowResult('Git Pull', 'Error: ' + e.message, false);
+  } finally {
+    adminSetLoading(false);
+  }
+}
+
+async function adminRestart() {
+  if (!confirm('¿Reiniciar el servidor ahora?')) return;
+  adminSetLoading(true);
+  try {
+    const r = await fetch('/admin/restart', { method: 'POST' });
+    const data = await r.json();
+    adminShowResult('Reiniciar', data.output + '\n\nLa página se recargará en 3 segundos...', data.success);
+    if (data.success) setTimeout(() => location.reload(), 3000);
+  } catch(e) {
+    adminShowResult('Reiniciar', 'Error: ' + e.message, false);
+  } finally {
+    adminSetLoading(false);
+  }
+}
+
+async function adminPullAndRestart() {
+  if (!confirm('¿Hacer git pull y reiniciar el servidor?')) return;
+  adminSetLoading(true);
+  try {
+    const r = await fetch('/admin/pull-and-restart', { method: 'POST' });
+    const data = await r.json();
+    adminShowResult('Pull & Restart', data.output + '\n\nLa página se recargará en 3 segundos...', data.success);
+    if (data.success) setTimeout(() => location.reload(), 3000);
+  } catch(e) {
+    adminShowResult('Pull & Restart', 'Error: ' + e.message, false);
+  } finally {
+    adminSetLoading(false);
+  }
+}
+</script>
 </body>
 </html>
