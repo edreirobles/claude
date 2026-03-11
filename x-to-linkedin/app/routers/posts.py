@@ -352,6 +352,14 @@ async def update_post(
         cancel_scheduled_post(post_id)
         post.scheduled_at = data.scheduled_at
         schedule_post(post_id, data.scheduled_at)
+    if data.use_first_image is not None:
+        post.use_first_image = data.use_first_image
+    if data.media_type is not None:
+        post.media_type = data.media_type
+    if data.pdf_url is not None:
+        post.pdf_url = data.pdf_url or None
+    if data.document_title is not None:
+        post.document_title = data.document_title
     await db.commit()
     await db.refresh(post)
     return post

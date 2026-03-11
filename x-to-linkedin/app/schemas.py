@@ -58,6 +58,10 @@ class PostResponse(BaseModel):
     li_comments: Optional[int] = None
     li_impressions: Optional[int] = None
     metrics_updated_at: Optional[datetime] = None
+    use_first_image: bool = True
+    media_type: str = "auto"
+    pdf_url: Optional[str] = None
+    document_title: str = "Documento"
 
     model_config = {"from_attributes": True}
 
@@ -72,6 +76,10 @@ class AuthStatusResponse(BaseModel):
 class PostUpdate(BaseModel):
     linkedin_text: Optional[str] = None
     scheduled_at: Optional[datetime] = None
+    use_first_image: Optional[bool] = None
+    media_type: Optional[str] = None
+    pdf_url: Optional[str] = None
+    document_title: Optional[str] = None
 
 
 class SettingsUpdate(BaseModel):

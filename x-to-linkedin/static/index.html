@@ -388,6 +388,68 @@
   </div>
 </div>
 
+<!-- MODAL: Editar post -->
+<div id="modal-edit-post" class="modal hidden">
+  <div class="modal-overlay" onclick="closeEditModal()"></div>
+  <div class="modal-box modal-box--wide">
+    <button class="modal-close" onclick="closeEditModal()">✕</button>
+    <div class="modal-header">
+      <span class="modal-icon" style="font-size:16px">✏️</span>
+      <h3>Editar publicación</h3>
+    </div>
+
+    <div class="edit-modal-body">
+      <!-- Texto -->
+      <label class="edit-modal-label">Texto LinkedIn</label>
+      <textarea id="edt-text" class="edit-textarea" rows="8"></textarea>
+
+      <!-- Fecha programada -->
+      <label class="edit-modal-label" id="edt-dt-label" style="display:none">Fecha y hora programada</label>
+      <input type="datetime-local" id="edt-dt" class="edit-datetime" style="display:none">
+
+      <!-- Media -->
+      <div class="edit-modal-section">
+        <label class="edit-modal-label">Tipo de media</label>
+        <select id="edt-media-type" class="edit-select" onchange="onEditMediaTypeChange()">
+          <option value="auto">Auto (detectar)</option>
+          <option value="image">Imagen</option>
+          <option value="video">Video</option>
+          <option value="document">Documento / PDF</option>
+          <option value="none">Sin media</option>
+        </select>
+      </div>
+
+      <!-- Usar primera imagen -->
+      <div id="edt-first-img-row" class="edit-modal-row">
+        <label class="edit-modal-label" style="margin:0">Usar primera imagen del tweet</label>
+        <label class="toggle-switch">
+          <input type="checkbox" id="edt-use-first-img">
+          <span class="toggle-slider"></span>
+        </label>
+      </div>
+
+      <!-- Imágenes disponibles -->
+      <div id="edt-images-section">
+        <label class="edit-modal-label">Imágenes disponibles</label>
+        <div id="edt-images-grid" class="edit-images-grid"></div>
+      </div>
+
+      <!-- PDF -->
+      <div id="edt-pdf-section" style="display:none">
+        <label class="edit-modal-label">URL del PDF</label>
+        <input type="text" id="edt-pdf-url" class="edit-input" placeholder="https://...">
+        <label class="edit-modal-label" style="margin-top:8px">Título del documento</label>
+        <input type="text" id="edt-doc-title" class="edit-input" placeholder="Documento">
+      </div>
+    </div>
+
+    <div class="edit-modal-footer">
+      <button class="btn btn-ghost" onclick="closeEditModal()">Cancelar</button>
+      <button class="btn btn-primary" onclick="saveEditModal()">Guardar cambios</button>
+    </div>
+  </div>
+</div>
+
 <!-- TOAST -->
 <div id="toast" class="toast hidden"></div>
 

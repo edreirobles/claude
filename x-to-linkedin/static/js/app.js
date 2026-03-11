@@ -595,9 +595,9 @@ function renderHistory(posts) {
       pending: 'Pendiente',
     }[post.status] || post.status;
 
+    const editBtn = `<button class="btn-edit-small" onclick="editPost(${post.id})" title="Editar post">Editar</button>`;
     const cancelBtn = post.status === 'scheduled'
-      ? `<button class="btn-edit-small" onclick="editPost(${post.id})" title="Editar">Editar</button>
-         <button class="btn-cancel-small" onclick="cancelPost(${post.id})" title="Cancelar">Cancelar</button>`
+      ? `${editBtn}<button class="btn-cancel-small" onclick="cancelPost(${post.id})" title="Cancelar">Cancelar</button>`
       : '';
 
     // Métricas
@@ -625,6 +625,13 @@ function renderHistory(posts) {
       ? new Date(post.scheduled_at + 'Z').toISOString().slice(0, 16)
       : '';
 
+    // Media badge
+    const mediaIcon = { image: '🖼', video: '🎬', document: '📄', none: '', auto: '' }[post.media_type] || '';
+    const hasImages = post.image_urls && post.image_urls.length > 0;
+    const mediaLabel = post.media_type && post.media_type !== 'auto' && post.media_type !== 'none'
+      ? `<span class="media-badge" title="Tipo media: ${escHtml(post.media_type)}">${mediaIcon} ${escHtml(post.media_type)}</span>`
+      : (hasImages ? `<span class="media-badge">🖼 ${post.image_urls.length} img</span>` : '');
+
     return `
       <div class="history-item" id="history-item-${post.id}">
         <span class="history-status status-${escHtml(post.status)}">${escHtml(statusLabel)}</span>
@@ -633,24 +640,12 @@ function renderHistory(posts) {
           <div class="history-meta">
             <span id="post-date-${post.id}">${post.status === 'scheduled' ? '📅 Programado: ' : '📤 '}${escHtml(dateStr)}</span>
             ${post.tweet_author ? `<span>🐦 ${escHtml(post.tweet_author)}</span>` : ''}
+            ${mediaLabel}
             ${post.error_message ? `<span style="color:var(--error)">⚠ ${escHtml(post.error_message)}</span>` : ''}
           </div>
           ${metricsHtml}
         </div>
         <div class="history-actions">${cancelBtn}</div>
-        ${post.status === 'scheduled' ? `
-        <div class="post-edit-form hidden" id="edit-form-${post.id}">
-          <textarea class="edit-textarea" id="edit-text-${post.id}" rows="6">${escHtml(post.linkedin_text)}</textarea>
-          <div class="edit-form-row">
-            <label>Fecha y hora:
-              <input type="datetime-local" class="edit-datetime" id="edit-dt-${post.id}" value="${scheduledIso}">
-            </label>
-            <div class="edit-form-btns">
-              <button class="btn-save-edit" onclick="savePost(${post.id})">Guardar</button>
-              <button class="btn-cancel-edit" onclick="cancelEdit(${post.id})">Cancelar</button>
-            </div>
-          </div>
-        </div>` : ''}
       </div>
     `;
   }).join('');
@@ -669,25 +664,77 @@ async function cancelPost(postId) {
   }
 }
 
+// ── Edit modal ──────────────────────────────────────────
+let _editPostId = null;
+
 function editPost(postId) {
-  document.getElementById(`edit-form-${postId}`)?.classList.remove('hidden');
+  const post = calState.posts.find(p => p.id === postId);
+  if (!post) return;
+  _editPostId = postId;
+
+  document.getElementById('edt-text').value = post.linkedin_text || '';
+
+  const dtEl = document.getElementById('edt-dt');
+  const dtLabel = document.getElementById('edt-dt-label');
+  if (post.scheduled_at) {
+    dtEl.value = new Date(post.scheduled_at + 'Z').toISOString().slice(0, 16);
+    dtEl.style.display = '';
+    dtLabel.style.display = '';
+  } else {
+    dtEl.style.display = 'none';
+    dtLabel.style.display = 'none';
+  }
+
+  document.getElementById('edt-media-type').value = post.media_type || 'auto';
+  document.getElementById('edt-use-first-img').checked = post.use_first_image !== false;
+  document.getElementById('edt-pdf-url').value = post.pdf_url || '';
+  document.getElementById('edt-doc-title').value = post.document_title || 'Documento';
+
+  // Images grid
+  const grid = document.getElementById('edt-images-grid');
+  const imgs = post.image_urls || [];
+  if (imgs.length > 0) {
+    grid.innerHTML = imgs.map((url, i) => `
+      <div class="edit-image-thumb">
+        <img src="${escHtml(url)}" alt="imagen ${i + 1}" loading="lazy">
+        <a href="${escHtml(url)}" target="_blank" class="edit-image-link" title="Ver original">↗</a>
+      </div>`).join('');
+    document.getElementById('edt-images-section').style.display = '';
+  } else {
+    grid.innerHTML = '<span style="color:var(--text-faint);font-size:12px">Sin imágenes</span>';
+    document.getElementById('edt-images-section').style.display = '';
+  }
+
+  onEditMediaTypeChange();
+  document.getElementById('modal-edit-post').classList.remove('hidden');
 }
 
-function cancelEdit(postId) {
-  document.getElementById(`edit-form-${postId}`)?.classList.add('hidden');
+function onEditMediaTypeChange() {
+  const mt = document.getElementById('edt-media-type').value;
+  document.getElementById('edt-first-img-row').style.display = (mt === 'auto' || mt === 'image') ? '' : 'none';
+  document.getElementById('edt-pdf-section').style.display = (mt === 'document') ? '' : 'none';
 }
 
-async function savePost(postId) {
-  const textEl = document.getElementById(`edit-text-${postId}`);
-  const dtEl = document.getElementById(`edit-dt-${postId}`);
-  const body = {};
-  if (textEl) body.linkedin_text = textEl.value;
-  if (dtEl && dtEl.value) {
-    // datetime-local is local time, convert to UTC ISO
+function closeEditModal() {
+  _editPostId = null;
+  document.getElementById('modal-edit-post').classList.add('hidden');
+}
+
+async function saveEditModal() {
+  if (!_editPostId) return;
+  const body = {
+    linkedin_text: document.getElementById('edt-text').value,
+    media_type: document.getElementById('edt-media-type').value,
+    use_first_image: document.getElementById('edt-use-first-img').checked,
+    pdf_url: document.getElementById('edt-pdf-url').value || null,
+    document_title: document.getElementById('edt-doc-title').value,
+  };
+  const dtEl = document.getElementById('edt-dt');
+  if (dtEl.style.display !== 'none' && dtEl.value) {
     body.scheduled_at = new Date(dtEl.value).toISOString();
   }
   try {
-    const res = await fetch(`/api/posts/${postId}`, {
+    const res = await fetch(`/api/posts/${_editPostId}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
@@ -695,6 +742,7 @@ async function savePost(postId) {
     const data = await res.json();
     if (!res.ok) throw new Error(data.detail);
     showToast('Post actualizado', 'success');
+    closeEditModal();
     loadHistory();
   } catch (e) {
     showToast(`Error: ${e.message}`, 'error');
