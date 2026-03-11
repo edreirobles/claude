@@ -28,7 +28,7 @@ from ..config import get_settings
 
 logger = logging.getLogger(__name__)
 
-MONTERREY_TZ = ZoneInfo("America/Monterrey")
+MONTERREY_TZ = ZoneInfo("America/Mexico_City")
 
 
 # ── Playwright scraper ─────────────────────────────────────────────────────────
@@ -156,7 +156,6 @@ async def get_next_auto_slot(db) -> datetime:
     """
     result = await db.execute(
         select(ScheduledPost).where(
-            ScheduledPost.source == "x_auto",
             ScheduledPost.status == "scheduled",
         )
     )

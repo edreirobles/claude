@@ -40,7 +40,7 @@ class PublishRequest(BaseModel):
 
 
 class ScheduleRequest(PublishRequest):
-    scheduled_at: datetime
+    scheduled_at: Optional[datetime] = None  # ignorado: el backend asigna el próximo slot
 
 
 class PostResponse(BaseModel):

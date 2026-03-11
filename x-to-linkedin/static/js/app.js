@@ -42,14 +42,7 @@ function checkUrlParams() {
 }
 
 function setDefaultScheduleTime() {
-  const dt = document.getElementById('schedule-datetime');
-  if (!dt) return;
-  const now = new Date();
-  now.setHours(now.getHours() + 1);
-  now.setMinutes(0, 0, 0);
-  // Formato datetime-local: YYYY-MM-DDTHH:MM
-  dt.value = now.toISOString().slice(0, 16);
-  dt.min = new Date().toISOString().slice(0, 16);
+  // Ya no se usa: el backend asigna automáticamente el próximo slot 5 AM / 4 PM CDMX
 }
 
 function setupCharCounter() {
@@ -363,18 +356,6 @@ async function schedulePost() {
     return;
   }
 
-  const scheduledAt = document.getElementById('schedule-datetime').value;
-  if (!scheduledAt) {
-    showToast('Selecciona una fecha y hora', 'error');
-    return;
-  }
-
-  const scheduledDate = new Date(scheduledAt);
-  if (scheduledDate <= new Date()) {
-    showToast('La fecha debe ser en el futuro', 'error');
-    return;
-  }
-
   const linkedinText = document.getElementById('linkedin-text').value.trim();
   if (!linkedinText) {
     showToast('El texto del post está vacío', 'error');
@@ -399,7 +380,6 @@ async function schedulePost() {
         linkedin_text: linkedinText,
         image_urls: imageUrls,
         use_first_image: imageUrls.length > 0,
-        scheduled_at: scheduledDate.toISOString(),
         media_type: state.mediaType,
         pdf_url: state.pdfUrl,
         document_title: state.documentTitle,
@@ -409,10 +389,11 @@ async function schedulePost() {
     const data = await res.json();
     if (!res.ok) throw new Error(data.detail || 'Error al programar');
 
-    const dateStr = scheduledDate.toLocaleString('es-ES', {
-      dateStyle: 'medium', timeStyle: 'short'
-    });
-    showPublishResult(`✅ Post programado para el ${dateStr}`, 'success');
+    const slotDate = data.scheduled_at ? new Date(data.scheduled_at + 'Z') : null;
+    const dateStr = slotDate ? slotDate.toLocaleString('es-MX', {
+      dateStyle: 'medium', timeStyle: 'short', timeZone: 'America/Mexico_City'
+    }) : '';
+    showPublishResult(`✅ Post programado para el ${dateStr} CDMX`, 'success');
     showToast('Post programado', 'success');
     loadHistory();
     resetForm();

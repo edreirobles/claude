@@ -12,7 +12,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, desc
+from sqlalchemy import select, desc, func
 
 from ..database import get_db
 from ..models import AppSettings, ScheduledPost, LinkedInToken
@@ -186,15 +186,12 @@ async def schedule_linkedin_post(
     request: ScheduleRequest,
     db: AsyncSession = Depends(get_db),
 ):
-    """Programa una publicación para una fecha y hora específicas."""
+    """Programa una publicación en el próximo slot disponible (5 AM o 4 PM CDMX)."""
     # Verificar que LinkedIn está conectado antes de programar
     await get_linkedin_client(db)
 
-    if request.scheduled_at <= datetime.utcnow():
-        raise HTTPException(
-            status_code=400,
-            detail="La fecha programada debe ser en el futuro.",
-        )
+    from ..services.x_likes_monitor import get_next_auto_slot
+    run_at = await get_next_auto_slot(db)
 
     post = ScheduledPost(
         tweet_url=request.tweet_url,
@@ -203,7 +200,7 @@ async def schedule_linkedin_post(
         linkedin_text=request.linkedin_text,
         image_urls=request.image_urls,
         status="scheduled",
-        scheduled_at=request.scheduled_at,
+        scheduled_at=run_at,
         use_first_image=request.use_first_image,
         media_type=request.media_type,
         pdf_url=request.pdf_url,
@@ -214,7 +211,7 @@ async def schedule_linkedin_post(
     await db.refresh(post)
 
     # Registrar en el scheduler
-    schedule_post(post.id, request.scheduled_at)
+    schedule_post(post.id, run_at)
 
     return post
 
@@ -224,9 +221,10 @@ async def list_posts(
     limit: int = 500,
     db: AsyncSession = Depends(get_db),
 ):
-    """Retorna el historial de posts publicados y programados."""
+    """Retorna el historial de posts publicados y programados, más recientes/próximos primero."""
+    sort_key = func.coalesce(ScheduledPost.scheduled_at, ScheduledPost.published_at, ScheduledPost.created_at)
     result = await db.execute(
-        select(ScheduledPost).order_by(desc(ScheduledPost.created_at)).limit(limit)
+        select(ScheduledPost).order_by(desc(sort_key)).limit(limit)
     )
     return result.scalars().all()
 
