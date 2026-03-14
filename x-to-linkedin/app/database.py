@@ -24,6 +24,7 @@ async def init_db():
         # Migraciones para columnas agregadas en versiones posteriores
         for stmt in [
             "ALTER TABLE scheduled_posts ADD COLUMN source VARCHAR(20) DEFAULT 'manual'",
+            "ALTER TABLE scheduled_posts ADD COLUMN generated_image_path TEXT",
         ]:
             try:
                 await conn.execute(text(stmt))

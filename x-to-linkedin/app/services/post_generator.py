@@ -264,6 +264,39 @@ async def _generate_pollinations(prompt: str) -> Optional[bytes]:
     return None
 
 
+async def generate_nano_banana_image(linkedin_text: str) -> Optional[bytes]:
+    """
+    Genera una imagen con Nano Banana (Gemini image generation).
+    Intenta en orden:
+    1. Gemini 2.0 Flash image generation (Nano Banana)
+    2. Google Imagen 3
+    3. Pollinations.ai (fallback gratuito)
+    """
+    img_prompt = _build_image_prompt(linkedin_text)
+    key = settings.google_api_key
+
+    if key:
+        # Intento 1: Gemini 2.0 Flash image generation (Nano Banana)
+        result = await _generate_gemini_image(img_prompt, key)
+        if result:
+            logger.info("Nano Banana: imagen generada con Gemini Flash")
+            return result
+
+        # Intento 2: Google Imagen 3
+        result = await _generate_imagen3(img_prompt, key)
+        if result:
+            logger.info("Nano Banana: imagen generada con Imagen 3")
+            return result
+
+        logger.warning("Nano Banana: Google API falló, usando Pollinations como fallback")
+
+    # Intento 3: Pollinations.ai
+    result = await _generate_pollinations(img_prompt)
+    if result:
+        logger.info("Nano Banana: imagen generada con Pollinations")
+    return result
+
+
 async def download_tweet_video(tweet_url: str) -> Optional[bytes]:
     """
     Descarga el video de un tweet usando yt-dlp.

@@ -548,14 +548,27 @@ function calSelectDay(key) {
         const mediaBadge = (p.media_type && p.media_type !== 'auto' && p.media_type !== 'none')
           ? `<span class="media-badge">${mediaIcon} ${escHtml(p.media_type)}</span>`
           : (hasImages ? `<span class="media-badge">🖼 ${p.image_urls.length} img</span>` : '');
+        const canGenImg = p.status === 'scheduled' || p.status === 'pending';
+        const calGenImgBtn = canGenImg
+          ? `<button class="btn-gen-image-small" onclick="generatePostImage(${p.id})">🎨 Imagen</button>`
+          : '';
         const actions = p.status === 'scheduled'
           ? `<div class="cal-detail-actions">
                <button class="btn-edit-small" onclick="editPost(${p.id})">Editar</button>
+               ${calGenImgBtn}
                <button class="btn-cancel-small" onclick="cancelPost(${p.id})">Cancelar</button>
              </div>`
-          : `<div class="cal-detail-actions">
-               <button class="btn-edit-small" onclick="editPost(${p.id})">Ver</button>
-             </div>`;
+          : (canGenImg
+            ? `<div class="cal-detail-actions">
+                 <button class="btn-edit-small" onclick="editPost(${p.id})">Editar</button>
+                 ${calGenImgBtn}
+               </div>`
+            : `<div class="cal-detail-actions">
+                 <button class="btn-edit-small" onclick="editPost(${p.id})">Ver</button>
+               </div>`);
+        const calImgThumb = p.generated_image_path
+          ? `<div class="gen-image-thumb gen-image-thumb--cal"><img src="${escHtml(p.generated_image_path)}?v=${p.id}" alt="Imagen generada" loading="lazy"></div>`
+          : '';
         return `
         <div class="cal-detail-item">
           <div class="cal-detail-item-top">
@@ -566,6 +579,7 @@ function calSelectDay(key) {
               ? `<span class="cal-detail-metrics">👍 ${p.li_likes ?? '—'} &nbsp; 💬 ${p.li_comments ?? '—'}</span>`
               : ''}
           </div>
+          ${calImgThumb}
           ${actions}
         </div>`;
       }).join('')}
@@ -596,9 +610,13 @@ function renderHistory(posts) {
     }[post.status] || post.status;
 
     const editBtn = `<button class="btn-edit-small" onclick="editPost(${post.id})" title="Editar post">Editar</button>`;
-    const cancelBtn = post.status === 'scheduled'
-      ? `${editBtn}<button class="btn-cancel-small" onclick="cancelPost(${post.id})" title="Cancelar">Cancelar</button>`
+    const canGenerateImage = post.status === 'scheduled' || post.status === 'pending';
+    const genImgBtn = canGenerateImage
+      ? `<button class="btn-gen-image-small" onclick="generatePostImage(${post.id})" title="Generar imagen con Nano Banana">🎨 Imagen</button>`
       : '';
+    const cancelBtn = post.status === 'scheduled'
+      ? `${editBtn}${genImgBtn}<button class="btn-cancel-small" onclick="cancelPost(${post.id})" title="Cancelar">Cancelar</button>`
+      : (canGenerateImage ? `${editBtn}${genImgBtn}` : '');
 
     // Métricas
     let metricsHtml = '';
@@ -632,11 +650,16 @@ function renderHistory(posts) {
       ? `<span class="media-badge" title="Tipo media: ${escHtml(post.media_type)}">${mediaIcon} ${escHtml(post.media_type)}</span>`
       : (hasImages ? `<span class="media-badge">🖼 ${post.image_urls.length} img</span>` : '');
 
+    const genImageThumb = post.generated_image_path
+      ? `<div class="gen-image-thumb"><img src="${escHtml(post.generated_image_path)}?v=${post.id}" alt="Imagen generada" loading="lazy"></div>`
+      : '';
+
     return `
       <div class="history-item" id="history-item-${post.id}">
         <span class="history-status status-${escHtml(post.status)}">${escHtml(statusLabel)}</span>
         <div class="history-content">
           <div class="history-text" id="post-text-${post.id}">${escHtml(post.linkedin_text)}</div>
+          ${genImageThumb}
           <div class="history-meta">
             <span id="post-date-${post.id}">${post.status === 'scheduled' ? '📅 Programado: ' : '📤 '}${escHtml(dateStr)}</span>
             ${post.tweet_author ? `<span>🐦 ${escHtml(post.tweet_author)}</span>` : ''}
@@ -649,6 +672,22 @@ function renderHistory(posts) {
       </div>
     `;
   }).join('');
+}
+
+async function generatePostImage(postId) {
+  try {
+    showToast('Generando imagen con Nano Banana...', 'info');
+    const res = await fetch(`/api/posts/${postId}/generate-image`, { method: 'POST' });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail);
+    showToast('¡Imagen generada y guardada!', 'success');
+    await loadHistory();
+    if (calState.view === 'calendar' && calState.selectedDay) {
+      calSelectDay(calState.selectedDay);
+    }
+  } catch (e) {
+    showToast(`Error: ${e.message}`, 'error');
+  }
 }
 
 async function cancelPost(postId) {

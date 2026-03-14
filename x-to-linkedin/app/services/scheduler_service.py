@@ -115,7 +115,19 @@ async def execute_scheduled_post(post_id: int):
                 if pdf_url:
                     document_bytes = await download_pdf(pdf_url)
             elif media_type == "generate":
-                generated_image_bytes = await generate_free_image(post.linkedin_text)
+                # Usar imagen pre-generada con Nano Banana si existe
+                pre_generated_path = getattr(post, "generated_image_path", None)
+                if pre_generated_path:
+                    import os
+                    disk_path = pre_generated_path.lstrip("/")
+                    if os.path.exists(disk_path):
+                        with open(disk_path, "rb") as f:
+                            generated_image_bytes = f.read()
+                        logger.info(f"Post {post_id}: usando imagen pre-generada {disk_path}")
+                    else:
+                        logger.warning(f"Post {post_id}: imagen pre-generada no encontrada en {disk_path}, regenerando")
+                if not generated_image_bytes:
+                    generated_image_bytes = await generate_free_image(post.linkedin_text)
 
             # Publicar
             client = LinkedInClient(token.access_token, token.person_urn)

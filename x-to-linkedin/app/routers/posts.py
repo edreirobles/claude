@@ -31,6 +31,7 @@ from ..services.x_scraper import scrape_tweet
 from ..services.post_generator import (
     generate_linkedin_post,
     generate_free_image,
+    generate_nano_banana_image,
     download_tweet_video,
     download_pdf,
     SYSTEM_PROMPT_ES,
@@ -553,6 +554,48 @@ async def linkedin_scraper_debug(post_id: int, db: AsyncSession = Depends(get_db
         "db_status": post.status,
         **debug_info,
     }
+
+
+@router.post("/posts/{post_id}/generate-image", response_model=PostResponse)
+async def generate_post_image(
+    post_id: int,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Genera una imagen con Nano Banana (Gemini) para un post programado o pendiente.
+    Guarda la imagen en static/generated_images/ y actualiza el post.
+    """
+    import os
+
+    result = await db.execute(
+        select(ScheduledPost).where(ScheduledPost.id == post_id)
+    )
+    post = result.scalar_one_or_none()
+    if not post:
+        raise HTTPException(status_code=404, detail="Post no encontrado")
+    if post.status not in ("scheduled", "pending"):
+        raise HTTPException(
+            status_code=400,
+            detail="Solo se puede generar imagen para posts programados o pendientes.",
+        )
+
+    image_bytes = await generate_nano_banana_image(post.linkedin_text)
+    if not image_bytes:
+        raise HTTPException(status_code=500, detail="No se pudo generar la imagen. Revisa GOOGLE_API_KEY en .env.")
+
+    # Guardar imagen en static/generated_images/
+    images_dir = os.path.join("static", "generated_images")
+    os.makedirs(images_dir, exist_ok=True)
+    image_filename = f"{post_id}.jpg"
+    image_path = os.path.join(images_dir, image_filename)
+    with open(image_path, "wb") as f:
+        f.write(image_bytes)
+
+    post.generated_image_path = f"/static/generated_images/{image_filename}"
+    post.media_type = "generate"
+    await db.commit()
+    await db.refresh(post)
+    return post
 
 
 @router.post("/posts/repack-schedule")

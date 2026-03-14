@@ -47,6 +47,9 @@ class ScheduledPost(Base):
     # "manual" = publicado manualmente desde la app, "x_auto" = generado desde like en X
     source: Mapped[str] = mapped_column(String(20), default="manual", server_default="manual")
 
+    # Imagen pre-generada con Nano Banana (Gemini image gen)
+    generated_image_path: Mapped[str | None] = mapped_column(Text, nullable=True)
+
     # Métricas de LinkedIn (se actualizan manualmente vía endpoint refresh)
     li_likes: Mapped[int | None] = mapped_column(Integer, nullable=True)
     li_comments: Mapped[int | None] = mapped_column(Integer, nullable=True)

@@ -606,6 +606,36 @@ body {
 }
 .btn-edit-small:hover { border-color: var(--accent); color: var(--accent); }
 
+.btn-gen-image-small {
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-muted);
+  font-size: 12px;
+  padding: 4px 10px;
+  cursor: pointer;
+  transition: all var(--transition);
+  white-space: nowrap;
+}
+.btn-gen-image-small:hover { border-color: #a855f7; color: #a855f7; }
+
+.gen-image-thumb {
+  margin: 8px 0 4px;
+  border-radius: 6px;
+  overflow: hidden;
+  max-width: 180px;
+  border: 1px solid var(--border);
+}
+.gen-image-thumb img {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+.gen-image-thumb--cal {
+  max-width: 140px;
+  margin: 6px 0;
+}
+
 /* ── Inline edit form ─────────────────────────────── */
 .post-edit-form {
   flex: 0 0 calc(100% + 28px);

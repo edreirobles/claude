@@ -62,6 +62,7 @@ class PostResponse(BaseModel):
     media_type: str = "auto"
     pdf_url: Optional[str] = None
     document_title: str = "Documento"
+    generated_image_path: Optional[str] = None
 
     model_config = {"from_attributes": True}
 
