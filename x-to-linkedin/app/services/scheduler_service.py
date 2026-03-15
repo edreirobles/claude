@@ -3,7 +3,7 @@ Servicio de programación de publicaciones.
 Usa APScheduler con SQLite para persistir los trabajos.
 """
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
 
@@ -68,6 +68,36 @@ def stop_scheduler():
     if scheduler.running:
         scheduler.shutdown()
         logger.info("Scheduler detenido")
+
+
+async def execute_pre_notify(post_id: int):
+    """Envía notificación de Telegram 5 minutos antes de publicar un post."""
+    from ..database import AsyncSessionLocal
+    from ..models import ScheduledPost
+    from sqlalchemy import select
+    from zoneinfo import ZoneInfo
+
+    async with AsyncSessionLocal() as db:
+        result = await db.execute(
+            select(ScheduledPost).where(ScheduledPost.id == post_id)
+        )
+        post = result.scalar_one_or_none()
+        if not post or post.status != "scheduled":
+            return
+
+        scheduled_at_str = ""
+        if post.scheduled_at:
+            mty_tz = ZoneInfo("America/Monterrey")
+            sched_mty = post.scheduled_at.replace(tzinfo=timezone.utc).astimezone(mty_tz)
+            scheduled_at_str = sched_mty.strftime("%H:%M")
+
+        linkedin_text = post.linkedin_text or ""
+
+    try:
+        from .telegram_bot import notify_upcoming
+        await notify_upcoming(post_id, linkedin_text, scheduled_at_str)
+    except Exception as e:
+        logger.warning(f"Pre-notificación Telegram para post {post_id} falló: {e}")
 
 
 async def execute_scheduled_post(post_id: int):
@@ -181,14 +211,37 @@ def schedule_post(post_id: int, run_date: datetime) -> str:
         replace_existing=True,
     )
     logger.info(f"Post {post_id} programado para {run_date}")
+
+    # Programar notificación 5 min antes si hay margen suficiente
+    notify_at = run_date - timedelta(minutes=5)
+    now_utc = datetime.now(timezone.utc).replace(tzinfo=None)
+    if notify_at > now_utc:
+        notify_job_id = f"pre_notify_{post_id}"
+        scheduler.add_job(
+            execute_pre_notify,
+            trigger="date",
+            run_date=notify_at,
+            args=[post_id],
+            id=notify_job_id,
+            replace_existing=True,
+        )
+        logger.info(f"Pre-notificación post {post_id} programada para {notify_at}")
+
     return job_id
 
 
 def cancel_scheduled_post(post_id: int) -> bool:
-    """Cancela un trabajo programado. Retorna True si se canceló."""
+    """Cancela un trabajo programado y su pre-notificación. Retorna True si se canceló."""
     job_id = f"post_{post_id}"
+    notify_job_id = f"pre_notify_{post_id}"
+    cancelled = False
     try:
         scheduler.remove_job(job_id)
-        return True
+        cancelled = True
     except Exception:
-        return False
+        pass
+    try:
+        scheduler.remove_job(notify_job_id)
+    except Exception:
+        pass
+    return cancelled

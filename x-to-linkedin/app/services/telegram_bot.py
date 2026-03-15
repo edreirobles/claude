@@ -2,10 +2,11 @@
 Bot de Telegram para controlar el sistema X → LinkedIn.
 
 Funcionalidades:
-- Enviar URL de tweet → genera post → preview → Programar / Publicar / Descartar
+- Enviar URL de tweet → genera post → preview → Programar / Publicar / Regenerar / Descartar
 - /hoy     → posts programados para hoy
 - /pendientes → todos los posts en cola con botón cancelar
-- Notificaciones automáticas de publicación y errores
+- /status  → estado del sistema de un vistazo
+- Notificaciones automáticas de publicación, errores y aviso 5 min antes
 
 Solo acepta mensajes del TELEGRAM_USER_ID configurado en .env
 """
@@ -36,11 +37,16 @@ _application: Optional[Application] = None
 # Clave: message_id del mensaje de preview → datos del post
 _pending: dict[int, dict] = {}
 
+# Modo edición: user_id → post_id (post programado esperando texto nuevo)
+_awaiting_edit: dict[int, int] = {}
+
 # Regex para detectar URLs de X / Twitter
 _TWEET_RE = re.compile(
     r"https?://(?:www\.)?(?:x\.com|twitter\.com)/\S+/status/\d+",
     re.IGNORECASE,
 )
+
+_LI_CHAR_LIMIT = 3000
 
 
 # ── Seguridad ──────────────────────────────────────────────────────────────
@@ -55,20 +61,42 @@ async def _deny(update: Update):
     await update.message.reply_text("No estás autorizado para usar este bot.")
 
 
+# ── Teclado rápido de preview ──────────────────────────────────────────────
+
+def _preview_keyboard(mid: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("📅 Programar", callback_data=f"sched:{mid}"),
+            InlineKeyboardButton("🚀 Publicar ahora", callback_data=f"pub:{mid}"),
+        ],
+        [
+            InlineKeyboardButton("🔄 Regenerar", callback_data=f"regen:{mid}"),
+            InlineKeyboardButton("🗑️ Descartar", callback_data=f"disc:{mid}"),
+        ],
+    ])
+
+
 # ── Comandos ───────────────────────────────────────────────────────────────
 
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not _authorized(update):
         await _deny(update)
         return
+    keyboard = InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("📅 Ver hoy", callback_data="cmd:hoy"),
+            InlineKeyboardButton("📋 Pendientes", callback_data="cmd:pendientes"),
+        ],
+        [
+            InlineKeyboardButton("📊 Estado", callback_data="cmd:status"),
+            InlineKeyboardButton("📖 Ayuda", callback_data="cmd:help"),
+        ],
+    ])
     await update.message.reply_text(
         "👋 *X → LinkedIn Bot*\n\n"
-        "Envíame un URL de tweet y lo convierto en un post de LinkedIn.\n\n"
-        "Comandos:\n"
-        "/hoy — posts de hoy\n"
-        "/pendientes — posts en cola\n"
-        "/help — ayuda",
+        "Envíame un URL de tweet y lo convierto en un post de LinkedIn.",
         parse_mode="Markdown",
+        reply_markup=keyboard,
     )
 
 
@@ -80,12 +108,74 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "📖 *Cómo usar el bot*\n\n"
         "1\\. Envía un URL de tweet \\(x\\.com o twitter\\.com\\)\n"
         "2\\. El bot genera el post de LinkedIn con IA\n"
-        "3\\. Elige: *Programar* / *Publicar ahora* / *Descartar*\n\n"
+        "3\\. Elige: *Programar* / *Publicar ahora* / *Regenerar* / *Descartar*\n\n"
         "*Comandos:*\n"
         "/hoy — posts programados para hoy con horario\n"
         "/pendientes — todos los posts en cola \\(con opción a cancelar\\)\n"
+        "/status — estado del sistema de un vistazo\n"
         "/start — bienvenida",
         parse_mode="MarkdownV2",
+    )
+
+
+async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not _authorized(update):
+        await _deny(update)
+        return
+
+    from datetime import datetime, timezone
+    from zoneinfo import ZoneInfo
+    from sqlalchemy import select, func
+
+    from ..database import AsyncSessionLocal
+    from ..models import ScheduledPost, LinkedInToken
+    from .scheduler_service import scheduler
+
+    mty_tz = ZoneInfo("America/Monterrey")
+    now_mty = datetime.now(mty_tz)
+    today_start = (
+        now_mty.replace(hour=0, minute=0, second=0, microsecond=0)
+        .astimezone(timezone.utc)
+        .replace(tzinfo=None)
+    )
+    today_end = (
+        now_mty.replace(hour=23, minute=59, second=59)
+        .astimezone(timezone.utc)
+        .replace(tzinfo=None)
+    )
+
+    async with AsyncSessionLocal() as db:
+        token_result = await db.execute(select(LinkedInToken).limit(1))
+        token = token_result.scalar_one_or_none()
+        li_status = "✅ Conectado" if token else "❌ Desconectado"
+
+        posts_hoy_result = await db.execute(
+            select(ScheduledPost)
+            .where(ScheduledPost.scheduled_at >= today_start)
+            .where(ScheduledPost.scheduled_at <= today_end)
+        )
+        posts_hoy = posts_hoy_result.scalars().all()
+        hoy_sched = sum(1 for p in posts_hoy if p.status == "scheduled")
+        hoy_pub = sum(1 for p in posts_hoy if p.status == "published")
+
+        pend_result = await db.execute(
+            select(func.count())
+            .select_from(ScheduledPost)
+            .where(ScheduledPost.status == "scheduled")
+        )
+        total_pend = pend_result.scalar()
+
+    sched_status = "✅ Corriendo" if scheduler.running else "❌ Detenido"
+
+    await update.message.reply_text(
+        f"📊 *Estado del sistema*\n\n"
+        f"🔗 LinkedIn: {li_status}\n"
+        f"⚙️ Scheduler: {sched_status}\n\n"
+        f"📅 *Hoy ({now_mty.strftime('%d/%m')}):*\n"
+        f"  ⏰ Programados: {hoy_sched}\n"
+        f"  ✅ Publicados: {hoy_pub}\n\n"
+        f"📋 Total en cola: {total_pend}",
+        parse_mode="Markdown",
     )
 
 
@@ -96,7 +186,6 @@ async def cmd_hoy(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     from datetime import datetime, timezone
     from zoneinfo import ZoneInfo
-
     from sqlalchemy import select
 
     from ..database import AsyncSessionLocal
@@ -148,7 +237,6 @@ async def cmd_pendientes(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     from datetime import datetime, timezone
     from zoneinfo import ZoneInfo
-
     from sqlalchemy import select
 
     from ..database import AsyncSessionLocal
@@ -190,16 +278,22 @@ async def cmd_pendientes(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 
-# ── Mensajes de texto (detección de URL de tweet) ─────────────────────────
+# ── Mensajes de texto (detección de URL de tweet o modo edición) ──────────
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not _authorized(update):
         await _deny(update)
         return
 
+    user_id = update.effective_user.id
     text = update.message.text or ""
-    match = _TWEET_RE.search(text)
 
+    # Modo edición activo: el texto es el nuevo contenido del post
+    if user_id in _awaiting_edit:
+        await _handle_edit_text(update, text)
+        return
+
+    match = _TWEET_RE.search(text)
     if match:
         await _process_tweet_url(update, context, match.group(0))
     else:
@@ -209,6 +303,40 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "O usa /pendientes para ver los posts en cola."
         )
 
+
+async def _handle_edit_text(update: Update, new_text: str):
+    """Actualiza el texto de un post programado con el texto enviado por el usuario."""
+    from sqlalchemy import select
+
+    from ..database import AsyncSessionLocal
+    from ..models import ScheduledPost
+
+    user_id = update.effective_user.id
+    post_id = _awaiting_edit.pop(user_id)
+
+    if not new_text.strip():
+        await update.message.reply_text("⚠️ El texto está vacío. Edición cancelada.")
+        return
+
+    async with AsyncSessionLocal() as db:
+        result = await db.execute(
+            select(ScheduledPost).where(ScheduledPost.id == post_id)
+        )
+        post = result.scalar_one_or_none()
+        if not post or post.status != "scheduled":
+            await update.message.reply_text("⚠️ El post ya no está programado.")
+            return
+        post.linkedin_text = new_text.strip()
+        await db.commit()
+
+    char_count = len(new_text.strip())
+    await update.message.reply_text(
+        f"✅ *Post #{post_id} actualizado* ({char_count}/{_LI_CHAR_LIMIT} chars)",
+        parse_mode="Markdown",
+    )
+
+
+# ── Procesado de tweet URL ─────────────────────────────────────────────────
 
 async def _process_tweet_url(
     update: Update, context: ContextTypes.DEFAULT_TYPE, url: str
@@ -221,22 +349,23 @@ async def _process_tweet_url(
     from ..services.post_generator import generate_linkedin_post
     from ..services.x_scraper import scrape_tweet
 
-    wait_msg = await update.message.reply_text("⏳ Generando post de LinkedIn…")
+    # Paso 1: Analizando tweet
+    wait_msg = await update.message.reply_text("🔍 Analizando tweet…")
 
-    # 1. Scraping del tweet
     try:
         tweet = await scrape_tweet(url)
     except Exception as e:
         await wait_msg.edit_text(f"❌ No pude extraer el tweet:\n`{e}`", parse_mode="Markdown")
         return
 
-    # 2. Prompt personalizado
+    # Paso 2: Generando con IA
+    await wait_msg.edit_text("🤖 Generando post con IA…")
+
     async with AsyncSessionLocal() as db:
         cfg_result = await db.execute(select(AppSettings).where(AppSettings.id == 1))
         cfg = cfg_result.scalar_one_or_none()
         custom_prompt = cfg.custom_prompt if cfg else None
 
-    # 3. Generar post con Claude
     try:
         linkedin_text = await generate_linkedin_post(
             tweet=tweet,
@@ -247,7 +376,6 @@ async def _process_tweet_url(
         await wait_msg.edit_text(f"❌ Error generando el post:\n`{e}`", parse_mode="Markdown")
         return
 
-    # 4. Verificar si el contenido es publicable
     if linkedin_text.startswith("[NO_PUBLICAR]"):
         reason = linkedin_text.split(":", 1)[-1].strip()
         await wait_msg.edit_text(
@@ -256,7 +384,6 @@ async def _process_tweet_url(
         )
         return
 
-    # 5. Determinar tipo de media
     if tweet.has_video:
         media_type = "video"
     elif tweet.pdf_url:
@@ -280,36 +407,56 @@ async def _process_tweet_url(
         ),
     }
 
-    # 6. Mostrar preview con botones temporales (message_id aún no conocido)
+    await _show_preview(wait_msg, post_data, edit=True)
+
+
+async def _show_preview(msg, post_data: dict, edit: bool = False):
+    """Muestra (o edita) el mensaje de preview con botones de acción."""
     icons = {"video": "🎥", "document": "📄", "image": "🖼️", "generate": "🎨"}
+    media_type = post_data["media_type"]
     media_icon = icons.get(media_type, "📝")
+    linkedin_text = post_data["linkedin_text"]
+    char_count = len(linkedin_text)
+    char_bar = f"{char_count}/{_LI_CHAR_LIMIT}"
+    if char_count > _LI_CHAR_LIMIT:
+        char_bar = f"⚠️ {char_bar} — EXCEDE el límite"
     preview = linkedin_text[:900] + ("…" if len(linkedin_text) > 900 else "")
 
-    # Botones provisionales (se actualizan con el message_id real)
-    preview_msg = await wait_msg.edit_text(
-        f"{media_icon} *Preview del post:*\n\n{preview}",
-        reply_markup=InlineKeyboardMarkup([[
-            InlineKeyboardButton("📅 Programar", callback_data="sched:0"),
-            InlineKeyboardButton("🚀 Publicar ahora", callback_data="pub:0"),
-        ], [
-            InlineKeyboardButton("❌ Descartar", callback_data="disc:0"),
-        ]]),
-        parse_mode="Markdown",
+    text = (
+        f"{media_icon} *Preview del post:*\n\n"
+        f"{preview}\n\n"
+        f"_{char_bar} caracteres_"
     )
 
-    # Guardar datos con el message_id real como clave
+    if edit:
+        preview_msg = await msg.edit_text(
+            text,
+            reply_markup=InlineKeyboardMarkup([[
+                InlineKeyboardButton("📅 Programar", callback_data="sched:0"),
+                InlineKeyboardButton("🚀 Publicar ahora", callback_data="pub:0"),
+            ], [
+                InlineKeyboardButton("🔄 Regenerar", callback_data="regen:0"),
+                InlineKeyboardButton("🗑️ Descartar", callback_data="disc:0"),
+            ]]),
+            parse_mode="Markdown",
+        )
+    else:
+        preview_msg = await msg.reply_text(
+            text,
+            reply_markup=InlineKeyboardMarkup([[
+                InlineKeyboardButton("📅 Programar", callback_data="sched:0"),
+                InlineKeyboardButton("🚀 Publicar ahora", callback_data="pub:0"),
+            ], [
+                InlineKeyboardButton("🔄 Regenerar", callback_data="regen:0"),
+                InlineKeyboardButton("🗑️ Descartar", callback_data="disc:0"),
+            ]]),
+            parse_mode="Markdown",
+        )
+
     mid = preview_msg.message_id
     _pending[mid] = post_data
 
-    # Actualizar botones con el message_id correcto
-    await preview_msg.edit_reply_markup(
-        InlineKeyboardMarkup([[
-            InlineKeyboardButton("📅 Programar", callback_data=f"sched:{mid}"),
-            InlineKeyboardButton("🚀 Publicar ahora", callback_data=f"pub:{mid}"),
-        ], [
-            InlineKeyboardButton("❌ Descartar", callback_data=f"disc:{mid}"),
-        ]])
-    )
+    await preview_msg.edit_reply_markup(_preview_keyboard(mid))
 
 
 # ── Callbacks de botones ───────────────────────────────────────────────────
@@ -318,22 +465,258 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
 
-    # Seguridad también en callbacks
     if bool(settings.telegram_user_id) and query.from_user.id != settings.telegram_user_id:
         return
 
     data = query.data or ""
 
-    if data.startswith("cancel:"):
+    if data.startswith("cmd:"):
+        await _do_quick_cmd(query, data[4:])
+    elif data.startswith("cancel:"):
         await _do_cancel(query, int(data.split(":")[1]))
     elif data.startswith("sched:"):
         await _do_schedule(query, int(data.split(":")[1]))
     elif data.startswith("pub:"):
         await _do_publish_now(query, int(data.split(":")[1]))
     elif data.startswith("disc:"):
-        _pending.pop(int(data.split(":")[1]), None)
+        await _do_discard_confirm(query, int(data.split(":")[1]))
+    elif data.startswith("disc_yes:"):
+        await _do_discard_final(query, int(data.split(":")[1]))
+    elif data.startswith("disc_no:"):
+        mid = int(data.split(":")[1])
+        await query.edit_message_reply_markup(_preview_keyboard(mid))
+    elif data.startswith("regen:"):
+        await _do_regenerate(query, int(data.split(":")[1]))
+    elif data.startswith("edit_pre:"):
+        await _do_edit_pre(query, int(data.split(":")[1]))
+    elif data.startswith("cancel_pre:"):
+        await _do_cancel(query, int(data.split(":")[1]))
+
+
+async def _do_quick_cmd(query, cmd: str):
+    """Ejecuta un comando desde los botones inline del /start."""
+    fake_update = query.message
+    if cmd == "hoy":
+        await fake_update.reply_text("Cargando posts de hoy…")
+        # Invocar lógica directamente
+        from datetime import datetime, timezone
+        from zoneinfo import ZoneInfo
+        from sqlalchemy import select
+        from ..database import AsyncSessionLocal
+        from ..models import ScheduledPost
+
+        mty_tz = ZoneInfo("America/Monterrey")
+        now_mty = datetime.now(mty_tz)
+        today_start = now_mty.replace(hour=0, minute=0, second=0, microsecond=0).astimezone(timezone.utc).replace(tzinfo=None)
+        today_end = now_mty.replace(hour=23, minute=59, second=59).astimezone(timezone.utc).replace(tzinfo=None)
+
+        async with AsyncSessionLocal() as db:
+            result = await db.execute(
+                select(ScheduledPost)
+                .where(ScheduledPost.status.in_(["scheduled", "published", "failed"]))
+                .where(ScheduledPost.scheduled_at >= today_start)
+                .where(ScheduledPost.scheduled_at <= today_end)
+                .order_by(ScheduledPost.scheduled_at)
+            )
+            posts = result.scalars().all()
+
+        if not posts:
+            await fake_update.reply_text("📭 No hay posts programados para hoy.")
+            return
+
+        icons = {"scheduled": "⏰", "published": "✅", "failed": "❌"}
+        lines = ["📅 *Posts de hoy:*\n"]
+        for p in posts:
+            sched = datetime.fromisoformat(str(p.scheduled_at)).replace(tzinfo=timezone.utc)
+            sched_mty = sched.astimezone(mty_tz)
+            icon = icons.get(p.status, "❓")
+            preview = (p.linkedin_text or "")[:80].replace("\n", " ")
+            lines.append(f"{icon} {sched_mty.strftime('%H:%M')} — {preview}…")
+
+        await fake_update.reply_text("\n".join(lines), parse_mode="Markdown")
+
+    elif cmd == "pendientes":
+        from datetime import datetime, timezone
+        from zoneinfo import ZoneInfo
+        from sqlalchemy import select
+        from ..database import AsyncSessionLocal
+        from ..models import ScheduledPost
+
+        mty_tz = ZoneInfo("America/Monterrey")
+        async with AsyncSessionLocal() as db:
+            result = await db.execute(
+                select(ScheduledPost).where(ScheduledPost.status == "scheduled").order_by(ScheduledPost.scheduled_at)
+            )
+            posts = result.scalars().all()
+
+        if not posts:
+            await fake_update.reply_text("📭 No hay posts programados pendientes.")
+            return
+
+        await fake_update.reply_text(
+            f"📋 *{len(posts)} post{'s' if len(posts) > 1 else ''} en cola:*",
+            parse_mode="Markdown",
+        )
+        for p in posts[:15]:
+            sched = datetime.fromisoformat(str(p.scheduled_at)).replace(tzinfo=timezone.utc)
+            sched_mty = sched.astimezone(mty_tz)
+            preview = (p.linkedin_text or "")[:100].replace("\n", " ")
+            keyboard = [[InlineKeyboardButton(f"❌ Cancelar #{p.id}", callback_data=f"cancel:{p.id}")]]
+            await fake_update.reply_text(
+                f"⏰ *{sched_mty.strftime('%d/%m %H:%M')}* — {preview}…",
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode="Markdown",
+            )
+
+    elif cmd == "status":
+        from datetime import datetime, timezone
+        from zoneinfo import ZoneInfo
+        from sqlalchemy import select, func
+        from ..database import AsyncSessionLocal
+        from ..models import ScheduledPost, LinkedInToken
+        from .scheduler_service import scheduler
+
+        mty_tz = ZoneInfo("America/Monterrey")
+        now_mty = datetime.now(mty_tz)
+        today_start = now_mty.replace(hour=0, minute=0, second=0, microsecond=0).astimezone(timezone.utc).replace(tzinfo=None)
+        today_end = now_mty.replace(hour=23, minute=59, second=59).astimezone(timezone.utc).replace(tzinfo=None)
+
+        async with AsyncSessionLocal() as db:
+            token_result = await db.execute(select(LinkedInToken).limit(1))
+            token = token_result.scalar_one_or_none()
+            li_status = "✅ Conectado" if token else "❌ Desconectado"
+
+            posts_hoy_result = await db.execute(
+                select(ScheduledPost)
+                .where(ScheduledPost.scheduled_at >= today_start)
+                .where(ScheduledPost.scheduled_at <= today_end)
+            )
+            posts_hoy = posts_hoy_result.scalars().all()
+            hoy_sched = sum(1 for p in posts_hoy if p.status == "scheduled")
+            hoy_pub = sum(1 for p in posts_hoy if p.status == "published")
+
+            pend_result = await db.execute(
+                select(func.count()).select_from(ScheduledPost).where(ScheduledPost.status == "scheduled")
+            )
+            total_pend = pend_result.scalar()
+
+        sched_status = "✅ Corriendo" if scheduler.running else "❌ Detenido"
+        await fake_update.reply_text(
+            f"📊 *Estado del sistema*\n\n"
+            f"🔗 LinkedIn: {li_status}\n"
+            f"⚙️ Scheduler: {sched_status}\n\n"
+            f"📅 *Hoy ({now_mty.strftime('%d/%m')}):*\n"
+            f"  ⏰ Programados: {hoy_sched}\n"
+            f"  ✅ Publicados: {hoy_pub}\n\n"
+            f"📋 Total en cola: {total_pend}",
+            parse_mode="Markdown",
+        )
+
+    elif cmd == "help":
+        await fake_update.reply_text(
+            "📖 *Cómo usar el bot*\n\n"
+            "1. Envía un URL de tweet (x.com o twitter.com)\n"
+            "2. El bot genera el post de LinkedIn con IA\n"
+            "3. Elige: *Programar* / *Publicar ahora* / *Regenerar* / *Descartar*\n\n"
+            "*Comandos:*\n"
+            "/hoy — posts programados para hoy\n"
+            "/pendientes — todos los posts en cola\n"
+            "/status — estado del sistema\n"
+            "/start — bienvenida",
+            parse_mode="Markdown",
+        )
+
+
+async def _do_discard_confirm(query, mid: int):
+    """Pide confirmación antes de descartar."""
+    if mid not in _pending:
         await query.edit_message_reply_markup(None)
-        await query.message.reply_text("🗑️ Post descartado.")
+        await query.message.reply_text("⚠️ Este post ya no está disponible.")
+        return
+    await query.edit_message_reply_markup(
+        InlineKeyboardMarkup([[
+            InlineKeyboardButton("✅ Sí, descartar", callback_data=f"disc_yes:{mid}"),
+            InlineKeyboardButton("↩️ Volver", callback_data=f"disc_no:{mid}"),
+        ]])
+    )
+
+
+async def _do_discard_final(query, mid: int):
+    """Descarta el post tras confirmación."""
+    _pending.pop(mid, None)
+    await query.edit_message_reply_markup(None)
+    await query.message.reply_text("🗑️ Post descartado.")
+
+
+async def _do_regenerate(query, mid: int):
+    """Regenera el post con IA usando el mismo tweet."""
+    post_data = _pending.get(mid)
+    if not post_data:
+        await query.edit_message_reply_markup(None)
+        await query.message.reply_text(
+            "⚠️ Los datos ya no están en memoria. Genera el post de nuevo."
+        )
+        return
+
+    from sqlalchemy import select
+    from ..database import AsyncSessionLocal
+    from ..models import AppSettings
+    from ..services.post_generator import generate_linkedin_post
+    from ..services.x_scraper import scrape_tweet
+
+    await query.edit_message_reply_markup(None)
+    await query.edit_message_text("🤖 Regenerando post con IA…")
+
+    try:
+        tweet = await scrape_tweet(post_data["tweet_url"])
+    except Exception as e:
+        await query.edit_message_text(f"❌ No pude extraer el tweet:\n`{e}`", parse_mode="Markdown")
+        return
+
+    async with AsyncSessionLocal() as db:
+        cfg_result = await db.execute(select(AppSettings).where(AppSettings.id == 1))
+        cfg = cfg_result.scalar_one_or_none()
+        custom_prompt = cfg.custom_prompt if cfg else None
+
+    try:
+        linkedin_text = await generate_linkedin_post(
+            tweet=tweet,
+            language=settings.post_language or "es",
+            custom_prompt=custom_prompt,
+        )
+    except Exception as e:
+        await query.edit_message_text(f"❌ Error regenerando:\n`{e}`", parse_mode="Markdown")
+        return
+
+    if linkedin_text.startswith("[NO_PUBLICAR]"):
+        reason = linkedin_text.split(":", 1)[-1].strip()
+        await query.edit_message_text(
+            f"⚠️ Este tweet no es publicable:\n_{reason}_",
+            parse_mode="Markdown",
+        )
+        _pending.pop(mid, None)
+        return
+
+    # Actualizar datos y mostrar nuevo preview en el mismo mensaje
+    post_data["linkedin_text"] = linkedin_text
+    _pending[mid] = post_data
+
+    char_count = len(linkedin_text)
+    char_bar = f"{char_count}/{_LI_CHAR_LIMIT}"
+    if char_count > _LI_CHAR_LIMIT:
+        char_bar = f"⚠️ {char_bar} — EXCEDE el límite"
+
+    icons = {"video": "🎥", "document": "📄", "image": "🖼️", "generate": "🎨"}
+    media_icon = icons.get(post_data["media_type"], "📝")
+    preview = linkedin_text[:900] + ("…" if len(linkedin_text) > 900 else "")
+
+    await query.edit_message_text(
+        f"{media_icon} *Preview del post (regenerado):*\n\n"
+        f"{preview}\n\n"
+        f"_{char_bar} caracteres_",
+        reply_markup=_preview_keyboard(mid),
+        parse_mode="Markdown",
+    )
 
 
 async def _do_schedule(query, msg_id: int):
@@ -396,7 +779,6 @@ async def _do_publish_now(query, msg_id: int):
         return
 
     from datetime import datetime
-
     from sqlalchemy import select
 
     from ..database import AsyncSessionLocal
@@ -494,6 +876,34 @@ async def _do_cancel(query, post_id: int):
     await query.message.reply_text(f"❌ Post #{post_id} cancelado.")
 
 
+async def _do_edit_pre(query, post_id: int):
+    """Entra en modo edición para un post programado (desde notificación pre-publicación)."""
+    from sqlalchemy import select
+    from ..database import AsyncSessionLocal
+    from ..models import ScheduledPost
+
+    async with AsyncSessionLocal() as db:
+        result = await db.execute(select(ScheduledPost).where(ScheduledPost.id == post_id))
+        post = result.scalar_one_or_none()
+        if not post or post.status != "scheduled":
+            await query.edit_message_reply_markup(None)
+            await query.message.reply_text("⚠️ Este post ya no está programado.")
+            return
+        full_text = post.linkedin_text or ""
+
+    user_id = query.from_user.id
+    _awaiting_edit[user_id] = post_id
+
+    await query.edit_message_reply_markup(None)
+    await query.message.reply_text(
+        f"✏️ *Modo edición — Post #{post_id}*\n\n"
+        f"Texto actual:\n\n`{full_text}`\n\n"
+        f"Envía el nuevo texto en tu próximo mensaje.\n"
+        f"_(Envía cualquier URL de tweet para cancelar y empezar de nuevo)_",
+        parse_mode="Markdown",
+    )
+
+
 # ── Notificaciones desde el scheduler ──────────────────────────────────────
 
 async def notify_published(post_id: int, linkedin_text: str):
@@ -525,6 +935,31 @@ async def notify_failed(post_id: int, error: str):
         logger.warning(f"Notificación Telegram (error) falló: {e}")
 
 
+async def notify_upcoming(post_id: int, linkedin_text: str, scheduled_at_str: str):
+    """Llamar desde el scheduler 5 min antes de la publicación."""
+    if not _application or not settings.telegram_user_id:
+        return
+    try:
+        preview = (linkedin_text or "")[:300]
+        suffix = "…" if len(linkedin_text) > 300 else ""
+        keyboard = InlineKeyboardMarkup([[
+            InlineKeyboardButton("✏️ Editar", callback_data=f"edit_pre:{post_id}"),
+            InlineKeyboardButton("❌ Cancelar", callback_data=f"cancel_pre:{post_id}"),
+        ]])
+        await _application.bot.send_message(
+            chat_id=settings.telegram_user_id,
+            text=(
+                f"⏰ *Post #{post_id} se publica a las {scheduled_at_str}*\n"
+                f"_(en ~5 minutos)_\n\n"
+                f"{preview}{suffix}"
+            ),
+            reply_markup=keyboard,
+            parse_mode="Markdown",
+        )
+    except Exception as e:
+        logger.warning(f"Notificación Telegram (pre-publicación) falló: {e}")
+
+
 # ── Lifecycle ───────────────────────────────────────────────────────────────
 
 async def start_bot():
@@ -544,6 +979,7 @@ async def start_bot():
     _application.add_handler(CommandHandler("help", cmd_help))
     _application.add_handler(CommandHandler("hoy", cmd_hoy))
     _application.add_handler(CommandHandler("pendientes", cmd_pendientes))
+    _application.add_handler(CommandHandler("status", cmd_status))
     _application.add_handler(
         MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message)
     )
