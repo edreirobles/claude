@@ -16,7 +16,11 @@ class Settings(BaseSettings):
     # Stripe
     stripe_secret_key: str = ""
     stripe_webhook_secret: str = ""
-    stripe_price_id_monthly: str = ""
+    stripe_price_id_pro: str = ""  # $10/mes — plan Pro
+
+    # Telegram Bot
+    telegram_bot_token: str = ""
+    telegram_bot_username: str = ""  # sin @, ej: mi_bot
 
     # App
     app_url: str = "http://localhost:8001"

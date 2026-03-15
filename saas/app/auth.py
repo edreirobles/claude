@@ -2,6 +2,7 @@
 Utilidades de autenticación:
   - Hash de contraseñas con bcrypt
   - Creación y verificación de JWT tokens
+  - Token de login via Telegram (short-lived, 15 min)
   - Dependencia get_current_user para proteger rutas
 """
 
@@ -19,7 +20,7 @@ from app.database import get_db
 from app.models import User
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login", auto_error=False)
 
 
 # --- Contraseñas ---
@@ -36,7 +37,14 @@ def verify_password(plain: str, hashed: str) -> bool:
 
 def create_access_token(user_id: int) -> str:
     expire = datetime.utcnow() + timedelta(minutes=settings.access_token_expire_minutes)
-    payload = {"sub": str(user_id), "exp": expire}
+    payload = {"sub": str(user_id), "exp": expire, "type": "access"}
+    return jwt.encode(payload, settings.secret_key, algorithm=settings.algorithm)
+
+
+def create_telegram_login_token(user_id: int) -> str:
+    """Token de corta duración (15 min) para login desde el bot de Telegram."""
+    expire = datetime.utcnow() + timedelta(minutes=15)
+    payload = {"sub": str(user_id), "exp": expire, "type": "tg_login"}
     return jwt.encode(payload, settings.secret_key, algorithm=settings.algorithm)
 
 
@@ -51,8 +59,12 @@ async def get_current_user(
         detail="Token inválido o expirado",
         headers={"WWW-Authenticate": "Bearer"},
     )
+    if not token:
+        raise credentials_error
     try:
         payload = jwt.decode(token, settings.secret_key, algorithms=[settings.algorithm])
+        if payload.get("type") not in ("access",):
+            raise credentials_error
         user_id = int(payload.get("sub"))
     except (JWTError, TypeError, ValueError):
         raise credentials_error

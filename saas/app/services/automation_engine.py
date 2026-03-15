@@ -93,6 +93,13 @@ async def _maybe_process_user(user: User) -> None:
             f"[Automation] Usuario {user.id}: límite de plan alcanzado "
             f"({sub.posts_used_this_month}/{sub.free_posts_limit}), saltando"
         )
+        # Notificar solo si el usuario tiene Telegram
+        if user.telegram_chat_id:
+            from app.services.telegram_saas_bot import notify_limit_reached
+            try:
+                await notify_limit_reached(user.telegram_chat_id)
+            except Exception:
+                pass
         return
 
     logger.info(f"[Automation] Procesando usuario {user.id} (@{creds.x_username})")
@@ -196,9 +203,13 @@ async def _process_new_tweets(user: User) -> None:
             f"publicado como LinkedIn post {linkedin_post_id}"
         )
 
+        # Notificación Telegram
+        await _notify_tg_published(user, tweet_ref.tweet_url, linkedin_post_id)
+
     except Exception as e:
         logger.error(f"[Automation] Error publicando tweet {tweet_ref.tweet_id} para usuario {user.id}: {e}")
         await _update_log(log_id, status="failed", error_message=str(e))
+        await _notify_tg_failed(user, tweet_ref.tweet_url, str(e))
 
 
 # ── Helpers de DB ──────────────────────────────────────────────────────────────
@@ -238,3 +249,25 @@ async def reset_monthly_counters() -> None:
             sub.posts_used_this_month = 0
         await db.commit()
     logger.info(f"[Automation] Contadores mensuales reseteados para {len(subscriptions)} suscripciones")
+
+
+# ── Helpers de notificación Telegram ───────────────────────────────────────────
+
+async def _notify_tg_published(user: User, tweet_url: str, linkedin_post_id: str):
+    if not user.telegram_chat_id:
+        return
+    try:
+        from app.services.telegram_saas_bot import notify_post_published
+        await notify_post_published(user.telegram_chat_id, tweet_url, linkedin_post_id)
+    except Exception as e:
+        logger.debug(f"[Automation] Error enviando notificación TG a {user.id}: {e}")
+
+
+async def _notify_tg_failed(user: User, tweet_url: str, error: str):
+    if not user.telegram_chat_id:
+        return
+    try:
+        from app.services.telegram_saas_bot import notify_post_failed
+        await notify_post_failed(user.telegram_chat_id, tweet_url, error)
+    except Exception as e:
+        logger.debug(f"[Automation] Error enviando notificación TG a {user.id}: {e}")

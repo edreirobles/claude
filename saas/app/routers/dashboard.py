@@ -1,8 +1,11 @@
 """
-Rutas del dashboard del usuario:
-  GET  /dashboard           - Resumen: suscripción, credenciales, logs recientes
-  GET  /dashboard/logs      - Historial completo de posts
-  PUT  /dashboard/credentials - Guardar X username y token de LinkedIn
+Rutas del dashboard:
+  GET  /dashboard                        - Resumen: suscripción, credenciales, logs recientes
+  GET  /dashboard/logs                   - Historial completo de posts
+  GET  /dashboard/settings              - Prompt personalizado
+  PUT  /dashboard/settings              - Actualizar prompt
+  PUT  /dashboard/credentials           - Guardar X username y token de LinkedIn
+  POST /dashboard/logs/{id}/refresh-metrics - Actualizar métricas de un post
 """
 
 from datetime import datetime
@@ -36,18 +39,13 @@ async def get_dashboard(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    # Cargar relaciones
     result = await db.execute(
         select(User)
-        .options(
-            selectinload(User.subscription),
-            selectinload(User.credentials),
-        )
+        .options(selectinload(User.subscription), selectinload(User.credentials))
         .where(User.id == current_user.id)
     )
     user = result.scalar_one()
 
-    # Últimos 10 logs
     logs_result = await db.execute(
         select(AutomationLog)
         .where(AutomationLog.user_id == current_user.id)
@@ -56,7 +54,6 @@ async def get_dashboard(
     )
     recent_logs = logs_result.scalars().all()
 
-    # Total publicados
     count_result = await db.execute(
         select(func.count()).where(
             AutomationLog.user_id == current_user.id,
@@ -65,10 +62,16 @@ async def get_dashboard(
     )
     total_published = count_result.scalar_one()
 
+    creds_response = (
+        CredentialsResponse.from_orm_with_token_flag(user.credentials)
+        if user.credentials
+        else None
+    )
+
     return DashboardResponse(
         user=UserResponse.model_validate(user),
         subscription=SubscriptionResponse.model_validate(user.subscription) if user.subscription else None,
-        credentials=CredentialsResponse.model_validate(user.credentials) if user.credentials else None,
+        credentials=creds_response,
         recent_logs=[AutomationLogResponse.model_validate(log) for log in recent_logs],
         total_posts_published=total_published,
     )
@@ -96,7 +99,6 @@ async def get_settings(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Devuelve el prompt personalizado del usuario y el prompt default del sistema."""
     result = await db.execute(
         select(User).options(selectinload(User.credentials)).where(User.id == current_user.id)
     )
@@ -113,10 +115,6 @@ async def update_settings(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """
-    Guarda el prompt personalizado del usuario.
-    Enviar custom_prompt=null (o no incluirlo) restablece al prompt default del sistema.
-    """
     result = await db.execute(
         select(User).options(selectinload(User.credentials)).where(User.id == current_user.id)
     )
@@ -124,7 +122,7 @@ async def update_settings(
     if not user.credentials:
         raise HTTPException(status_code=400, detail="Configura tus credenciales antes de personalizar el prompt")
 
-    user.credentials.custom_prompt = data.custom_prompt  # None = usar default
+    user.credentials.custom_prompt = data.custom_prompt
     await db.commit()
     return SettingsResponse(
         custom_prompt=user.credentials.custom_prompt,
@@ -138,10 +136,6 @@ async def refresh_post_metrics(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """
-    Actualiza las métricas (likes, comentarios) de un post publicado consultando la API de LinkedIn.
-    Las impresiones solo están disponibles para páginas de empresa, no para perfiles personales.
-    """
     log_result = await db.execute(
         select(AutomationLog).where(
             AutomationLog.id == log_id,
@@ -154,7 +148,6 @@ async def refresh_post_metrics(
     if log.status != "published" or not log.linkedin_post_id:
         raise HTTPException(status_code=400, detail="Esta publicación aún no fue publicada en LinkedIn")
 
-    # Obtener credenciales del usuario
     creds_result = await db.execute(
         select(UserCredentials).where(UserCredentials.user_id == current_user.id)
     )
@@ -185,9 +178,7 @@ async def update_credentials(
     db: AsyncSession = Depends(get_db),
 ):
     result = await db.execute(
-        select(User)
-        .options(selectinload(User.credentials))
-        .where(User.id == current_user.id)
+        select(User).options(selectinload(User.credentials)).where(User.id == current_user.id)
     )
     user = result.scalar_one()
     creds = user.credentials
@@ -205,4 +196,4 @@ async def update_credentials(
 
     await db.commit()
     await db.refresh(creds)
-    return creds
+    return CredentialsResponse.from_orm_with_token_flag(creds)

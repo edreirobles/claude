@@ -3,117 +3,334 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>X → LinkedIn Automator</title>
+  <title>X → LinkedIn Automator — Automatiza tu contenido desde Telegram</title>
   <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: system-ui, sans-serif; background: #fff; color: #111; }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
-    nav { display: flex; justify-content: space-between; align-items: center; padding: 1rem 2rem; border-bottom: 1px solid #eee; }
-    nav .logo { font-weight: 700; font-size: 1.2rem; color: #0a66c2; }
-    nav a { color: #111; text-decoration: none; margin-left: 1.5rem; font-size: .95rem; }
-    nav .cta { background: #0a66c2; color: white !important; padding: .5rem 1.2rem; border-radius: 6px; }
+    :root {
+      --blue: #0a66c2;
+      --blue-dark: #004182;
+      --blue-light: #e8f0fb;
+      --purple: #7c3aed;
+      --green: #059669;
+      --gray-50: #f9fafb;
+      --gray-100: #f3f4f6;
+      --gray-300: #d1d5db;
+      --gray-500: #6b7280;
+      --gray-700: #374151;
+      --gray-900: #111827;
+    }
 
-    .hero { text-align: center; padding: 5rem 1rem 3rem; }
-    .hero h1 { font-size: 3rem; font-weight: 800; line-height: 1.15; max-width: 700px; margin: 0 auto 1rem; }
-    .hero h1 span { color: #0a66c2; }
-    .hero p { font-size: 1.2rem; color: #555; max-width: 550px; margin: 0 auto 2rem; }
-    .hero .buttons a { display: inline-block; margin: .3rem; padding: .8rem 1.8rem; border-radius: 8px; font-size: 1rem; text-decoration: none; font-weight: 600; }
-    .hero .buttons .primary { background: #0a66c2; color: white; }
-    .hero .buttons .secondary { border: 2px solid #0a66c2; color: #0a66c2; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      color: var(--gray-900);
+      background: #fff;
+      line-height: 1.6;
+    }
 
-    .how { padding: 4rem 1rem; max-width: 900px; margin: 0 auto; }
-    .how h2 { text-align: center; font-size: 2rem; margin-bottom: 2.5rem; }
-    .steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 2rem; }
-    .step { text-align: center; }
-    .step .icon { font-size: 2.5rem; margin-bottom: .8rem; }
-    .step h3 { margin-bottom: .4rem; }
-    .step p { color: #666; font-size: .95rem; }
+    /* Nav */
+    nav {
+      position: sticky; top: 0; z-index: 100;
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 1rem 2rem;
+      background: rgba(255,255,255,.95);
+      backdrop-filter: blur(8px);
+      border-bottom: 1px solid var(--gray-100);
+    }
+    .logo { font-weight: 800; font-size: 1.1rem; color: var(--blue); letter-spacing: -.02em; }
+    .logo span { color: var(--gray-900); }
+    .nav-links { display: flex; align-items: center; gap: 1.5rem; }
+    .nav-links a { text-decoration: none; color: var(--gray-700); font-size: .9rem; font-weight: 500; }
+    .nav-links a:hover { color: var(--blue); }
+    .btn { display: inline-flex; align-items: center; gap: .4rem; padding: .55rem 1.1rem; border-radius: 8px; font-size: .9rem; font-weight: 600; text-decoration: none; cursor: pointer; transition: all .15s; border: none; }
+    .btn-primary { background: var(--blue); color: #fff; }
+    .btn-primary:hover { background: var(--blue-dark); }
+    .btn-outline { border: 2px solid var(--blue); color: var(--blue); background: transparent; }
+    .btn-outline:hover { background: var(--blue-light); }
+    .btn-tg { background: #229ed9; color: #fff; font-size: 1rem; padding: .75rem 1.6rem; border-radius: 10px; }
+    .btn-tg:hover { background: #1a8cbd; }
 
-    .pricing { background: #f9fafb; padding: 4rem 1rem; }
-    .pricing h2 { text-align: center; font-size: 2rem; margin-bottom: 2.5rem; }
-    .plans { display: flex; gap: 1.5rem; justify-content: center; flex-wrap: wrap; }
-    .plan { background: white; border-radius: 12px; padding: 2rem; width: 280px; box-shadow: 0 1px 3px rgba(0,0,0,.1); }
-    .plan h3 { margin-bottom: .5rem; }
-    .plan .price { font-size: 2rem; font-weight: 800; color: #0a66c2; margin-bottom: 1rem; }
-    .plan ul { list-style: none; margin-bottom: 1.5rem; }
-    .plan ul li { padding: .3rem 0; color: #444; font-size: .95rem; }
-    .plan ul li::before { content: "✓ "; color: #059669; }
-    .plan a { display: block; text-align: center; background: #0a66c2; color: white; padding: .7rem; border-radius: 8px; text-decoration: none; font-weight: 600; }
+    /* Hero */
+    .hero {
+      text-align: center;
+      padding: 5rem 1.5rem 4rem;
+      background: linear-gradient(180deg, var(--blue-light) 0%, #fff 60%);
+    }
+    .hero-badge {
+      display: inline-flex; align-items: center; gap: .4rem;
+      background: var(--blue-light); color: var(--blue);
+      border: 1px solid #bdd6f5; border-radius: 999px;
+      padding: .3rem 1rem; font-size: .82rem; font-weight: 600;
+      margin-bottom: 1.5rem;
+    }
+    .hero h1 {
+      font-size: clamp(2rem, 5vw, 3.2rem);
+      font-weight: 900; line-height: 1.1;
+      max-width: 740px; margin: 0 auto 1.2rem;
+      letter-spacing: -.03em;
+    }
+    .hero h1 .accent { color: var(--blue); }
+    .hero p {
+      font-size: 1.15rem; color: var(--gray-500);
+      max-width: 520px; margin: 0 auto 2.5rem;
+    }
+    .hero-cta { display: flex; gap: 1rem; justify-content: center; flex-wrap: wrap; }
+    .hero-note { margin-top: 1.2rem; font-size: .82rem; color: var(--gray-500); }
 
-    footer { text-align: center; padding: 2rem; color: #888; font-size: .85rem; }
+    /* Stats strip */
+    .stats {
+      display: flex; justify-content: center; gap: 3rem; flex-wrap: wrap;
+      padding: 2rem 1.5rem;
+      border-top: 1px solid var(--gray-100);
+      border-bottom: 1px solid var(--gray-100);
+    }
+    .stat-item { text-align: center; }
+    .stat-item .n { font-size: 1.8rem; font-weight: 800; color: var(--blue); }
+    .stat-item .l { font-size: .82rem; color: var(--gray-500); margin-top: .1rem; }
+
+    /* How it works */
+    section { padding: 5rem 1.5rem; }
+    .section-label {
+      text-align: center; font-size: .8rem; font-weight: 700; letter-spacing: .12em;
+      color: var(--blue); text-transform: uppercase; margin-bottom: .75rem;
+    }
+    h2 { text-align: center; font-size: clamp(1.5rem, 3vw, 2.2rem); font-weight: 800; margin-bottom: .75rem; letter-spacing: -.02em; }
+    .section-sub { text-align: center; color: var(--gray-500); font-size: 1.05rem; max-width: 500px; margin: 0 auto 3rem; }
+
+    .steps { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 2rem; max-width: 900px; margin: 0 auto; }
+    .step {
+      background: var(--gray-50); border: 1px solid var(--gray-100);
+      border-radius: 16px; padding: 1.8rem; position: relative;
+    }
+    .step-num {
+      width: 36px; height: 36px; border-radius: 50%;
+      background: var(--blue); color: #fff;
+      display: flex; align-items: center; justify-content: center;
+      font-weight: 800; font-size: .9rem; margin-bottom: 1rem;
+    }
+    .step h3 { font-size: 1rem; font-weight: 700; margin-bottom: .4rem; }
+    .step p { font-size: .9rem; color: var(--gray-500); }
+
+    /* Pricing */
+    .pricing { background: var(--gray-50); }
+    .plans {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 1.5rem; max-width: 640px; margin: 0 auto;
+    }
+    .plan {
+      background: #fff; border: 1px solid var(--gray-300);
+      border-radius: 20px; padding: 2rem; position: relative;
+    }
+    .plan.featured { border-color: var(--blue); border-width: 2px; }
+    .plan-badge-featured {
+      position: absolute; top: -14px; left: 50%; transform: translateX(-50%);
+      background: var(--blue); color: #fff;
+      padding: .2rem .9rem; border-radius: 999px; font-size: .78rem; font-weight: 700;
+      white-space: nowrap;
+    }
+    .plan-name { font-size: .85rem; font-weight: 700; color: var(--gray-500); text-transform: uppercase; letter-spacing: .08em; margin-bottom: .4rem; }
+    .plan-price { font-size: 2.6rem; font-weight: 900; color: var(--gray-900); letter-spacing: -.04em; margin-bottom: .2rem; }
+    .plan-price span { font-size: 1rem; font-weight: 500; color: var(--gray-500); }
+    .plan-desc { font-size: .88rem; color: var(--gray-500); margin-bottom: 1.5rem; }
+    .plan ul { list-style: none; margin-bottom: 1.8rem; }
+    .plan ul li { padding: .35rem 0; font-size: .9rem; display: flex; align-items: flex-start; gap: .5rem; }
+    .plan ul li::before { content: "✓"; color: var(--green); font-weight: 700; flex-shrink: 0; }
+    .plan ul li.muted { color: var(--gray-500); }
+    .plan ul li.muted::before { content: "–"; color: var(--gray-300); }
+    .plan .plan-btn { display: block; text-align: center; padding: .75rem; border-radius: 10px; font-weight: 700; text-decoration: none; font-size: .95rem; }
+    .plan .plan-btn-primary { background: var(--blue); color: #fff; }
+    .plan .plan-btn-primary:hover { background: var(--blue-dark); }
+    .plan .plan-btn-outline { border: 2px solid var(--gray-300); color: var(--gray-700); }
+    .plan .plan-btn-outline:hover { border-color: var(--blue); color: var(--blue); }
+
+    /* FAQ */
+    .faq-list { max-width: 680px; margin: 0 auto; }
+    details {
+      border-bottom: 1px solid var(--gray-100); padding: 1.1rem 0;
+    }
+    summary {
+      font-weight: 600; font-size: .95rem; cursor: pointer; list-style: none;
+      display: flex; justify-content: space-between; align-items: center;
+    }
+    summary::after { content: "+"; font-size: 1.2rem; color: var(--blue); font-weight: 400; }
+    details[open] summary::after { content: "−"; }
+    details p { margin-top: .75rem; font-size: .9rem; color: var(--gray-500); line-height: 1.7; }
+
+    /* CTA Final */
+    .cta-final {
+      background: linear-gradient(135deg, var(--blue) 0%, #0050a0 100%);
+      color: #fff; text-align: center; padding: 5rem 1.5rem;
+    }
+    .cta-final h2 { color: #fff; margin-bottom: .75rem; }
+    .cta-final p { color: rgba(255,255,255,.8); font-size: 1.1rem; margin-bottom: 2rem; max-width: 480px; margin-left: auto; margin-right: auto; }
+
+    /* Footer */
+    footer {
+      text-align: center; padding: 2rem 1.5rem;
+      border-top: 1px solid var(--gray-100);
+      font-size: .82rem; color: var(--gray-500);
+    }
+    footer a { color: var(--gray-500); text-decoration: none; }
+    footer a:hover { color: var(--blue); }
+
+    @media (max-width: 600px) {
+      nav { padding: 1rem; }
+      .nav-links .btn { display: none; }
+    }
   </style>
 </head>
 <body>
 
 <nav>
-  <div class="logo">X → LinkedIn</div>
-  <div>
-    <a href="/app/">Entrar</a>
-    <a href="/app/" class="cta">Empezar gratis</a>
+  <div class="logo">X <span>→</span> LinkedIn</div>
+  <div class="nav-links">
+    <a href="#como-funciona">Cómo funciona</a>
+    <a href="#precios">Precios</a>
+    <a href="/app/" class="btn btn-outline">Dashboard</a>
   </div>
 </nav>
 
+<!-- Hero -->
 <section class="hero">
-  <h1>Convierte tus tweets en <span>posts de LinkedIn</span> automáticamente</h1>
-  <p>Monitorea tu cuenta de X, genera contenido adaptado y publica en LinkedIn mientras duermes.</p>
-  <div class="buttons">
-    <a href="/app/" class="primary">Empezar gratis</a>
-    <a href="#como-funciona" class="secondary">Ver cómo funciona</a>
+  <div class="hero-badge">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 14.5v-9l6 4.5-6 4.5z"/></svg>
+    Automatización inteligente con IA
   </div>
+  <h1>De X a LinkedIn,<br/><span class="accent">sin levantar un dedo</span></h1>
+  <p>Conecta desde Telegram, configura en minutos y el sistema publica por ti usando Claude AI.</p>
+  <div class="hero-cta">
+    <a href="https://t.me/NOMBRE_BOT" class="btn btn-tg">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm5.894 8.221l-1.97 9.28c-.145.658-.537.818-1.084.508l-3-2.21-1.447 1.394c-.16.16-.295.295-.605.295l.213-3.053 5.56-5.023c.242-.213-.054-.333-.373-.12L8.32 13.617l-2.96-.924c-.643-.204-.657-.643.136-.953l11.57-4.461c.537-.194 1.006.131.828.942z"/></svg>
+      Empezar gratis en Telegram
+    </a>
+    <a href="/app/" class="btn btn-outline">Ir al dashboard</a>
+  </div>
+  <p class="hero-note">Sin tarjeta de crédito · 5 posts gratis al mes · Cancela cuando quieras</p>
 </section>
 
-<section class="how" id="como-funciona">
-  <h2>Cómo funciona</h2>
+<!-- Stats -->
+<div class="stats">
+  <div class="stat-item"><div class="n">5</div><div class="l">Posts gratis / mes</div></div>
+  <div class="stat-item"><div class="n">$10</div><div class="l">Plan Pro / mes</div></div>
+  <div class="stat-item"><div class="n">2 min</div><div class="l">Para configurar</div></div>
+  <div class="stat-item"><div class="n">24/7</div><div class="l">Automatización activa</div></div>
+</div>
+
+<!-- Cómo funciona -->
+<section id="como-funciona">
+  <p class="section-label">Proceso</p>
+  <h2>Listo en 3 pasos</h2>
+  <p class="section-sub">Sin código, sin complicaciones. Todo desde Telegram.</p>
   <div class="steps">
     <div class="step">
-      <div class="icon">🔗</div>
-      <h3>1. Conecta tus cuentas</h3>
-      <p>Dinos qué cuenta de X quieres monitorear y conecta tu LinkedIn.</p>
+      <div class="step-num">1</div>
+      <h3>Abre el bot en Telegram</h3>
+      <p>Envía /start al bot. Tu cuenta se crea automáticamente — sin email ni contraseña.</p>
     </div>
     <div class="step">
-      <div class="icon">🤖</div>
-      <h3>2. IA adapta el contenido</h3>
-      <p>Claude AI transforma cada tweet en un post optimizado para LinkedIn.</p>
+      <div class="step-num">2</div>
+      <h3>Conecta tus cuentas</h3>
+      <p>El bot te da un link al dashboard donde agregas tu username de X y el token de LinkedIn.</p>
     </div>
     <div class="step">
-      <div class="icon">🚀</div>
-      <h3>3. Publica automáticamente</h3>
-      <p>Los posts se publican en LinkedIn sin que muevas un dedo.</p>
+      <div class="step-num">3</div>
+      <h3>Activa y olvídate</h3>
+      <p>Activa la automatización y el sistema monitorea X, genera posts con IA y publica en LinkedIn.</p>
     </div>
   </div>
 </section>
 
+<!-- Precios -->
 <section class="pricing" id="precios">
-  <h2>Precios simples</h2>
+  <p class="section-label">Precios</p>
+  <h2>Simple y transparente</h2>
+  <p class="section-sub">Empieza gratis. Sube a Pro cuando necesites más.</p>
   <div class="plans">
+
     <div class="plan">
-      <h3>Gratis</h3>
-      <div class="price">$0<span style="font-size:1rem;font-weight:400">/mes</span></div>
+      <div class="plan-name">Gratis</div>
+      <div class="plan-price">$0<span>/mes</span></div>
+      <div class="plan-desc">Para explorar el servicio</div>
       <ul>
-        <li>3 posts al mes</li>
-        <li>1 cuenta de X</li>
-        <li>Generación con IA</li>
-        <li>Dashboard básico</li>
+        <li>5 posts al mes</li>
+        <li>Generación con Claude AI</li>
+        <li>Dashboard de métricas</li>
+        <li>Acceso desde Telegram</li>
+        <li class="muted">Prompt personalizado</li>
+        <li class="muted">Soporte prioritario</li>
       </ul>
-      <a href="/app/">Empezar gratis</a>
+      <a href="https://t.me/NOMBRE_BOT" class="plan-btn plan-btn-outline">Empezar gratis</a>
     </div>
-    <div class="plan" style="border: 2px solid #0a66c2;">
-      <h3>Pro</h3>
-      <div class="price">$19<span style="font-size:1rem;font-weight:400">/mes</span></div>
+
+    <div class="plan featured">
+      <div class="plan-badge-featured">Más popular</div>
+      <div class="plan-name">Pro</div>
+      <div class="plan-price">$10<span>/mes</span></div>
+      <div class="plan-desc">Para creadores de contenido serios</div>
       <ul>
         <li>Posts ilimitados</li>
-        <li>1 cuenta de X</li>
-        <li>Generación con IA</li>
-        <li>Historial completo</li>
+        <li>Generación con Claude AI</li>
+        <li>Dashboard de métricas</li>
+        <li>Acceso desde Telegram</li>
+        <li>Prompt de IA personalizado</li>
         <li>Soporte prioritario</li>
       </ul>
-      <a href="/app/">Empezar ahora</a>
+      <a href="https://t.me/NOMBRE_BOT" class="plan-btn plan-btn-primary">Empezar ahora</a>
     </div>
+
   </div>
+</section>
+
+<!-- FAQ -->
+<section>
+  <p class="section-label">Preguntas frecuentes</p>
+  <h2>FAQ</h2>
+  <div class="faq-list">
+
+    <details>
+      <summary>¿Necesito crear una cuenta con email?</summary>
+      <p>No. Solo abre el bot en Telegram y envía /start. Tu cuenta se crea automáticamente usando tu Telegram ID.</p>
+    </details>
+
+    <details>
+      <summary>¿Cómo funciona la automatización?</summary>
+      <p>El sistema monitorea los tweets de la cuenta de X que configures. Cuando detecta tweets nuevos, Claude AI los adapta al formato de LinkedIn y los publica automáticamente. Recibes una notificación en Telegram por cada publicación.</p>
+    </details>
+
+    <details>
+      <summary>¿Qué necesito para conectar LinkedIn?</summary>
+      <p>Necesitas tu LinkedIn Access Token y tu Person ID. Puedes obtenerlos desde el dashboard web con las instrucciones que te proporcionamos. El proceso toma menos de 5 minutos.</p>
+    </details>
+
+    <details>
+      <summary>¿Puedo cancelar en cualquier momento?</summary>
+      <p>Sí. Desde el dashboard o enviando /dashboard en el bot, accedes al portal de Stripe donde puedes cancelar tu suscripción Pro cuando quieras. No hay contratos ni penalizaciones.</p>
+    </details>
+
+    <details>
+      <summary>¿Mis tokens están seguros?</summary>
+      <p>Sí. Los tokens se almacenan en una base de datos segura y nunca se exponen en las respuestas de la API. Las conexiones van siempre por HTTPS.</p>
+    </details>
+
+  </div>
+</section>
+
+<!-- CTA final -->
+<section class="cta-final">
+  <h2>Empieza hoy, gratis</h2>
+  <p>5 posts al mes sin pagar nada. Configúrate en 2 minutos desde Telegram.</p>
+  <a href="https://t.me/NOMBRE_BOT" class="btn btn-tg" style="font-size:1.05rem; padding:.85rem 2rem;">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm5.894 8.221l-1.97 9.28c-.145.658-.537.818-1.084.508l-3-2.21-1.447 1.394c-.16.16-.295.295-.605.295l.213-3.053 5.56-5.023c.242-.213-.054-.333-.373-.12L8.32 13.617l-2.96-.924c-.643-.204-.657-.643.136-.953l11.57-4.461c.537-.194 1.006.131.828.942z"/></svg>
+    Abrir en Telegram
+  </a>
 </section>
 
 <footer>
-  © 2026 X to LinkedIn Automator · <a href="#">Términos</a> · <a href="#">Privacidad</a>
+  <p>&copy; 2026 X to LinkedIn Automator &nbsp;·&nbsp;
+    <a href="#">Términos</a> &nbsp;·&nbsp;
+    <a href="#">Privacidad</a> &nbsp;·&nbsp;
+    <a href="/app/">Dashboard</a>
+  </p>
 </footer>
 
 </body>

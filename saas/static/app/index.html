@@ -3,242 +3,692 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Dashboard - X to LinkedIn</title>
+  <title>Dashboard — X to LinkedIn</title>
   <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: system-ui, sans-serif; background: #f5f5f5; color: #111; }
-    header { background: #0a66c2; color: white; padding: 1rem 2rem; display: flex; justify-content: space-between; align-items: center; }
-    main { max-width: 900px; margin: 2rem auto; padding: 0 1rem; }
-    .card { background: white; border-radius: 8px; padding: 1.5rem; margin-bottom: 1.5rem; box-shadow: 0 1px 3px rgba(0,0,0,.1); }
-    .card h2 { font-size: 1rem; color: #555; margin-bottom: 1rem; text-transform: uppercase; letter-spacing: .05em; }
-    .stat-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; }
-    .stat { text-align: center; }
-    .stat .number { font-size: 2rem; font-weight: bold; color: #0a66c2; }
-    .stat .label { font-size: .85rem; color: #888; }
-    .badge { display: inline-block; padding: .25rem .8rem; border-radius: 999px; font-size: .8rem; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; }
-    .badge-free { background: #e5e7eb; color: #374151; }
-    .badge-monthly { background: #dbeafe; color: #1e40af; }
-    .badge-active { background: #d1fae5; color: #065f46; }
-    .badge-past_due { background: #fee2e2; color: #991b1b; }
-    .badge-canceled { background: #f3f4f6; color: #6b7280; }
-    form label { display: block; margin-bottom: .3rem; font-size: .9rem; font-weight: 500; }
-    form input[type=text], form input[type=email], form input[type=password] {
-      width: 100%; padding: .5rem .75rem; border: 1px solid #ddd; border-radius: 6px; font-size: 1rem; margin-bottom: 1rem;
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --blue: #0a66c2;
+      --blue-dark: #004182;
+      --blue-light: #e8f0fb;
+      --green: #059669;
+      --green-light: #d1fae5;
+      --red: #dc2626;
+      --red-light: #fee2e2;
+      --amber: #d97706;
+      --amber-light: #fef3c7;
+      --purple: #7c3aed;
+      --gray-50: #f9fafb;
+      --gray-100: #f3f4f6;
+      --gray-200: #e5e7eb;
+      --gray-400: #9ca3af;
+      --gray-500: #6b7280;
+      --gray-700: #374151;
+      --gray-800: #1f2937;
+      --gray-900: #111827;
+      --sidebar-w: 240px;
     }
-    button { background: #0a66c2; color: white; border: none; padding: .6rem 1.2rem; border-radius: 6px; cursor: pointer; font-size: 1rem; font-weight: 600; }
-    button:hover { background: #004182; }
-    button.btn-upgrade { background: #7c3aed; }
-    button.btn-upgrade:hover { background: #5b21b6; }
-    button.btn-manage { background: #374151; }
-    button.btn-manage:hover { background: #111827; }
-    table { width: 100%; border-collapse: collapse; font-size: .9rem; }
-    th { text-align: left; padding: .5rem; border-bottom: 2px solid #eee; color: #555; }
-    td { padding: .5rem; border-bottom: 1px solid #eee; }
-    .status-published { color: #059669; font-weight: 600; }
-    .status-failed { color: #dc2626; font-weight: 600; }
-    .status-pending { color: #d97706; }
-    #auth-screen { max-width: 400px; margin: 4rem auto; background: white; padding: 2rem; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,.1); }
-    #auth-screen h1 { margin-bottom: 1.5rem; color: #0a66c2; }
-    .toggle-auth { margin-top: 1rem; font-size: .9rem; color: #555; text-align: center; }
-    .toggle-auth a { color: #0a66c2; cursor: pointer; }
-    .error { background: #fee2e2; color: #991b1b; padding: .5rem 1rem; border-radius: 6px; margin-bottom: 1rem; font-size: .9rem; }
-    .success-banner { background: #d1fae5; color: #065f46; padding: .75rem 1rem; border-radius: 6px; margin-bottom: 1rem; font-size: .9rem; font-weight: 500; }
-    #loading { text-align: center; padding: 4rem; color: #888; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: var(--gray-50);
+      color: var(--gray-900);
+      min-height: 100vh;
+    }
+
+    /* ---- TYPOGRAPHY ---- */
+    h1, h2, h3 { letter-spacing: -.02em; }
+
+    /* ---- UTILS ---- */
     .hidden { display: none !important; }
-    .plan-row { display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; }
-    .plan-info { flex: 1; }
-    .plan-info p { font-size: .9rem; color: #666; margin-top: .3rem; }
-    .limit-bar { background: #e5e7eb; border-radius: 999px; height: 6px; margin-top: .5rem; overflow: hidden; }
-    .limit-bar-fill { background: #0a66c2; height: 100%; border-radius: 999px; transition: width .3s; }
+    .badge {
+      display: inline-flex; align-items: center;
+      padding: .2rem .65rem; border-radius: 999px;
+      font-size: .75rem; font-weight: 700; text-transform: uppercase; letter-spacing: .04em;
+    }
+    .badge-free { background: var(--gray-100); color: var(--gray-700); }
+    .badge-pro { background: #ede9fe; color: #5b21b6; }
+    .badge-active { background: var(--green-light); color: #065f46; }
+    .badge-past_due, .badge-failed { background: var(--red-light); color: #991b1b; }
+    .badge-canceled { background: var(--gray-100); color: var(--gray-500); }
+    .badge-pending { background: var(--amber-light); color: #92400e; }
+    .badge-published { background: var(--green-light); color: #065f46; }
+
+    .toast {
+      position: fixed; bottom: 1.5rem; right: 1.5rem;
+      padding: .75rem 1.25rem; border-radius: 10px;
+      font-size: .9rem; font-weight: 500; z-index: 9999;
+      box-shadow: 0 4px 16px rgba(0,0,0,.15);
+      animation: slideUp .25s ease;
+    }
+    .toast-success { background: var(--green-light); color: #065f46; border: 1px solid #6ee7b7; }
+    .toast-error { background: var(--red-light); color: #991b1b; border: 1px solid #fca5a5; }
+    @keyframes slideUp { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+
+    /* ---- AUTH SCREEN ---- */
+    #auth-screen {
+      min-height: 100vh; display: flex; align-items: center; justify-content: center;
+      background: linear-gradient(135deg, var(--blue-light) 0%, #fff 60%);
+      padding: 1.5rem;
+    }
+    .auth-card {
+      background: #fff; border-radius: 20px;
+      padding: 2.5rem; width: 100%; max-width: 420px;
+      box-shadow: 0 8px 40px rgba(0,0,0,.1);
+    }
+    .auth-logo { font-size: 1.3rem; font-weight: 900; color: var(--blue); margin-bottom: 1.5rem; text-align: center; }
+    .auth-tabs { display: grid; grid-template-columns: 1fr 1fr; background: var(--gray-100); border-radius: 10px; padding: 4px; margin-bottom: 1.8rem; }
+    .auth-tab { text-align: center; padding: .5rem; border-radius: 8px; font-size: .88rem; font-weight: 600; cursor: pointer; color: var(--gray-500); transition: all .15s; }
+    .auth-tab.active { background: #fff; color: var(--gray-900); box-shadow: 0 1px 4px rgba(0,0,0,.1); }
+
+    .tg-auth-box {
+      border: 2px solid #e8f4fb; border-radius: 14px;
+      padding: 1.5rem; margin-bottom: 1.5rem; text-align: center;
+      background: #f0f9ff;
+    }
+    .tg-auth-box .tg-icon { font-size: 2.2rem; margin-bottom: .6rem; }
+    .tg-auth-box h3 { font-size: 1rem; margin-bottom: .4rem; }
+    .tg-auth-box p { font-size: .85rem; color: var(--gray-500); line-height: 1.5; }
+
+    .form-divider { display: flex; align-items: center; gap: .75rem; margin: 1.2rem 0; color: var(--gray-400); font-size: .82rem; }
+    .form-divider::before, .form-divider::after { content: ""; flex: 1; height: 1px; background: var(--gray-200); }
+
+    label { display: block; font-size: .85rem; font-weight: 600; color: var(--gray-700); margin-bottom: .3rem; }
+    input[type=text], input[type=email], input[type=password], textarea, select {
+      width: 100%; padding: .6rem .85rem;
+      border: 1.5px solid var(--gray-200); border-radius: 8px;
+      font-size: .95rem; color: var(--gray-900); background: #fff;
+      transition: border-color .15s; margin-bottom: 1rem;
+      font-family: inherit;
+    }
+    input:focus, textarea:focus, select:focus { outline: none; border-color: var(--blue); }
+    textarea { resize: vertical; min-height: 90px; }
+
+    .btn {
+      display: inline-flex; align-items: center; justify-content: center; gap: .4rem;
+      padding: .65rem 1.2rem; border-radius: 8px;
+      font-size: .9rem; font-weight: 700; cursor: pointer; border: none;
+      text-decoration: none; transition: all .15s; font-family: inherit;
+    }
+    .btn-full { width: 100%; }
+    .btn-primary { background: var(--blue); color: #fff; }
+    .btn-primary:hover { background: var(--blue-dark); }
+    .btn-secondary { background: var(--gray-100); color: var(--gray-700); }
+    .btn-secondary:hover { background: var(--gray-200); }
+    .btn-danger { background: var(--red-light); color: var(--red); }
+    .btn-danger:hover { background: #fecaca; }
+    .btn-pro { background: var(--purple); color: #fff; }
+    .btn-pro:hover { background: #6d28d9; }
+    .btn-tg { background: #229ed9; color: #fff; }
+    .btn-tg:hover { background: #1a8cbd; }
+    .btn-sm { padding: .4rem .8rem; font-size: .82rem; }
+    .btn-outline { border: 1.5px solid var(--gray-200); background: #fff; color: var(--gray-700); }
+    .btn-outline:hover { border-color: var(--blue); color: var(--blue); }
+
+    /* ---- LAYOUT ---- */
+    #app-screen { display: flex; min-height: 100vh; }
+
+    /* Sidebar */
+    .sidebar {
+      width: var(--sidebar-w); flex-shrink: 0;
+      background: #fff; border-right: 1px solid var(--gray-200);
+      display: flex; flex-direction: column;
+      position: fixed; top: 0; bottom: 0; left: 0;
+      z-index: 50;
+    }
+    .sidebar-logo {
+      padding: 1.4rem 1.5rem;
+      font-size: 1.05rem; font-weight: 900; color: var(--blue);
+      border-bottom: 1px solid var(--gray-100);
+    }
+    .sidebar-nav { flex: 1; padding: .75rem; }
+    .nav-item {
+      display: flex; align-items: center; gap: .75rem;
+      padding: .65rem 1rem; border-radius: 8px;
+      font-size: .88rem; font-weight: 500; color: var(--gray-700);
+      cursor: pointer; text-decoration: none; margin-bottom: .1rem;
+      transition: all .15s;
+    }
+    .nav-item:hover { background: var(--gray-50); color: var(--gray-900); }
+    .nav-item.active { background: var(--blue-light); color: var(--blue); font-weight: 700; }
+    .nav-item svg { flex-shrink: 0; }
+
+    .sidebar-bottom {
+      padding: 1rem; border-top: 1px solid var(--gray-100);
+    }
+    .user-pill {
+      display: flex; align-items: center; gap: .65rem;
+      padding: .65rem .85rem; border-radius: 8px; background: var(--gray-50);
+    }
+    .user-avatar {
+      width: 32px; height: 32px; border-radius: 50%;
+      background: var(--blue-light); color: var(--blue);
+      display: flex; align-items: center; justify-content: center;
+      font-weight: 800; font-size: .9rem; flex-shrink: 0;
+    }
+    .user-name { font-size: .82rem; font-weight: 600; color: var(--gray-800); }
+    .user-plan { font-size: .72rem; color: var(--gray-500); }
+    .logout-btn { background: none; border: none; cursor: pointer; color: var(--gray-400); margin-left: auto; padding: .2rem; }
+    .logout-btn:hover { color: var(--red); }
+
+    /* Main content */
+    .main-content {
+      margin-left: var(--sidebar-w);
+      flex: 1; padding: 2rem;
+      max-width: 1000px;
+    }
+
+    /* Page header */
+    .page-header { margin-bottom: 1.75rem; }
+    .page-header h1 { font-size: 1.5rem; font-weight: 800; }
+    .page-header p { color: var(--gray-500); font-size: .9rem; margin-top: .25rem; }
+
+    /* Alert banners */
+    .alert { padding: .85rem 1.1rem; border-radius: 10px; font-size: .88rem; font-weight: 500; margin-bottom: 1.5rem; display: flex; align-items: center; gap: .75rem; }
+    .alert-success { background: var(--green-light); color: #065f46; }
+    .alert-error { background: var(--red-light); color: #991b1b; }
+    .alert-warning { background: var(--amber-light); color: #92400e; }
+
+    /* Cards */
+    .card {
+      background: #fff; border: 1px solid var(--gray-200);
+      border-radius: 16px; padding: 1.5rem; margin-bottom: 1.25rem;
+    }
+    .card-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 1.25rem; }
+    .card-title { font-size: .8rem; font-weight: 700; text-transform: uppercase; letter-spacing: .07em; color: var(--gray-500); }
+
+    /* Stats grid */
+    .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 1rem; margin-bottom: 1.25rem; }
+    .stat-card {
+      background: #fff; border: 1px solid var(--gray-200); border-radius: 14px; padding: 1.25rem;
+    }
+    .stat-value { font-size: 2rem; font-weight: 900; color: var(--blue); letter-spacing: -.04em; }
+    .stat-label { font-size: .8rem; color: var(--gray-500); margin-top: .15rem; }
+
+    /* Plan card */
+    .plan-info { display: flex; align-items: center; gap: 1.5rem; flex-wrap: wrap; }
+    .plan-details { flex: 1; }
+    .plan-details h3 { font-size: 1.1rem; font-weight: 700; margin-bottom: .25rem; }
+    .plan-details p { font-size: .88rem; color: var(--gray-500); }
+
+    .progress-bar { background: var(--gray-100); border-radius: 999px; height: 7px; margin-top: .65rem; overflow: hidden; }
+    .progress-fill { height: 100%; border-radius: 999px; background: var(--blue); transition: width .3s; }
+    .progress-fill.warning { background: var(--amber); }
+    .progress-fill.danger { background: var(--red); }
+
+    /* Config form */
+    .config-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.25rem; }
+    .config-grid .span-2 { grid-column: span 2; }
+    .field-group { }
+    .field-hint { font-size: .78rem; color: var(--gray-500); margin-top: -.6rem; margin-bottom: .9rem; }
+    .toggle-row { display: flex; align-items: center; justify-content: space-between; padding: .75rem 0; border-bottom: 1px solid var(--gray-100); }
+    .toggle-row:last-child { border-bottom: none; }
+    .toggle-label { font-size: .9rem; font-weight: 500; }
+    .toggle-desc { font-size: .8rem; color: var(--gray-500); margin-top: .1rem; }
+
+    /* Toggle switch */
+    .switch { position: relative; display: inline-block; width: 42px; height: 24px; flex-shrink: 0; }
+    .switch input { opacity: 0; width: 0; height: 0; }
+    .slider { position: absolute; inset: 0; background: var(--gray-200); border-radius: 999px; cursor: pointer; transition: .2s; }
+    .slider::before { content: ""; position: absolute; width: 18px; height: 18px; left: 3px; bottom: 3px; background: #fff; border-radius: 50%; transition: .2s; }
+    input:checked + .slider { background: var(--blue); }
+    input:checked + .slider::before { transform: translateX(18px); }
+
+    /* Posts table */
+    .table-wrap { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; font-size: .88rem; }
+    th { text-align: left; padding: .6rem .75rem; border-bottom: 2px solid var(--gray-100); font-size: .78rem; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: var(--gray-500); white-space: nowrap; }
+    td { padding: .65rem .75rem; border-bottom: 1px solid var(--gray-100); vertical-align: top; }
+    tr:last-child td { border-bottom: none; }
+    .tweet-snippet { max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--gray-700); }
+    .tweet-snippet a { color: var(--blue); text-decoration: none; }
+    .tweet-snippet a:hover { text-decoration: underline; }
+    .metrics-cell { display: flex; gap: .6rem; align-items: center; }
+    .metric { display: flex; align-items: center; gap: .2rem; color: var(--gray-500); }
+    .metric svg { flex-shrink: 0; }
+    .refresh-btn { background: none; border: 1px solid var(--gray-200); padding: .2rem .5rem; border-radius: 6px; cursor: pointer; font-size: .75rem; color: var(--gray-500); }
+    .refresh-btn:hover { border-color: var(--blue); color: var(--blue); }
+
+    /* Empty state */
+    .empty-state { text-align: center; padding: 3rem 1.5rem; }
+    .empty-icon { font-size: 2.5rem; margin-bottom: .75rem; }
+    .empty-state h3 { font-size: 1.1rem; margin-bottom: .4rem; }
+    .empty-state p { font-size: .9rem; color: var(--gray-500); }
+
+    /* Tabs */
+    .tab-bar { display: flex; gap: .25rem; background: var(--gray-100); border-radius: 10px; padding: 4px; margin-bottom: 1.5rem; }
+    .tab { padding: .5rem 1rem; border-radius: 8px; font-size: .85rem; font-weight: 600; cursor: pointer; color: var(--gray-500); border: none; background: none; font-family: inherit; }
+    .tab.active { background: #fff; color: var(--gray-900); box-shadow: 0 1px 4px rgba(0,0,0,.1); }
+
+    /* Page sections */
+    .page { }
+
+    /* Responsive */
+    @media (max-width: 768px) {
+      .sidebar { transform: translateX(-100%); transition: transform .3s; }
+      .sidebar.open { transform: translateX(0); }
+      .main-content { margin-left: 0; padding: 1rem; }
+      .config-grid { grid-template-columns: 1fr; }
+      .config-grid .span-2 { grid-column: span 1; }
+      .stats-grid { grid-template-columns: repeat(2, 1fr); }
+    }
+
+    /* Loading skeleton */
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .5; } }
+    .skeleton { background: var(--gray-100); border-radius: 6px; animation: pulse 1.5s ease-in-out infinite; }
   </style>
 </head>
 <body>
 
-<!-- Pantalla de autenticación -->
+<!-- Auth screen -->
 <div id="auth-screen" class="hidden">
-  <h1>X → LinkedIn</h1>
-  <div id="auth-error" class="error hidden"></div>
+  <div class="auth-card">
+    <div class="auth-logo">X → LinkedIn</div>
 
-  <div id="login-form">
-    <form onsubmit="handleLogin(event)">
-      <label>Email</label>
-      <input type="email" id="login-email" required />
-      <label>Contraseña</label>
-      <input type="password" id="login-password" required />
-      <button type="submit" style="width:100%">Entrar</button>
-    </form>
-    <div class="toggle-auth">¿No tienes cuenta? <a onclick="showRegister()">Regístrate gratis</a></div>
-  </div>
-
-  <div id="register-form" class="hidden">
-    <form onsubmit="handleRegister(event)">
-      <label>Nombre</label>
-      <input type="text" id="reg-name" placeholder="Opcional" />
-      <label>Email</label>
-      <input type="email" id="reg-email" required />
-      <label>Contraseña</label>
-      <input type="password" id="reg-password" required minlength="8" />
-      <button type="submit" style="width:100%">Crear cuenta gratis</button>
-    </form>
-    <div class="toggle-auth">¿Ya tienes cuenta? <a onclick="showLogin()">Inicia sesión</a></div>
-  </div>
-</div>
-
-<!-- Dashboard -->
-<div id="dashboard" class="hidden">
-  <header>
-    <strong>X → LinkedIn Automator</strong>
-    <span>
-      <span id="header-email"></span> &nbsp;|&nbsp;
-      <a href="#" onclick="logout()" style="color:white">Salir</a>
-    </span>
-  </header>
-
-  <main>
-    <!-- Banner de pago exitoso / cancelado -->
-    <div id="payment-success" class="success-banner hidden">
-      Pago procesado. Tu plan Pro ya está activo.
-    </div>
-    <div id="payment-canceled" class="error hidden">
-      El pago fue cancelado. Puedes intentarlo de nuevo cuando quieras.
+    <div class="tg-auth-box">
+      <div class="tg-icon">✈️</div>
+      <h3>Accede desde Telegram</h3>
+      <p>Abre el bot, envía <strong>/dashboard</strong> y recibirás un link de acceso directo.</p>
+      <br/>
+      <a id="tg-bot-link" href="https://t.me/NOMBRE_BOT" target="_blank" class="btn btn-tg btn-full">
+        Abrir bot en Telegram
+      </a>
     </div>
 
-    <!-- Stats -->
-    <div class="card">
-      <h2>Resumen</h2>
-      <div class="stat-grid">
-        <div class="stat">
-          <div class="number" id="stat-total">—</div>
-          <div class="label">Posts publicados</div>
-        </div>
-        <div class="stat">
-          <div class="number" id="stat-plan">—</div>
-          <div class="label">Plan actual</div>
-        </div>
-        <div class="stat">
-          <div class="number" id="stat-this-month">—</div>
-          <div class="label">Usados este mes</div>
-        </div>
-      </div>
+    <div class="form-divider">o usa email y contraseña</div>
+
+    <div class="auth-tabs">
+      <div class="auth-tab active" onclick="showLoginTab()">Inicia sesión</div>
+      <div class="auth-tab" onclick="showRegisterTab()">Regístrate</div>
     </div>
 
-    <!-- Suscripción -->
-    <div class="card">
-      <h2>Suscripción</h2>
-      <div class="plan-row">
-        <div class="plan-info">
-          <div>
-            Plan: <span id="plan-badge">—</span>
-            &nbsp;
-            Estado: <span id="plan-status-badge">—</span>
-          </div>
-          <p id="plan-description"></p>
-          <div class="limit-bar" id="limit-bar-wrap" style="display:none">
-            <div class="limit-bar-fill" id="limit-bar-fill"></div>
-          </div>
-        </div>
-        <div id="billing-actions"></div>
-      </div>
-    </div>
+    <div id="auth-error" class="alert alert-error hidden"></div>
 
-    <!-- Configuración -->
-    <div class="card">
-      <h2>Configuración de cuentas</h2>
-      <form onsubmit="saveCredentials(event)">
-        <label>Username de X a monitorear (sin @)</label>
-        <input type="text" id="x-username" placeholder="ej: elonmusk" />
-        <label>Access Token de LinkedIn</label>
-        <input type="text" id="linkedin-token" placeholder="Pega tu token aquí" />
-        <label>LinkedIn Person ID</label>
-        <input type="text" id="linkedin-person-id" placeholder="urn:li:person:..." />
-        <label>
-          <input type="checkbox" id="automation-enabled" />
-          &nbsp;Activar automatización
-        </label>
-        <br/><br/>
-        <button type="submit">Guardar configuración</button>
+    <div id="login-form">
+      <form onsubmit="handleLogin(event)">
+        <label>Email</label>
+        <input type="email" id="login-email" required placeholder="tu@email.com"/>
+        <label>Contraseña</label>
+        <input type="password" id="login-password" required placeholder="••••••••"/>
+        <button type="submit" class="btn btn-primary btn-full">Entrar</button>
       </form>
     </div>
 
-    <!-- Historial -->
-    <div class="card">
-      <h2>Últimos posts</h2>
-      <table>
-        <thead>
-          <tr>
-            <th>Fecha</th>
-            <th>Tweet original</th>
-            <th>Estado</th>
-          </tr>
-        </thead>
-        <tbody id="logs-table">
-          <tr><td colspan="3" style="color:#aaa;text-align:center">Sin actividad aún</td></tr>
-        </tbody>
-      </table>
+    <div id="register-form" class="hidden">
+      <form onsubmit="handleRegister(event)">
+        <label>Nombre <span style="color:var(--gray-400);font-weight:400">(opcional)</span></label>
+        <input type="text" id="reg-name" placeholder="Tu nombre"/>
+        <label>Email</label>
+        <input type="email" id="reg-email" required placeholder="tu@email.com"/>
+        <label>Contraseña</label>
+        <input type="password" id="reg-password" required minlength="8" placeholder="Mínimo 8 caracteres"/>
+        <button type="submit" class="btn btn-primary btn-full">Crear cuenta gratis</button>
+      </form>
     </div>
+  </div>
+</div>
+
+<!-- App screen -->
+<div id="app-screen" class="hidden">
+
+  <!-- Sidebar -->
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-logo">X → LinkedIn</div>
+    <nav class="sidebar-nav">
+      <a class="nav-item active" data-page="overview" onclick="showPage('overview')">
+        <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
+        Resumen
+      </a>
+      <a class="nav-item" data-page="posts" onclick="showPage('posts')">
+        <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+        Posts
+      </a>
+      <a class="nav-item" data-page="config" onclick="showPage('config')">
+        <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 0 0-14.14 0M4.93 19.07a10 10 0 0 0 14.14 0"/></svg>
+        Configuración
+      </a>
+      <a class="nav-item" data-page="billing" onclick="showPage('billing')">
+        <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>
+        Suscripción
+      </a>
+    </nav>
+    <div class="sidebar-bottom">
+      <div class="user-pill">
+        <div class="user-avatar" id="user-avatar">?</div>
+        <div>
+          <div class="user-name" id="sidebar-name">—</div>
+          <div class="user-plan" id="sidebar-plan">Free</div>
+        </div>
+        <button class="logout-btn" onclick="logout()" title="Cerrar sesión">
+          <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+        </button>
+      </div>
+    </div>
+  </aside>
+
+  <!-- Main -->
+  <main class="main-content">
+
+    <!-- Payment banners -->
+    <div id="banner-success" class="alert alert-success hidden">
+      Pago procesado correctamente. Tu plan Pro ya está activo.
+    </div>
+    <div id="banner-canceled" class="alert alert-error hidden">
+      El pago fue cancelado. Puedes intentarlo de nuevo cuando quieras.
+    </div>
+
+    <!-- PAGE: Overview -->
+    <div id="page-overview" class="page">
+      <div class="page-header">
+        <h1>Resumen</h1>
+        <p>Tu actividad y estado de automatización</p>
+      </div>
+
+      <div class="stats-grid">
+        <div class="stat-card">
+          <div class="stat-value" id="stat-total">—</div>
+          <div class="stat-label">Posts publicados</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value" id="stat-month">—</div>
+          <div class="stat-label">Este mes</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value" id="stat-plan">—</div>
+          <div class="stat-label">Plan actual</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value" id="stat-automation">—</div>
+          <div class="stat-label">Automatización</div>
+        </div>
+      </div>
+
+      <!-- Plan card -->
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">Suscripción</span>
+          <div id="plan-badges"></div>
+        </div>
+        <div class="plan-info">
+          <div class="plan-details">
+            <h3 id="plan-name">—</h3>
+            <p id="plan-desc">—</p>
+            <div class="progress-bar" id="progress-wrap" style="display:none">
+              <div class="progress-fill" id="progress-fill"></div>
+            </div>
+          </div>
+          <div id="plan-actions"></div>
+        </div>
+      </div>
+
+      <!-- Recent posts preview -->
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">Últimos posts</span>
+          <button class="btn btn-sm btn-secondary" onclick="showPage('posts')">Ver todos</button>
+        </div>
+        <div id="recent-posts-content">
+          <div class="empty-state">
+            <div class="empty-icon">📭</div>
+            <h3>Sin actividad aún</h3>
+            <p>Configura tus cuentas y activa la automatización.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- PAGE: Posts -->
+    <div id="page-posts" class="page hidden">
+      <div class="page-header">
+        <h1>Posts</h1>
+        <p>Historial completo de publicaciones generadas y métricas de LinkedIn</p>
+      </div>
+      <div class="card">
+        <div id="posts-content">
+          <div class="empty-state">
+            <div class="empty-icon">📭</div>
+            <h3>Sin posts aún</h3>
+            <p>La automatización generará posts aquí cuando encuentre tweets nuevos.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- PAGE: Config -->
+    <div id="page-config" class="page hidden">
+      <div class="page-header">
+        <h1>Configuración</h1>
+        <p>Conecta tus cuentas y ajusta la automatización</p>
+      </div>
+
+      <!-- Cuentas -->
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">Cuentas</span>
+        </div>
+        <form onsubmit="saveCredentials(event)">
+          <div class="config-grid">
+            <div class="field-group">
+              <label>Username de X (sin @)</label>
+              <input type="text" id="x-username" placeholder="ej: elonmusk"/>
+              <p class="field-hint">La cuenta pública de X que queremos monitorear.</p>
+            </div>
+            <div class="field-group">
+              <label>LinkedIn Person ID</label>
+              <input type="text" id="linkedin-person-id" placeholder="urn:li:person:..."/>
+              <p class="field-hint">Encuentra el tuyo en tu perfil de LinkedIn → ver código fuente.</p>
+            </div>
+            <div class="field-group span-2">
+              <label>LinkedIn Access Token</label>
+              <input type="text" id="linkedin-token" placeholder="Pega tu token aquí (se guarda cifrado)"/>
+              <p class="field-hint" id="linkedin-token-hint">Obtén el token desde LinkedIn Developer Portal con scope w_member_social.</p>
+            </div>
+          </div>
+          <button type="submit" class="btn btn-primary">Guardar cuentas</button>
+        </form>
+      </div>
+
+      <!-- Automatización -->
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">Automatización</span>
+        </div>
+        <div class="toggle-row">
+          <div>
+            <div class="toggle-label">Activar automatización</div>
+            <div class="toggle-desc">El sistema revisará X cada cierto tiempo y publicará en LinkedIn.</div>
+          </div>
+          <label class="switch">
+            <input type="checkbox" id="automation-enabled" onchange="saveAutomation()"/>
+            <span class="slider"></span>
+          </label>
+        </div>
+        <div class="toggle-row">
+          <div>
+            <div class="toggle-label">Frecuencia de revisión</div>
+            <div class="toggle-desc">Cada cuántas horas revisar la cuenta de X.</div>
+          </div>
+          <select id="post-frequency" onchange="saveAutomation()" style="width:auto;margin:0">
+            <option value="6">Cada 6 horas</option>
+            <option value="12">Cada 12 horas</option>
+            <option value="24" selected>Cada 24 horas</option>
+            <option value="48">Cada 48 horas</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- Prompt personalizado (solo Pro) -->
+      <div class="card" id="prompt-card">
+        <div class="card-header">
+          <span class="card-title">Prompt de IA</span>
+          <span id="prompt-plan-badge"></span>
+        </div>
+        <div id="prompt-content">
+          <p style="font-size:.9rem;color:var(--gray-500);margin-bottom:1rem">
+            Personaliza cómo Claude AI adapta tus tweets para LinkedIn.
+          </p>
+          <label>Prompt personalizado <span style="color:var(--gray-400);font-weight:400">(dejar vacío = usar el default)</span></label>
+          <textarea id="custom-prompt" rows="5" placeholder="Ej: Adapta el tweet al estilo corporativo, en inglés, con hashtags relevantes..."></textarea>
+          <div style="display:flex;gap:.75rem;align-items:center">
+            <button onclick="savePrompt()" class="btn btn-primary">Guardar prompt</button>
+            <button onclick="resetPrompt()" class="btn btn-secondary btn-sm">Restaurar default</button>
+          </div>
+        </div>
+        <div id="prompt-upgrade-msg" class="hidden">
+          <div class="alert alert-warning" style="margin:0">
+            El prompt personalizado es exclusivo del plan Pro.
+            <button onclick="showPage('billing')" class="btn btn-pro btn-sm" style="margin-left:.75rem">Upgrade $10/mes</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- PAGE: Billing -->
+    <div id="page-billing" class="page hidden">
+      <div class="page-header">
+        <h1>Suscripción</h1>
+        <p>Gestiona tu plan y facturación</p>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">Plan actual</span>
+        </div>
+        <div class="plan-info" style="margin-bottom:1.5rem">
+          <div class="plan-details">
+            <h3 id="billing-plan-name">—</h3>
+            <p id="billing-plan-desc">—</p>
+          </div>
+          <div id="billing-actions"></div>
+        </div>
+
+        <hr style="border:none;border-top:1px solid var(--gray-100);margin-bottom:1.5rem"/>
+
+        <div id="plans-comparison">
+          <h3 style="font-size:1rem;margin-bottom:1.25rem">Planes disponibles</h3>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:1rem">
+            <div style="border:1px solid var(--gray-200);border-radius:12px;padding:1.25rem">
+              <div style="font-size:.8rem;font-weight:700;color:var(--gray-500);text-transform:uppercase;letter-spacing:.07em;margin-bottom:.5rem">Gratis</div>
+              <div style="font-size:2rem;font-weight:900;margin-bottom:.75rem">$0<span style="font-size:.9rem;font-weight:400;color:var(--gray-500)">/mes</span></div>
+              <ul style="list-style:none;font-size:.88rem;color:var(--gray-700)">
+                <li style="padding:.25rem 0">✓ 5 posts al mes</li>
+                <li style="padding:.25rem 0">✓ Generación con IA</li>
+                <li style="padding:.25rem 0">✓ Dashboard básico</li>
+                <li style="padding:.25rem 0;color:var(--gray-400)">– Prompt personalizado</li>
+              </ul>
+            </div>
+            <div style="border:2px solid var(--blue);border-radius:12px;padding:1.25rem;position:relative">
+              <div style="position:absolute;top:-12px;left:50%;transform:translateX(-50%);background:var(--blue);color:#fff;padding:.15rem .8rem;border-radius:999px;font-size:.73rem;font-weight:700;white-space:nowrap">Más popular</div>
+              <div style="font-size:.8rem;font-weight:700;color:var(--blue);text-transform:uppercase;letter-spacing:.07em;margin-bottom:.5rem">Pro</div>
+              <div style="font-size:2rem;font-weight:900;margin-bottom:.75rem">$10<span style="font-size:.9rem;font-weight:400;color:var(--gray-500)">/mes</span></div>
+              <ul style="list-style:none;font-size:.88rem;color:var(--gray-700)">
+                <li style="padding:.25rem 0">✓ Posts ilimitados</li>
+                <li style="padding:.25rem 0">✓ Generación con IA</li>
+                <li style="padding:.25rem 0">✓ Dashboard completo</li>
+                <li style="padding:.25rem 0">✓ Prompt personalizado</li>
+                <li style="padding:.25rem 0">✓ Soporte prioritario</li>
+              </ul>
+              <button onclick="upgrade()" class="btn btn-pro btn-full" style="margin-top:.75rem">Upgrade a Pro</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
   </main>
 </div>
 
-<div id="loading">Cargando...</div>
+<!-- Loading full screen -->
+<div id="loading-screen" style="min-height:100vh;display:flex;align-items:center;justify-content:center;background:var(--gray-50)">
+  <div style="text-align:center">
+    <div style="width:36px;height:36px;border:3px solid var(--blue-light);border-top-color:var(--blue);border-radius:50%;animation:spin .8s linear infinite;margin:0 auto 1rem"></div>
+    <p style="color:var(--gray-500);font-size:.9rem">Cargando...</p>
+  </div>
+</div>
+<style>@keyframes spin { to { transform: rotate(360deg); } }</style>
 
 <script>
-const API = '';
+// ---- State ----
+let dashData = null;
 
-function token() { return localStorage.getItem('token'); }
+// ---- API ----
+const getToken = () => localStorage.getItem('saas_token');
 
 async function apiFetch(path, options = {}) {
-  const res = await fetch(API + path, {
+  const res = await fetch(path, {
     ...options,
     headers: {
       'Content-Type': 'application/json',
-      ...(token() ? { Authorization: 'Bearer ' + token() } : {}),
+      ...(getToken() ? { Authorization: 'Bearer ' + getToken() } : {}),
       ...options.headers,
     },
   });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.detail || 'Error desconocido');
+  if (!res.ok) throw new Error(data.detail || `Error ${res.status}`);
   return data;
 }
 
+// ---- Init ----
 async function init() {
-  document.getElementById('loading').classList.remove('hidden');
-
-  // Mostrar banners según resultado del pago
   const params = new URLSearchParams(location.search);
-  if (params.get('payment') === 'success') {
-    document.getElementById('payment-success').classList.remove('hidden');
+
+  // Telegram deep link login
+  const tgToken = params.get('tg_token');
+  if (tgToken) {
+    try {
+      const data = await apiFetch(`/auth/telegram-login?token=${encodeURIComponent(tgToken)}`);
+      localStorage.setItem('saas_token', data.access_token);
+      history.replaceState({}, '', location.pathname);
+    } catch {
+      showToast('Link de Telegram inválido o expirado', 'error');
+    }
+  }
+
+  // Payment banners
+  const payment = params.get('payment');
+  if (payment === 'success') {
+    document.getElementById('banner-success').classList.remove('hidden');
     history.replaceState({}, '', location.pathname);
-  } else if (params.get('payment') === 'canceled') {
-    document.getElementById('payment-canceled').classList.remove('hidden');
+  } else if (payment === 'canceled') {
+    document.getElementById('banner-canceled').classList.remove('hidden');
     history.replaceState({}, '', location.pathname);
   }
 
-  if (!token()) { showAuth(); return; }
+  if (!getToken()) {
+    showAuth();
+    return;
+  }
+
   try {
     await loadDashboard();
   } catch {
-    localStorage.removeItem('token');
+    localStorage.removeItem('saas_token');
     showAuth();
   }
 }
 
+// ---- Auth ----
 function showAuth() {
-  document.getElementById('loading').classList.add('hidden');
+  document.getElementById('loading-screen').classList.add('hidden');
+  document.getElementById('app-screen').classList.add('hidden');
   document.getElementById('auth-screen').classList.remove('hidden');
-  document.getElementById('dashboard').classList.add('hidden');
 }
 
-function showLogin() {
+function showLoginTab() {
+  document.querySelectorAll('.auth-tab').forEach((t, i) => t.classList.toggle('active', i === 0));
   document.getElementById('login-form').classList.remove('hidden');
   document.getElementById('register-form').classList.add('hidden');
+  document.getElementById('auth-error').classList.add('hidden');
 }
 
-function showRegister() {
+function showRegisterTab() {
+  document.querySelectorAll('.auth-tab').forEach((t, i) => t.classList.toggle('active', i === 1));
   document.getElementById('login-form').classList.add('hidden');
   document.getElementById('register-form').classList.remove('hidden');
+  document.getElementById('auth-error').classList.add('hidden');
 }
 
-function showError(msg) {
+function showAuthError(msg) {
   const el = document.getElementById('auth-error');
   el.textContent = msg;
   el.classList.remove('hidden');
@@ -252,12 +702,12 @@ async function handleLogin(e) {
       username: document.getElementById('login-email').value,
       password: document.getElementById('login-password').value,
     });
-    const data = await fetch(API + '/auth/login', { method: 'POST', body }).then(r => r.json());
+    const data = await fetch('/auth/login', { method: 'POST', body }).then(r => r.json());
     if (!data.access_token) throw new Error(data.detail || 'Error al iniciar sesión');
-    localStorage.setItem('token', data.access_token);
+    localStorage.setItem('saas_token', data.access_token);
     await loadDashboard();
   } catch (err) {
-    showError(err.message);
+    showAuthError(err.message);
   }
 }
 
@@ -273,86 +723,285 @@ async function handleRegister(e) {
         full_name: document.getElementById('reg-name').value || null,
       }),
     });
-    localStorage.setItem('token', data.access_token);
+    localStorage.setItem('saas_token', data.access_token);
     await loadDashboard();
   } catch (err) {
-    showError(err.message);
+    showAuthError(err.message);
   }
 }
 
+function logout() {
+  localStorage.removeItem('saas_token');
+  dashData = null;
+  showAuth();
+}
+
+// ---- Dashboard ----
 async function loadDashboard() {
-  const dash = await apiFetch('/dashboard');
-
-  document.getElementById('loading').classList.add('hidden');
+  document.getElementById('loading-screen').classList.remove('hidden');
   document.getElementById('auth-screen').classList.add('hidden');
-  document.getElementById('dashboard').classList.remove('hidden');
+  document.getElementById('app-screen').classList.add('hidden');
 
-  // Header
-  document.getElementById('header-email').textContent = dash.user.email;
+  dashData = await apiFetch('/dashboard');
+
+  renderSidebar();
+  renderOverview();
+  await renderPosts(dashData.recent_logs);
+  renderConfig();
+  renderBilling();
+
+  document.getElementById('loading-screen').classList.add('hidden');
+  document.getElementById('app-screen').classList.remove('hidden');
+
+  // Cargar prompts también
+  try {
+    const settings = await apiFetch('/dashboard/settings');
+    document.getElementById('custom-prompt').value = settings.custom_prompt || '';
+  } catch {}
+}
+
+function renderSidebar() {
+  const u = dashData.user;
+  const name = u.display_name;
+  document.getElementById('sidebar-name').textContent = name;
+  document.getElementById('user-avatar').textContent = name.charAt(0).toUpperCase();
+
+  const sub = dashData.subscription;
+  const isPro = sub && sub.plan === 'pro';
+  document.getElementById('sidebar-plan').textContent = isPro ? 'Plan Pro' : 'Plan Free';
+}
+
+function renderOverview() {
+  const sub = dashData.subscription;
+  const creds = dashData.credentials;
 
   // Stats
-  document.getElementById('stat-total').textContent = dash.total_posts_published;
-  const sub = dash.subscription;
+  document.getElementById('stat-total').textContent = dashData.total_posts_published;
+  document.getElementById('stat-month').textContent = sub
+    ? (sub.plan === 'pro' ? `${sub.posts_used_this_month}` : `${sub.posts_used_this_month}/${sub.free_posts_limit}`)
+    : '0';
+  document.getElementById('stat-plan').textContent = sub && sub.plan === 'pro' ? 'Pro' : 'Free';
+  document.getElementById('stat-automation').textContent = creds && creds.automation_enabled ? 'Activa' : 'Inactiva';
 
+  // Plan card
   if (sub) {
-    document.getElementById('stat-plan').textContent = sub.plan === 'monthly' ? 'Pro' : 'Free';
-    document.getElementById('stat-this-month').textContent =
-      sub.plan === 'monthly' ? `${sub.posts_used_this_month} / ∞` : `${sub.posts_used_this_month} / ${sub.free_posts_limit}`;
+    const isPro = sub.plan === 'pro';
+    document.getElementById('plan-badges').innerHTML =
+      `<span class="badge badge-${sub.plan}">${isPro ? 'Pro' : 'Free'}</span>
+       <span class="badge badge-${sub.status}" style="margin-left:.4rem">${sub.status}</span>`;
 
-    // Plan badge
-    document.getElementById('plan-badge').innerHTML =
-      `<span class="badge badge-${sub.plan}">${sub.plan === 'monthly' ? 'Pro' : 'Free'}</span>`;
-    document.getElementById('plan-status-badge').innerHTML =
-      `<span class="badge badge-${sub.status}">${sub.status}</span>`;
+    document.getElementById('plan-name').textContent = isPro ? 'Plan Pro — $10/mes' : 'Plan Free';
 
-    // Descripción y barra de uso
-    if (sub.plan === 'free') {
-      const pct = Math.round((sub.posts_used_this_month / sub.free_posts_limit) * 100);
-      document.getElementById('plan-description').textContent =
-        `Has usado ${sub.posts_used_this_month} de ${sub.free_posts_limit} posts gratuitos este mes.`;
-      document.getElementById('limit-bar-wrap').style.display = 'block';
-      document.getElementById('limit-bar-fill').style.width = `${Math.min(pct, 100)}%`;
-      if (pct >= 100) document.getElementById('limit-bar-fill').style.background = '#dc2626';
-
-      document.getElementById('billing-actions').innerHTML =
-        `<button class="btn-upgrade" onclick="upgrade()">⚡ Upgrade a Pro — $19/mes</button>`;
-    } else {
+    if (isPro) {
       const exp = sub.current_period_end
         ? `Próxima renovación: ${new Date(sub.current_period_end).toLocaleDateString('es')}`
         : 'Posts ilimitados';
-      document.getElementById('plan-description').textContent = exp;
-      document.getElementById('limit-bar-wrap').style.display = 'none';
-
-      if (sub.status === 'past_due') {
-        document.getElementById('plan-description').textContent =
-          'Tu pago falló. Actualiza tu tarjeta para continuar usando el servicio.';
-      }
-
-      document.getElementById('billing-actions').innerHTML =
-        `<button class="btn-manage" onclick="manageSubscription()">Gestionar suscripción</button>`;
+      document.getElementById('plan-desc').textContent =
+        sub.status === 'past_due' ? '⚠️ Pago pendiente — actualiza tu tarjeta' : exp;
+      document.getElementById('progress-wrap').style.display = 'none';
+      document.getElementById('plan-actions').innerHTML =
+        `<button class="btn btn-outline" onclick="manageSubscription()">Gestionar suscripción</button>`;
+    } else {
+      const pct = Math.round((sub.posts_used_this_month / sub.free_posts_limit) * 100);
+      document.getElementById('plan-desc').textContent =
+        `${sub.posts_used_this_month} de ${sub.free_posts_limit} posts usados este mes`;
+      document.getElementById('progress-wrap').style.display = 'block';
+      const fill = document.getElementById('progress-fill');
+      fill.style.width = `${Math.min(pct, 100)}%`;
+      fill.className = 'progress-fill' + (pct >= 100 ? ' danger' : pct >= 70 ? ' warning' : '');
+      document.getElementById('plan-actions').innerHTML =
+        `<button class="btn btn-pro" onclick="upgrade()">Upgrade a Pro — $10/mes</button>`;
     }
   }
 
-  // Credenciales
-  if (dash.credentials) {
-    document.getElementById('x-username').value = dash.credentials.x_username || '';
-    document.getElementById('linkedin-person-id').value = dash.credentials.linkedin_person_id || '';
-    document.getElementById('automation-enabled').checked = dash.credentials.automation_enabled;
+  // Recent posts preview (last 5)
+  const logs = dashData.recent_logs.slice(0, 5);
+  if (logs.length === 0) {
+    document.getElementById('recent-posts-content').innerHTML = `
+      <div class="empty-state">
+        <div class="empty-icon">📭</div>
+        <h3>Sin actividad aún</h3>
+        <p>Configura tus cuentas y activa la automatización.</p>
+        <button class="btn btn-primary" style="margin-top:1rem" onclick="showPage('config')">Configurar ahora</button>
+      </div>`;
+  } else {
+    document.getElementById('recent-posts-content').innerHTML = renderPostsTable(logs);
+  }
+}
+
+async function renderPosts(logs) {
+  if (!logs) {
+    try {
+      const allLogs = await apiFetch('/dashboard/logs?limit=50');
+      logs = allLogs;
+    } catch {
+      logs = [];
+    }
   }
 
-  // Logs
-  const tbody = document.getElementById('logs-table');
-  if (dash.recent_logs.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="3" style="color:#aaa;text-align:center">Sin actividad aún</td></tr>';
-  } else {
-    tbody.innerHTML = dash.recent_logs.map(log => `
-      <tr>
-        <td>${new Date(log.created_at).toLocaleDateString('es')}</td>
-        <td><a href="${log.tweet_url || '#'}" target="_blank">${(log.tweet_text || '').slice(0, 60)}...</a></td>
-        <td class="status-${log.status}">${log.status}</td>
-      </tr>
-    `).join('');
+  if (logs.length === 0) {
+    document.getElementById('posts-content').innerHTML = `
+      <div class="empty-state">
+        <div class="empty-icon">📭</div>
+        <h3>Sin posts aún</h3>
+        <p>Los posts generados por la automatización aparecerán aquí.</p>
+      </div>`;
+    return;
   }
+
+  document.getElementById('posts-content').innerHTML = `<div class="table-wrap">${renderPostsTable(logs)}</div>`;
+}
+
+function renderPostsTable(logs) {
+  return `<table>
+    <thead>
+      <tr>
+        <th>Fecha</th>
+        <th>Tweet</th>
+        <th>Estado</th>
+        <th>Métricas</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${logs.map(log => `
+        <tr>
+          <td style="white-space:nowrap;color:var(--gray-500);font-size:.82rem">${new Date(log.created_at).toLocaleDateString('es', {day:'2-digit',month:'short',year:'2-digit'})}</td>
+          <td class="tweet-snippet">
+            ${log.tweet_url
+              ? `<a href="${log.tweet_url}" target="_blank">${(log.tweet_text || log.tweet_url).slice(0, 70)}${(log.tweet_text||'').length > 70 ? '…' : ''}</a>`
+              : (log.tweet_text || '—').slice(0, 70)
+            }
+          </td>
+          <td><span class="badge badge-${log.status}">${log.status}</span></td>
+          <td>
+            <div class="metrics-cell">
+              ${log.status === 'published' ? `
+                <span class="metric">
+                  <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
+                  ${log.li_likes ?? '—'}
+                </span>
+                <span class="metric">
+                  <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+                  ${log.li_comments ?? '—'}
+                </span>
+                <button class="refresh-btn" onclick="refreshMetrics(${log.id})">↻</button>
+              ` : log.error_message ? `<span style="font-size:.78rem;color:var(--red)">${log.error_message.slice(0,60)}</span>` : '—'}
+            </div>
+          </td>
+        </tr>
+      `).join('')}
+    </tbody>
+  </table>`;
+}
+
+function renderConfig() {
+  const creds = dashData.credentials;
+  if (creds) {
+    document.getElementById('x-username').value = creds.x_username || '';
+    document.getElementById('linkedin-person-id').value = creds.linkedin_person_id || '';
+    document.getElementById('automation-enabled').checked = creds.automation_enabled;
+    document.getElementById('post-frequency').value = creds.post_frequency_hours || 24;
+    if (creds.has_linkedin_token) {
+      document.getElementById('linkedin-token-hint').textContent = '✓ Token guardado — pega uno nuevo solo si quieres reemplazarlo.';
+    }
+  }
+
+  // Prompt: solo Pro
+  const isPro = dashData.subscription && dashData.subscription.plan === 'pro';
+  if (isPro) {
+    document.getElementById('prompt-plan-badge').innerHTML = '<span class="badge badge-pro">Pro</span>';
+    document.getElementById('prompt-content').classList.remove('hidden');
+    document.getElementById('prompt-upgrade-msg').classList.add('hidden');
+    document.getElementById('custom-prompt').disabled = false;
+  } else {
+    document.getElementById('prompt-plan-badge').innerHTML = '<span class="badge badge-free">Solo Pro</span>';
+    document.getElementById('prompt-content').classList.add('hidden');
+    document.getElementById('prompt-upgrade-msg').classList.remove('hidden');
+  }
+}
+
+function renderBilling() {
+  const sub = dashData.subscription;
+  if (!sub) return;
+
+  const isPro = sub.plan === 'pro';
+  document.getElementById('billing-plan-name').textContent = isPro ? 'Plan Pro' : 'Plan Free';
+  document.getElementById('billing-plan-desc').textContent = isPro
+    ? (sub.current_period_end ? `Próxima renovación: ${new Date(sub.current_period_end).toLocaleDateString('es')}` : 'Posts ilimitados')
+    : `${sub.posts_used_this_month} / ${sub.free_posts_limit} posts usados este mes`;
+
+  document.getElementById('billing-actions').innerHTML = isPro
+    ? `<button class="btn btn-outline" onclick="manageSubscription()">Gestionar suscripción</button>`
+    : `<button class="btn btn-pro" onclick="upgrade()">Upgrade a Pro — $10/mes</button>`;
+}
+
+// ---- Navigation ----
+function showPage(page) {
+  document.querySelectorAll('.page').forEach(p => p.classList.add('hidden'));
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  document.getElementById(`page-${page}`).classList.remove('hidden');
+  document.querySelector(`[data-page="${page}"]`).classList.add('active');
+
+  // Reload posts when switching to posts page
+  if (page === 'posts') {
+    renderPosts(null);
+  }
+}
+
+// ---- Actions ----
+async function saveCredentials(e) {
+  e.preventDefault();
+  try {
+    const token = document.getElementById('linkedin-token').value;
+    await apiFetch('/dashboard/credentials', {
+      method: 'PUT',
+      body: JSON.stringify({
+        x_username: document.getElementById('x-username').value || null,
+        linkedin_access_token: token || null,
+        linkedin_person_id: document.getElementById('linkedin-person-id').value || null,
+      }),
+    });
+    showToast('Configuración guardada', 'success');
+    if (token) {
+      document.getElementById('linkedin-token').value = '';
+      document.getElementById('linkedin-token-hint').textContent = '✓ Token guardado — pega uno nuevo solo si quieres reemplazarlo.';
+    }
+  } catch (err) {
+    showToast('Error: ' + err.message, 'error');
+  }
+}
+
+async function saveAutomation() {
+  try {
+    await apiFetch('/dashboard/credentials', {
+      method: 'PUT',
+      body: JSON.stringify({
+        automation_enabled: document.getElementById('automation-enabled').checked,
+        post_frequency_hours: parseInt(document.getElementById('post-frequency').value),
+      }),
+    });
+    showToast('Automatización actualizada', 'success');
+  } catch (err) {
+    showToast('Error: ' + err.message, 'error');
+  }
+}
+
+async function savePrompt() {
+  try {
+    const val = document.getElementById('custom-prompt').value.trim();
+    await apiFetch('/dashboard/settings', {
+      method: 'PUT',
+      body: JSON.stringify({ custom_prompt: val || null }),
+    });
+    showToast('Prompt guardado', 'success');
+  } catch (err) {
+    showToast('Error: ' + err.message, 'error');
+  }
+}
+
+async function resetPrompt() {
+  document.getElementById('custom-prompt').value = '';
+  await savePrompt();
 }
 
 async function upgrade() {
@@ -360,7 +1009,7 @@ async function upgrade() {
     const { url } = await apiFetch('/billing/checkout', { method: 'POST' });
     window.location.href = url;
   } catch (err) {
-    alert('Error al iniciar el pago: ' + err.message);
+    showToast('Error al iniciar el pago: ' + err.message, 'error');
   }
 }
 
@@ -369,33 +1018,31 @@ async function manageSubscription() {
     const { url } = await apiFetch('/billing/portal');
     window.location.href = url;
   } catch (err) {
-    alert('Error al abrir el portal: ' + err.message);
+    showToast('Error al abrir el portal: ' + err.message, 'error');
   }
 }
 
-async function saveCredentials(e) {
-  e.preventDefault();
+async function refreshMetrics(logId) {
   try {
-    await apiFetch('/dashboard/credentials', {
-      method: 'PUT',
-      body: JSON.stringify({
-        x_username: document.getElementById('x-username').value || null,
-        linkedin_access_token: document.getElementById('linkedin-token').value || null,
-        linkedin_person_id: document.getElementById('linkedin-person-id').value || null,
-        automation_enabled: document.getElementById('automation-enabled').checked,
-      }),
-    });
-    alert('Configuración guardada ✓');
+    await apiFetch(`/dashboard/logs/${logId}/refresh-metrics`, { method: 'POST' });
+    showToast('Métricas actualizadas', 'success');
+    // Reload posts
+    renderPosts(null);
   } catch (err) {
-    alert('Error: ' + err.message);
+    showToast('Error: ' + err.message, 'error');
   }
 }
 
-function logout() {
-  localStorage.removeItem('token');
-  showAuth();
+// ---- Toasts ----
+function showToast(msg, type = 'success') {
+  const el = document.createElement('div');
+  el.className = `toast toast-${type}`;
+  el.textContent = msg;
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), 3500);
 }
 
+// ---- Boot ----
 init();
 </script>
 </body>

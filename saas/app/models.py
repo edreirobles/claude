@@ -1,11 +1,11 @@
 """
 Modelos de la base de datos del SaaS.
 
-Hay 4 tablas principales:
-  - users: los clientes que se registran
-  - subscriptions: su estado de pago con Stripe
-  - user_credentials: sus tokens de X y LinkedIn (cifrados)
-  - automation_logs: historial de posts publicados
+Tablas:
+  - users: clientes (identificados por Telegram ID o email)
+  - subscriptions: plan y estado de pago (Stripe)
+  - user_credentials: tokens de X y LinkedIn por usuario
+  - automation_logs: historial de posts generados/publicados
 """
 
 from datetime import datetime
@@ -17,8 +17,8 @@ from app.database import Base
 
 
 class SubscriptionPlan(str, enum.Enum):
-    FREE = "free"          # Sin pago, puede probar 3 posts
-    MONTHLY = "monthly"    # $XX/mes, sin límite
+    FREE = "free"       # $0/mes — 5 posts
+    PRO = "pro"         # $10/mes — posts ilimitados + prompt personalizado
 
 
 class SubscriptionStatus(str, enum.Enum):
@@ -32,8 +32,16 @@ class User(Base):
     __tablename__ = "users"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
-    email: Mapped[str] = mapped_column(String(255), unique=True, index=True, nullable=False)
-    hashed_password: Mapped[str] = mapped_column(String(255), nullable=False)
+
+    # Telegram es el método de auth principal; email es opcional
+    telegram_id: Mapped[str] = mapped_column(String(100), unique=True, nullable=True, index=True)
+    telegram_chat_id: Mapped[str] = mapped_column(String(100), nullable=True)
+    telegram_username: Mapped[str] = mapped_column(String(255), nullable=True)
+
+    # Auth tradicional (opcional, para acceso web directo)
+    email: Mapped[str] = mapped_column(String(255), unique=True, nullable=True, index=True)
+    hashed_password: Mapped[str] = mapped_column(String(255), nullable=True)
+
     full_name: Mapped[str] = mapped_column(String(255), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     is_admin: Mapped[bool] = mapped_column(Boolean, default=False)
@@ -43,6 +51,10 @@ class User(Base):
     subscription: Mapped["Subscription"] = relationship(back_populates="user", uselist=False)
     credentials: Mapped["UserCredentials"] = relationship(back_populates="user", uselist=False)
     logs: Mapped[list["AutomationLog"]] = relationship(back_populates="user")
+
+    @property
+    def display_name(self) -> str:
+        return self.full_name or self.telegram_username or self.email or f"Usuario #{self.id}"
 
 
 class Subscription(Base):
@@ -62,9 +74,9 @@ class Subscription(Base):
         Enum(SubscriptionStatus), default=SubscriptionStatus.ACTIVE
     )
 
-    # Límites del plan FREE
+    # Contador mensual (se aplica al plan FREE)
     posts_used_this_month: Mapped[int] = mapped_column(Integer, default=0)
-    free_posts_limit: Mapped[int] = mapped_column(Integer, default=3)
+    free_posts_limit: Mapped[int] = mapped_column(Integer, default=5)
 
     current_period_end: Mapped[datetime] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
@@ -75,8 +87,7 @@ class Subscription(Base):
 
     @property
     def can_post(self) -> bool:
-        """¿Puede este usuario publicar más posts?"""
-        if self.plan == SubscriptionPlan.MONTHLY and self.status == SubscriptionStatus.ACTIVE:
+        if self.plan == SubscriptionPlan.PRO and self.status == SubscriptionStatus.ACTIVE:
             return True
         return self.posts_used_this_month < self.free_posts_limit
 
@@ -84,7 +95,7 @@ class Subscription(Base):
 class UserCredentials(Base):
     """
     Almacena los tokens de X y LinkedIn de cada usuario.
-    En producción estos deberían estar cifrados con Fernet o similar.
+    En producción estos deberían estar cifrados (Fernet o similar).
     """
     __tablename__ = "user_credentials"
 
@@ -101,9 +112,9 @@ class UserCredentials(Base):
 
     # Configuración de automatización
     automation_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
-    post_frequency_hours: Mapped[int] = mapped_column(Integer, default=24)  # cada cuántas horas revisar X
+    post_frequency_hours: Mapped[int] = mapped_column(Integer, default=24)
 
-    # Prompt personalizado para generar publicaciones (None = usar el default del sistema)
+    # Prompt personalizado (solo plan Pro)
     custom_prompt: Mapped[str] = mapped_column(Text, nullable=True)
 
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -135,10 +146,10 @@ class AutomationLog(Base):
     status: Mapped[str] = mapped_column(String(50), default="pending")  # pending, published, failed
     error_message: Mapped[str] = mapped_column(Text, nullable=True)
 
-    # Métricas de LinkedIn (se actualizan periódicamente vía refresh)
+    # Métricas de LinkedIn
     li_likes: Mapped[int] = mapped_column(Integer, nullable=True)
     li_comments: Mapped[int] = mapped_column(Integer, nullable=True)
-    li_impressions: Mapped[int] = mapped_column(Integer, nullable=True)  # Solo disponible en cuentas empresa
+    li_impressions: Mapped[int] = mapped_column(Integer, nullable=True)
     metrics_updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)

@@ -24,8 +24,10 @@ class LoginResponse(BaseModel):
 
 class UserResponse(BaseModel):
     id: int
-    email: str
+    email: Optional[str]
     full_name: Optional[str]
+    telegram_username: Optional[str]
+    display_name: str
     is_active: bool
     created_at: datetime
 
@@ -63,10 +65,21 @@ class CredentialsResponse(BaseModel):
     automation_enabled: bool
     post_frequency_hours: int
     is_configured: bool
-    # Nota: nunca devolvemos el token de LinkedIn en la respuesta
+    has_linkedin_token: bool  # true si hay token guardado (sin exponer el valor)
 
     class Config:
         from_attributes = True
+
+    @classmethod
+    def from_orm_with_token_flag(cls, creds):
+        return cls(
+            x_username=creds.x_username,
+            linkedin_person_id=creds.linkedin_person_id,
+            automation_enabled=creds.automation_enabled,
+            post_frequency_hours=creds.post_frequency_hours,
+            is_configured=creds.is_configured,
+            has_linkedin_token=bool(creds.linkedin_access_token),
+        )
 
 
 # --- Configuración del prompt ---
@@ -76,8 +89,8 @@ class SettingsUpdate(BaseModel):
 
 
 class SettingsResponse(BaseModel):
-    custom_prompt: Optional[str]        # None significa que se usa el prompt default
-    default_prompt: str                  # El prompt default del sistema (solo lectura)
+    custom_prompt: Optional[str]
+    default_prompt: str
 
     class Config:
         from_attributes = True
