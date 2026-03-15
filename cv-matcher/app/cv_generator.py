@@ -4,136 +4,232 @@ import os
 import re
 from datetime import datetime
 from reportlab.lib.pagesizes import A4
-from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.styles import ParagraphStyle
 from reportlab.lib.units import mm
 from reportlab.lib import colors
 from reportlab.platypus import (
-    SimpleDocTemplate, Paragraph, Spacer, HRFlowable, ListFlowable, ListItem
+    SimpleDocTemplate, Paragraph, Spacer, HRFlowable, Table, TableStyle
 )
 from reportlab.lib.enums import TA_LEFT, TA_RIGHT, TA_CENTER
 
-
-TEMPLATES_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "templates")
 OUTPUTS_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "outputs")
 
-SYSTEM_PROMPT = """You are an expert CV/resume writer and career coach with 20+ years of experience.
-Your task is to adapt a candidate's CV to better match a specific job posting.
+# ── PROMPT ─────────────────────────────────────────────────────────────────────
 
-CRITICAL RULES:
-- NEVER invent experience, skills, certifications, education, or any fact not present in the original CV
-- You MAY reorder bullet points to highlight the most relevant achievements first
-- You MAY rephrase descriptions using keywords from the job posting (while keeping the meaning accurate)
-- You MAY write a tailored professional summary based on what's actually in the CV
-- You MAY reorganize sections for better impact
-- Keep everything truthful and verifiable
+SYSTEM_PROMPT = """You are a professional CV editor. Your ONLY job is to REWRITE and REFRAME the candidate's existing CV content to better align with a specific job posting.
 
-Your output MUST be a valid JSON object with no additional text before or after it."""
+ABSOLUTE RULES — VIOLATIONS ARE NOT ACCEPTABLE:
+1. NEVER add skills, tools, technologies, certifications, companies, roles, achievements, or ANY fact that does not explicitly appear in the original CV text.
+2. The job posting is REFERENCE ONLY — use its vocabulary and tone to rephrase what already exists in the CV. Nothing from the job posting becomes a CV fact.
+3. If the CV does not mention a skill or experience, it CANNOT appear in the output, even if the job requires it.
+4. You may REPHRASE existing content using keywords from the job posting — only when the meaning remains accurate.
+5. You may REORDER bullet points to put the most relevant ones first.
+6. You may write a PROFESSIONAL SUMMARY based solely on what IS in the CV.
 
-CV_PROMPT = """Adapt the following CV to match the job posting below.
+SELF-CHECK before returning JSON: For every bullet point, skill, and fact — ask "Is this explicitly in the original CV text?" If no → remove it.
 
-=== ORIGINAL CV ===
+Your output MUST be a valid JSON object with no text before or after it."""
+
+CV_PROMPT = """TASK: Adapt the CV below to better match the job posting. Do NOT add anything that is not already in the CV.
+
+=== ORIGINAL CV (the ONLY source of truth) ===
 {cv_text}
 
-=== JOB POSTING ===
+=== JOB POSTING (vocabulary/tone reference only — do NOT copy facts from here) ===
 {job_description}
 
-Return ONLY a JSON object with this exact structure:
+Return ONLY a JSON object with this structure:
 {{
-  "name": "Full Name",
-  "email": "email@example.com",
-  "phone": "+1 234 567 8900",
-  "location": "City, Country",
-  "linkedin": "linkedin.com/in/username or empty string",
-  "portfolio": "portfolio URL or empty string",
-  "job_title_applied": "Exact job title from the posting",
-  "company_applied": "Company name from the posting",
-  "professional_summary": "2-3 sentences tailored to this specific job, highlighting the most relevant experience and value proposition",
+  "name": "Full Name from CV",
+  "email": "email from CV or empty string",
+  "phone": "phone from CV or empty string",
+  "location": "location from CV or empty string",
+  "linkedin": "linkedin from CV or empty string",
+  "portfolio": "portfolio/website from CV or empty string",
+  "job_title_applied": "job title from the posting",
+  "company_applied": "company name from the posting",
+  "professional_summary": "2-3 sentences synthesizing only what IS in the CV, using the tone/keywords of the job posting where appropriate",
   "experience": [
     {{
-      "title": "Job Title",
-      "company": "Company Name",
-      "location": "City, Country",
-      "start_date": "Month Year",
-      "end_date": "Month Year or Present",
+      "title": "exact job title from CV",
+      "company": "exact company from CV",
+      "location": "location from CV or empty string",
+      "start_date": "date from CV",
+      "end_date": "date from CV",
       "bullets": [
-        "Most relevant achievement or responsibility for this job (reworded with job keywords if accurate)",
-        "Second most relevant achievement",
-        "Third achievement"
+        "Rewritten bullet using job posting keywords, but describing only what the CV actually says",
+        "Most relevant bullets listed first"
       ]
     }}
   ],
   "education": [
     {{
-      "degree": "Degree Name",
-      "field": "Field of Study",
-      "institution": "Institution Name",
-      "location": "City, Country",
-      "graduation_year": "Year",
-      "honors": "Honors/GPA if notable, otherwise empty string"
+      "degree": "degree from CV",
+      "field": "field from CV or empty string",
+      "institution": "institution from CV",
+      "location": "location from CV or empty string",
+      "graduation_year": "year from CV",
+      "honors": "honors from CV or empty string"
     }}
   ],
   "skills": {{
-    "categories": [
-      {{
-        "name": "Category name (e.g. Programming Languages, Frameworks, Tools)",
-        "items": ["skill1", "skill2", "skill3"]
-      }}
-    ]
+    "all_items": ["skill1 from CV", "skill2 from CV", "skill3 from CV"]
   }},
   "languages": [
-    {{"language": "English", "level": "Native"}}
+    {{"language": "language from CV", "level": "level from CV"}}
   ],
   "certifications": [
-    {{"name": "Certification Name", "issuer": "Issuing Organization", "year": "Year"}}
+    {{"name": "cert from CV", "issuer": "issuer from CV or empty string", "year": "year from CV or empty string"}}
   ],
   "projects": [
     {{
-      "name": "Project Name",
-      "description": "Brief description relevant to the job",
-      "technologies": ["tech1", "tech2"]
+      "name": "project name from CV",
+      "description": "description from CV reworded for relevance",
+      "technologies": ["tech from CV only"]
     }}
   ]
 }}
 
-Notes:
-- Include only sections that have actual data from the original CV
-- Omit certifications array if none exist in the original
-- Omit projects array if none exist in the original
-- Order experience entries from most recent to oldest
-- Order skill categories so the most relevant ones for this job appear first
-- Keep bullet points concise and impact-focused (start with strong action verbs)"""
+Rules:
+- Omit certifications if none in original CV
+- Omit projects if none in original CV
+- Omit languages if none in original CV
+- skills.all_items: flat list of ALL skills from CV (combine all categories)
+- Experience: most recent first, most relevant bullets first
+- DO NOT invent or add ANYTHING not present in the original CV text"""
 
+
+# ── GENERATE ───────────────────────────────────────────────────────────────────
 
 async def generate_adapted_cv(cv_text: str, job_description: str, gen_id: int) -> dict:
     client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
-
-    prompt = CV_PROMPT.format(cv_text=cv_text, job_description=job_description)
 
     message = client.messages.create(
         model="claude-opus-4-6",
         max_tokens=4096,
         system=SYSTEM_PROMPT,
-        messages=[{"role": "user", "content": prompt}],
+        messages=[{"role": "user", "content": CV_PROMPT.format(
+            cv_text=cv_text,
+            job_description=job_description,
+        )}],
     )
 
     raw = message.content[0].text.strip()
-
-    # Extract JSON if wrapped in markdown code blocks
     json_match = re.search(r"```(?:json)?\s*([\s\S]+?)\s*```", raw)
     if json_match:
         raw = json_match.group(1)
 
     cv_data = json.loads(raw)
-
     pdf_path = _render_pdf(cv_data, gen_id)
     return {"cv_data": cv_data, "pdf_path": pdf_path}
 
 
-BLUE = colors.HexColor("#2563EB")
-DARK = colors.HexColor("#0F172A")
-GRAY = colors.HexColor("#475569")
-LIGHT_GRAY = colors.HexColor("#94A3B8")
-BLUE_LIGHT = colors.HexColor("#EFF6FF")
+# ── PDF ────────────────────────────────────────────────────────────────────────
+
+BLACK = colors.HexColor("#111111")
+DARK_GRAY = colors.HexColor("#333333")
+MID_GRAY = colors.HexColor("#555555")
+LIGHT_GRAY = colors.HexColor("#888888")
+LINE_COLOR = colors.HexColor("#222222")
+
+
+def _styles():
+    return {
+        "name": ParagraphStyle(
+            "name", fontName="Times-Bold", fontSize=22, leading=28,
+            textColor=BLACK, alignment=TA_CENTER, spaceAfter=2,
+        ),
+        "contact": ParagraphStyle(
+            "contact", fontName="Times-Roman", fontSize=9, leading=13,
+            textColor=MID_GRAY, alignment=TA_CENTER, spaceAfter=0,
+        ),
+        "section": ParagraphStyle(
+            "section", fontName="Times-Bold", fontSize=11, leading=14,
+            textColor=BLACK, alignment=TA_CENTER, spaceAfter=0, spaceBefore=0,
+        ),
+        "summary": ParagraphStyle(
+            "summary", fontName="Times-Roman", fontSize=9.5, leading=14,
+            textColor=DARK_GRAY, spaceAfter=0,
+        ),
+        "exp_title": ParagraphStyle(
+            "exp_title", fontName="Times-Bold", fontSize=10, leading=13, textColor=BLACK,
+        ),
+        "exp_company": ParagraphStyle(
+            "exp_company", fontName="Times-Italic", fontSize=9.5, leading=13, textColor=DARK_GRAY,
+        ),
+        "exp_date": ParagraphStyle(
+            "exp_date", fontName="Times-Roman", fontSize=9, leading=13,
+            textColor=MID_GRAY, alignment=TA_RIGHT,
+        ),
+        "exp_location": ParagraphStyle(
+            "exp_location", fontName="Times-Italic", fontSize=9, leading=13,
+            textColor=MID_GRAY, alignment=TA_RIGHT,
+        ),
+        "bullet": ParagraphStyle(
+            "bullet", fontName="Times-Roman", fontSize=9.5, leading=13,
+            textColor=DARK_GRAY, leftIndent=12, spaceAfter=1,
+        ),
+        "skill_bullet": ParagraphStyle(
+            "skill_bullet", fontName="Times-Roman", fontSize=9.5, leading=13,
+            textColor=DARK_GRAY, leftIndent=8, spaceAfter=2,
+        ),
+        "edu_degree": ParagraphStyle(
+            "edu_degree", fontName="Times-Italic", fontSize=9.5, leading=13, textColor=DARK_GRAY,
+        ),
+        "edu_institution": ParagraphStyle(
+            "edu_institution", fontName="Times-Italic", fontSize=9.5, leading=13, textColor=DARK_GRAY,
+        ),
+        "lang": ParagraphStyle(
+            "lang", fontName="Times-Roman", fontSize=9.5, leading=13, textColor=DARK_GRAY,
+        ),
+    }
+
+
+def _section_header(story, title, W):
+    story.append(Spacer(1, 6))
+    story.append(HRFlowable(width=W, thickness=0.75, color=LINE_COLOR, spaceAfter=3))
+    story.append(Paragraph(title, _styles()["section"]))
+    story.append(HRFlowable(width=W, thickness=0.75, color=LINE_COLOR, spaceAfter=6))
+
+
+def _two_col_table(items, W, style):
+    """Split a list of items into two balanced columns of bullets."""
+    if not items:
+        return []
+    mid = (len(items) + 1) // 2
+    col1 = items[:mid]
+    col2 = items[mid:]
+    # Pad to same length
+    while len(col2) < len(col1):
+        col2.append("")
+
+    rows = []
+    for a, b in zip(col1, col2):
+        left = Paragraph(f"• {a}", style) if a else Paragraph("", style)
+        right = Paragraph(f"• {b}", style) if b else Paragraph("", style)
+        rows.append([left, right])
+
+    t = Table(rows, colWidths=[W * 0.5, W * 0.5])
+    t.setStyle(TableStyle([
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 0),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+        ("TOPPADDING", (0, 0), (-1, -1), 1),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 1),
+    ]))
+    return [t]
+
+
+def _side_by_side(left_para, right_para, W):
+    t = Table([[left_para, right_para]], colWidths=[W * 0.68, W * 0.32])
+    t.setStyle(TableStyle([
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 0),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+        ("TOPPADDING", (0, 0), (-1, -1), 0),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+    ]))
+    return t
 
 
 def _render_pdf(cv_data: dict, gen_id: int) -> str:
@@ -144,174 +240,132 @@ def _render_pdf(cv_data: dict, gen_id: int) -> str:
     doc = SimpleDocTemplate(
         output_path,
         pagesize=A4,
-        leftMargin=18 * mm,
-        rightMargin=18 * mm,
-        topMargin=16 * mm,
-        bottomMargin=16 * mm,
+        leftMargin=20 * mm,
+        rightMargin=20 * mm,
+        topMargin=18 * mm,
+        bottomMargin=18 * mm,
     )
 
+    W = A4[0] - 40 * mm
+    S = _styles()
     story = []
-    W = A4[0] - 36 * mm  # usable width
 
-    # ── Styles ──
-    base = ParagraphStyle("base", fontName="Helvetica", fontSize=9.5, leading=14, textColor=DARK)
-    name_style = ParagraphStyle("name", fontName="Helvetica-Bold", fontSize=22, leading=26, textColor=DARK)
-    target_style = ParagraphStyle("target", fontName="Helvetica", fontSize=11, leading=14, textColor=BLUE)
-    contact_style = ParagraphStyle("contact", fontName="Helvetica", fontSize=8.5, leading=12, textColor=GRAY)
-    section_title = ParagraphStyle("sectiontitle", fontName="Helvetica-Bold", fontSize=8.5, leading=11,
-                                   textColor=BLUE, spaceAfter=4, spaceBefore=10,
-                                   letterSpacing=1.2, textTransform="uppercase")
-    exp_title_style = ParagraphStyle("exptitle", fontName="Helvetica-Bold", fontSize=10, leading=13, textColor=DARK)
-    exp_company_style = ParagraphStyle("expcompany", fontName="Helvetica", fontSize=9, leading=12, textColor=GRAY)
-    exp_date_style = ParagraphStyle("expdate", fontName="Helvetica", fontSize=8.5, leading=12, textColor=LIGHT_GRAY, alignment=TA_RIGHT)
-    bullet_style = ParagraphStyle("bullet", fontName="Helvetica", fontSize=9, leading=13, textColor=GRAY,
-                                  leftIndent=10, spaceAfter=1)
-    summary_style = ParagraphStyle("summary", fontName="Helvetica", fontSize=9.5, leading=15, textColor=GRAY)
-    skill_cat_style = ParagraphStyle("skillcat", fontName="Helvetica-Bold", fontSize=8.5, leading=12,
-                                     textColor=GRAY, textTransform="uppercase")
-    skill_val_style = ParagraphStyle("skillval", fontName="Helvetica", fontSize=9, leading=12, textColor=DARK)
-    lang_style = ParagraphStyle("lang", fontName="Helvetica", fontSize=9, leading=13, textColor=DARK)
+    # ── NAME ──
+    story.append(Paragraph(cv_data.get("name", ""), S["name"]))
+    story.append(HRFlowable(width=W, thickness=1, color=LINE_COLOR, spaceAfter=4))
 
-    from reportlab.platypus import Table, TableStyle
-
-    def section_header(title):
-        story.append(Spacer(1, 6))
-        story.append(Paragraph(title.upper(), section_title))
-        story.append(HRFlowable(width=W, thickness=0.75, color=BLUE_LIGHT, spaceAfter=6))
-
-    # ── Header ──
-    story.append(Paragraph(cv_data.get("name", ""), name_style))
-    if cv_data.get("job_title_applied"):
-        label = cv_data["job_title_applied"]
-        if cv_data.get("company_applied"):
-            label += f" · {cv_data['company_applied']}"
-        story.append(Paragraph(label, target_style))
-    story.append(Spacer(1, 4))
-
+    # ── CONTACTS ──
     contacts = []
-    for field in ["email", "phone", "location", "linkedin", "portfolio"]:
-        val = cv_data.get(field, "").strip()
-        if val:
-            contacts.append(val)
-    story.append(Paragraph("   ·   ".join(contacts), contact_style))
-    story.append(Spacer(1, 4))
-    story.append(HRFlowable(width=W, thickness=2, color=BLUE, spaceAfter=10))
+    for f in ["location", "email", "phone", "linkedin", "portfolio"]:
+        v = cv_data.get(f, "").strip()
+        if v:
+            contacts.append(v)
+    if contacts:
+        story.append(Paragraph("   ·   ".join(contacts), S["contact"]))
+    story.append(Spacer(1, 2))
 
-    # ── Summary ──
+    # ── SUMMARY ──
     if cv_data.get("professional_summary"):
-        section_header("Professional Summary")
-        story.append(Paragraph(cv_data["professional_summary"], summary_style))
+        _section_header(story, "Professional Summary", W)
+        story.append(Paragraph(cv_data["professional_summary"], S["summary"]))
 
-    # ── Experience ──
-    if cv_data.get("experience"):
-        section_header("Professional Experience")
-        for exp in cv_data["experience"]:
-            date_str = f"{exp.get('start_date', '')} – {exp.get('end_date', '')}"
-            row = [[Paragraph(exp.get("title", ""), exp_title_style),
-                    Paragraph(date_str, exp_date_style)]]
-            t = Table(row, colWidths=[W * 0.72, W * 0.28])
-            t.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP"),
-                                   ("LEFTPADDING", (0, 0), (-1, -1), 0),
-                                   ("RIGHTPADDING", (0, 0), (-1, -1), 0),
-                                   ("TOPPADDING", (0, 0), (-1, -1), 0),
-                                   ("BOTTOMPADDING", (0, 0), (-1, -1), 0)]))
-            story.append(t)
+    # ── SKILLS ──
+    skills = cv_data.get("skills", {})
+    items = skills.get("all_items", []) if isinstance(skills, dict) else []
+    if items:
+        _section_header(story, "Skills", W)
+        story.extend(_two_col_table(items, W, S["skill_bullet"]))
+
+    # ── EXPERIENCE ──
+    experience = cv_data.get("experience", [])
+    if experience:
+        _section_header(story, "Experience", W)
+        for i, exp in enumerate(experience):
             company = exp.get("company", "")
-            if exp.get("location"):
-                company += f" · {exp['location']}"
-            story.append(Paragraph(company, exp_company_style))
-            for bullet in exp.get("bullets", []):
-                story.append(Paragraph(f"• {bullet}", bullet_style))
-            story.append(Spacer(1, 6))
+            location = exp.get("location", "")
+            title = exp.get("title", "")
+            dates = f"{exp.get('start_date', '')} – {exp.get('end_date', '')}"
 
-    # ── Education ──
-    if cv_data.get("education"):
-        section_header("Education")
-        for edu in cv_data["education"]:
+            # Company (left) + Location (right)
+            story.append(_side_by_side(
+                Paragraph(company, S["exp_company"]),
+                Paragraph(location, S["exp_location"]),
+                W,
+            ))
+            # Title (left) + Dates (right)
+            story.append(_side_by_side(
+                Paragraph(title, S["exp_title"]),
+                Paragraph(dates, S["exp_date"]),
+                W,
+            ))
+            for bullet in exp.get("bullets", []):
+                story.append(Paragraph(f"• {bullet}", S["bullet"]))
+            if i < len(experience) - 1:
+                story.append(Spacer(1, 7))
+
+    # ── EDUCATION ──
+    education = cv_data.get("education", [])
+    if education:
+        _section_header(story, "Education", W)
+        for edu in education:
+            institution = edu.get("institution", "")
+            location = edu.get("location", "")
             degree = edu.get("degree", "")
             if edu.get("field"):
                 degree += f" in {edu['field']}"
-            institution = edu.get("institution", "")
-            if edu.get("location"):
-                institution += f" · {edu['location']}"
             year = edu.get("graduation_year", "")
-            row = [[Paragraph(degree, exp_title_style), Paragraph(year, exp_date_style)]]
-            t = Table(row, colWidths=[W * 0.72, W * 0.28])
-            t.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP"),
-                                   ("LEFTPADDING", (0, 0), (-1, -1), 0),
-                                   ("RIGHTPADDING", (0, 0), (-1, -1), 0),
-                                   ("TOPPADDING", (0, 0), (-1, -1), 0),
-                                   ("BOTTOMPADDING", (0, 0), (-1, -1), 0)]))
-            story.append(t)
-            story.append(Paragraph(institution, exp_company_style))
-            if edu.get("honors"):
-                story.append(Paragraph(edu["honors"], exp_company_style))
+            honors = edu.get("honors", "")
+
+            story.append(_side_by_side(
+                Paragraph(institution, S["edu_institution"]),
+                Paragraph(location, S["exp_location"]),
+                W,
+            ))
+            story.append(_side_by_side(
+                Paragraph(degree, S["edu_degree"]),
+                Paragraph(year, S["exp_date"]),
+                W,
+            ))
+            if honors:
+                story.append(Paragraph(honors, S["bullet"]))
             story.append(Spacer(1, 5))
 
-    # ── Skills ──
-    skills = cv_data.get("skills", {})
-    categories = skills.get("categories", []) if isinstance(skills, dict) else []
-    if categories:
-        section_header("Skills")
-        for cat in categories:
-            row = [[Paragraph(cat.get("name", ""), skill_cat_style),
-                    Paragraph(" · ".join(cat.get("items", [])), skill_val_style)]]
-            t = Table(row, colWidths=[W * 0.22, W * 0.78])
-            t.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP"),
-                                   ("LEFTPADDING", (0, 0), (-1, -1), 0),
-                                   ("RIGHTPADDING", (0, 0), (-1, -1), 0),
-                                   ("TOPPADDING", (0, 0), (-1, -1), 1),
-                                   ("BOTTOMPADDING", (0, 0), (-1, -1), 3)]))
-            story.append(t)
-
-    # ── Projects ──
-    if cv_data.get("projects"):
-        section_header("Projects")
-        for proj in cv_data["projects"]:
-            story.append(Paragraph(proj.get("name", ""), exp_title_style))
+    # ── PROJECTS ──
+    projects = cv_data.get("projects", [])
+    if projects:
+        _section_header(story, "Projects", W)
+        for proj in projects:
+            story.append(Paragraph(proj.get("name", ""), S["exp_title"]))
             if proj.get("description"):
-                story.append(Paragraph(proj["description"], exp_company_style))
+                story.append(Paragraph(proj["description"], S["summary"]))
             techs = proj.get("technologies", [])
             if techs:
-                story.append(Paragraph(" · ".join(techs), contact_style))
+                story.append(Paragraph(", ".join(techs), S["contact"]))
             story.append(Spacer(1, 5))
 
-    # ── Languages & Certifications (two-col) ──
+    # ── LANGUAGES & CERTIFICATIONS ──
     langs = cv_data.get("languages", [])
     certs = cv_data.get("certifications", [])
+
     if langs or certs:
-        story.append(Spacer(1, 4))
-        left_parts = []
-        right_parts = []
-
+        _section_header(story, "Additional Information", W)
+        rows = []
         if langs:
-            left_parts.append(Paragraph("LANGUAGES", section_title))
-            left_parts.append(HRFlowable(width=(W / 2) - 5 * mm, thickness=0.75, color=BLUE_LIGHT, spaceAfter=4))
             for lang in langs:
-                left_parts.append(Paragraph(
-                    f"<b>{lang.get('language', '')}</b>  <font color='#94A3B8'>{lang.get('level', '')}</font>",
-                    lang_style))
-
+                rows.append(Paragraph(
+                    f"<b>{lang.get('language', '')}</b>: {lang.get('level', '')}",
+                    S["lang"],
+                ))
         if certs:
-            right_parts.append(Paragraph("CERTIFICATIONS", section_title))
-            right_parts.append(HRFlowable(width=(W / 2) - 5 * mm, thickness=0.75, color=BLUE_LIGHT, spaceAfter=4))
             for cert in certs:
                 line = f"<b>{cert.get('name', '')}</b>"
                 if cert.get("issuer"):
-                    line += f" · {cert['issuer']}"
+                    line += f", {cert['issuer']}"
                 if cert.get("year"):
                     line += f" ({cert['year']})"
-                right_parts.append(Paragraph(line, lang_style))
-
-        from reportlab.platypus import KeepTogether
-        col_data = [[left_parts or [""], right_parts or [""]]]
-        t = Table(col_data, colWidths=[W / 2, W / 2])
-        t.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP"),
-                               ("LEFTPADDING", (0, 0), (-1, -1), 0),
-                               ("RIGHTPADDING", (0, 0), (-1, -1), 0),
-                               ("TOPPADDING", (0, 0), (-1, -1), 0),
-                               ("BOTTOMPADDING", (0, 0), (-1, -1), 0)]))
-        story.append(t)
+                rows.append(Paragraph(line, S["lang"]))
+        for r in rows:
+            story.append(r)
 
     doc.build(story)
     return output_path
