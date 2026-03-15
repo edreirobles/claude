@@ -2,9 +2,15 @@ import anthropic
 import json
 import os
 import re
-from jinja2 import Environment, FileSystemLoader
-from weasyprint import HTML
 from datetime import datetime
+from reportlab.lib.pagesizes import A4
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.units import mm
+from reportlab.lib import colors
+from reportlab.platypus import (
+    SimpleDocTemplate, Paragraph, Spacer, HRFlowable, ListFlowable, ListItem
+)
+from reportlab.lib.enums import TA_LEFT, TA_RIGHT, TA_CENTER
 
 
 TEMPLATES_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "templates")
@@ -123,14 +129,189 @@ async def generate_adapted_cv(cv_text: str, job_description: str, gen_id: int) -
     return {"cv_data": cv_data, "pdf_path": pdf_path}
 
 
-def _render_pdf(cv_data: dict, gen_id: int) -> str:
-    env = Environment(loader=FileSystemLoader(TEMPLATES_DIR))
-    template = env.get_template("cv_template.html")
-    html_content = template.render(cv=cv_data, generated_at=datetime.now().strftime("%B %d, %Y"))
+BLUE = colors.HexColor("#2563EB")
+DARK = colors.HexColor("#0F172A")
+GRAY = colors.HexColor("#475569")
+LIGHT_GRAY = colors.HexColor("#94A3B8")
+BLUE_LIGHT = colors.HexColor("#EFF6FF")
 
+
+def _render_pdf(cv_data: dict, gen_id: int) -> str:
     os.makedirs(OUTPUTS_DIR, exist_ok=True)
     filename = f"cv_{gen_id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
     output_path = os.path.join(OUTPUTS_DIR, filename)
 
-    HTML(string=html_content).write_pdf(output_path)
+    doc = SimpleDocTemplate(
+        output_path,
+        pagesize=A4,
+        leftMargin=18 * mm,
+        rightMargin=18 * mm,
+        topMargin=16 * mm,
+        bottomMargin=16 * mm,
+    )
+
+    story = []
+    W = A4[0] - 36 * mm  # usable width
+
+    # ── Styles ──
+    base = ParagraphStyle("base", fontName="Helvetica", fontSize=9.5, leading=14, textColor=DARK)
+    name_style = ParagraphStyle("name", fontName="Helvetica-Bold", fontSize=22, leading=26, textColor=DARK)
+    target_style = ParagraphStyle("target", fontName="Helvetica", fontSize=11, leading=14, textColor=BLUE)
+    contact_style = ParagraphStyle("contact", fontName="Helvetica", fontSize=8.5, leading=12, textColor=GRAY)
+    section_title = ParagraphStyle("sectiontitle", fontName="Helvetica-Bold", fontSize=8.5, leading=11,
+                                   textColor=BLUE, spaceAfter=4, spaceBefore=10,
+                                   letterSpacing=1.2, textTransform="uppercase")
+    exp_title_style = ParagraphStyle("exptitle", fontName="Helvetica-Bold", fontSize=10, leading=13, textColor=DARK)
+    exp_company_style = ParagraphStyle("expcompany", fontName="Helvetica", fontSize=9, leading=12, textColor=GRAY)
+    exp_date_style = ParagraphStyle("expdate", fontName="Helvetica", fontSize=8.5, leading=12, textColor=LIGHT_GRAY, alignment=TA_RIGHT)
+    bullet_style = ParagraphStyle("bullet", fontName="Helvetica", fontSize=9, leading=13, textColor=GRAY,
+                                  leftIndent=10, spaceAfter=1)
+    summary_style = ParagraphStyle("summary", fontName="Helvetica", fontSize=9.5, leading=15, textColor=GRAY)
+    skill_cat_style = ParagraphStyle("skillcat", fontName="Helvetica-Bold", fontSize=8.5, leading=12,
+                                     textColor=GRAY, textTransform="uppercase")
+    skill_val_style = ParagraphStyle("skillval", fontName="Helvetica", fontSize=9, leading=12, textColor=DARK)
+    lang_style = ParagraphStyle("lang", fontName="Helvetica", fontSize=9, leading=13, textColor=DARK)
+
+    from reportlab.platypus import Table, TableStyle
+
+    def section_header(title):
+        story.append(Spacer(1, 6))
+        story.append(Paragraph(title.upper(), section_title))
+        story.append(HRFlowable(width=W, thickness=0.75, color=BLUE_LIGHT, spaceAfter=6))
+
+    # ── Header ──
+    story.append(Paragraph(cv_data.get("name", ""), name_style))
+    if cv_data.get("job_title_applied"):
+        label = cv_data["job_title_applied"]
+        if cv_data.get("company_applied"):
+            label += f" · {cv_data['company_applied']}"
+        story.append(Paragraph(label, target_style))
+    story.append(Spacer(1, 4))
+
+    contacts = []
+    for field in ["email", "phone", "location", "linkedin", "portfolio"]:
+        val = cv_data.get(field, "").strip()
+        if val:
+            contacts.append(val)
+    story.append(Paragraph("   ·   ".join(contacts), contact_style))
+    story.append(Spacer(1, 4))
+    story.append(HRFlowable(width=W, thickness=2, color=BLUE, spaceAfter=10))
+
+    # ── Summary ──
+    if cv_data.get("professional_summary"):
+        section_header("Professional Summary")
+        story.append(Paragraph(cv_data["professional_summary"], summary_style))
+
+    # ── Experience ──
+    if cv_data.get("experience"):
+        section_header("Professional Experience")
+        for exp in cv_data["experience"]:
+            date_str = f"{exp.get('start_date', '')} – {exp.get('end_date', '')}"
+            row = [[Paragraph(exp.get("title", ""), exp_title_style),
+                    Paragraph(date_str, exp_date_style)]]
+            t = Table(row, colWidths=[W * 0.72, W * 0.28])
+            t.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP"),
+                                   ("LEFTPADDING", (0, 0), (-1, -1), 0),
+                                   ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+                                   ("TOPPADDING", (0, 0), (-1, -1), 0),
+                                   ("BOTTOMPADDING", (0, 0), (-1, -1), 0)]))
+            story.append(t)
+            company = exp.get("company", "")
+            if exp.get("location"):
+                company += f" · {exp['location']}"
+            story.append(Paragraph(company, exp_company_style))
+            for bullet in exp.get("bullets", []):
+                story.append(Paragraph(f"• {bullet}", bullet_style))
+            story.append(Spacer(1, 6))
+
+    # ── Education ──
+    if cv_data.get("education"):
+        section_header("Education")
+        for edu in cv_data["education"]:
+            degree = edu.get("degree", "")
+            if edu.get("field"):
+                degree += f" in {edu['field']}"
+            institution = edu.get("institution", "")
+            if edu.get("location"):
+                institution += f" · {edu['location']}"
+            year = edu.get("graduation_year", "")
+            row = [[Paragraph(degree, exp_title_style), Paragraph(year, exp_date_style)]]
+            t = Table(row, colWidths=[W * 0.72, W * 0.28])
+            t.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP"),
+                                   ("LEFTPADDING", (0, 0), (-1, -1), 0),
+                                   ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+                                   ("TOPPADDING", (0, 0), (-1, -1), 0),
+                                   ("BOTTOMPADDING", (0, 0), (-1, -1), 0)]))
+            story.append(t)
+            story.append(Paragraph(institution, exp_company_style))
+            if edu.get("honors"):
+                story.append(Paragraph(edu["honors"], exp_company_style))
+            story.append(Spacer(1, 5))
+
+    # ── Skills ──
+    skills = cv_data.get("skills", {})
+    categories = skills.get("categories", []) if isinstance(skills, dict) else []
+    if categories:
+        section_header("Skills")
+        for cat in categories:
+            row = [[Paragraph(cat.get("name", ""), skill_cat_style),
+                    Paragraph(" · ".join(cat.get("items", [])), skill_val_style)]]
+            t = Table(row, colWidths=[W * 0.22, W * 0.78])
+            t.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP"),
+                                   ("LEFTPADDING", (0, 0), (-1, -1), 0),
+                                   ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+                                   ("TOPPADDING", (0, 0), (-1, -1), 1),
+                                   ("BOTTOMPADDING", (0, 0), (-1, -1), 3)]))
+            story.append(t)
+
+    # ── Projects ──
+    if cv_data.get("projects"):
+        section_header("Projects")
+        for proj in cv_data["projects"]:
+            story.append(Paragraph(proj.get("name", ""), exp_title_style))
+            if proj.get("description"):
+                story.append(Paragraph(proj["description"], exp_company_style))
+            techs = proj.get("technologies", [])
+            if techs:
+                story.append(Paragraph(" · ".join(techs), contact_style))
+            story.append(Spacer(1, 5))
+
+    # ── Languages & Certifications (two-col) ──
+    langs = cv_data.get("languages", [])
+    certs = cv_data.get("certifications", [])
+    if langs or certs:
+        story.append(Spacer(1, 4))
+        left_parts = []
+        right_parts = []
+
+        if langs:
+            left_parts.append(Paragraph("LANGUAGES", section_title))
+            left_parts.append(HRFlowable(width=(W / 2) - 5 * mm, thickness=0.75, color=BLUE_LIGHT, spaceAfter=4))
+            for lang in langs:
+                left_parts.append(Paragraph(
+                    f"<b>{lang.get('language', '')}</b>  <font color='#94A3B8'>{lang.get('level', '')}</font>",
+                    lang_style))
+
+        if certs:
+            right_parts.append(Paragraph("CERTIFICATIONS", section_title))
+            right_parts.append(HRFlowable(width=(W / 2) - 5 * mm, thickness=0.75, color=BLUE_LIGHT, spaceAfter=4))
+            for cert in certs:
+                line = f"<b>{cert.get('name', '')}</b>"
+                if cert.get("issuer"):
+                    line += f" · {cert['issuer']}"
+                if cert.get("year"):
+                    line += f" ({cert['year']})"
+                right_parts.append(Paragraph(line, lang_style))
+
+        from reportlab.platypus import KeepTogether
+        col_data = [[left_parts or [""], right_parts or [""]]]
+        t = Table(col_data, colWidths=[W / 2, W / 2])
+        t.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP"),
+                               ("LEFTPADDING", (0, 0), (-1, -1), 0),
+                               ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+                               ("TOPPADDING", (0, 0), (-1, -1), 0),
+                               ("BOTTOMPADDING", (0, 0), (-1, -1), 0)]))
+        story.append(t)
+
+    doc.build(story)
     return output_path
