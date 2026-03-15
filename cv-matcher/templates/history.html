@@ -3,8 +3,17 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>CV Matcher</title>
+  <title>CV Matcher — History</title>
   <link rel="stylesheet" href="/static/css/style.css" />
+  <script>
+    window.SUPABASE_URL      = "{{ supabase_url }}";
+    window.SUPABASE_ANON_KEY = "{{ supabase_anon_key }}";
+    window.AUTH_ENABLED      = {{ 'true' if auth_enabled else 'false' }};
+    window.PAYMENTS_ENABLED  = {{ 'true' if payments_enabled else 'false' }};
+    window.FREE_LIMIT        = {{ free_limit }};
+    // Server-rendered generations for dev mode (no auth)
+    window.SERVER_GENERATIONS = {{ generations | tojson if generations is not none else 'null' }};
+  </script>
 </head>
 <body>
   <header class="header">
@@ -15,9 +24,7 @@
       </a>
       <div class="header-controls">
         <a href="/" class="btn-primary" data-i18n="nav_new"></a>
-        <button class="btn-icon" id="lang-toggle">
-          <span id="lang-label"></span>
-        </button>
+        <button class="btn-icon" id="lang-toggle"><span id="lang-label"></span></button>
         <button class="btn-icon" id="dark-toggle">
           <svg id="icon-sun" width="18" height="18" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="4" stroke="currentColor" stroke-width="2"/><path d="M12 2v2M12 20v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M2 12h2M20 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
           <svg id="icon-moon" class="hidden" width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
@@ -29,64 +36,85 @@
   <main class="main">
     <div class="container">
       <h1 class="page-title" data-i18n="hist_title"></h1>
-
-      {% if generations %}
-      <div class="history-list">
-        {% for gen in generations %}
-        <div class="history-card">
-          <div class="history-card-left">
-            <div class="history-icon">
-              {% if gen.status == 'completed' %}
-              <svg width="22" height="22" viewBox="0 0 22 22" fill="none"><circle cx="11" cy="11" r="11" fill="#D1FAE5"/><path d="M7 11l3 3 5-5" stroke="#059669" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
-              {% elif gen.status == 'failed' %}
-              <svg width="22" height="22" viewBox="0 0 22 22" fill="none"><circle cx="11" cy="11" r="11" fill="#FEE2E2"/><path d="M11 7v5M11 14v1" stroke="#DC2626" stroke-width="1.8" stroke-linecap="round"/></svg>
-              {% else %}
-              <svg width="22" height="22" viewBox="0 0 22 22" fill="none"><circle cx="11" cy="11" r="11" fill="#FEF9C3"/><path d="M11 7v4l3 3" stroke="#D97706" stroke-width="1.8" stroke-linecap="round"/></svg>
-              {% endif %}
-            </div>
-            <div class="history-info">
-              <div class="history-role">{{ gen.job_title or '—' }}</div>
-              <div class="history-company">{{ gen.company or '—' }}</div>
-              <div class="history-meta">
-                <span>{{ gen.created_at[:16].replace('T', ' ') }}</span>
-                {% if gen.job_url %}
-                  · <a href="{{ gen.job_url }}" target="_blank" class="link-sm" data-i18n="hist_view_posting"></a>
-                {% endif %}
-              </div>
-              {% if gen.job_text %}
-              <details class="job-preview">
-                <summary data-i18n="hist_preview"></summary>
-                <p>{{ gen.job_text[:400] }}{% if gen.job_text|length > 400 %}…{% endif %}</p>
-              </details>
-              {% endif %}
-            </div>
-          </div>
-          <div class="history-card-right">
-            {% if gen.status == 'completed' %}
-            <a href="/api/download/{{ gen.id }}" class="btn-primary-sm">
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 2v8m0 0l-2.5-2.5M8 10l2.5-2.5M3 12v1a1 1 0 001 1h8a1 1 0 001-1v-1" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
-              <span data-i18n="hist_download"></span>
-            </a>
-            {% elif gen.status == 'failed' %}
-            <span class="badge-failed" data-i18n="hist_failed"></span>
-            {% else %}
-            <span class="badge-processing" data-i18n="hist_processing"></span>
-            {% endif %}
-          </div>
+      <div id="history-container">
+        <div class="history-loading">
+          <div class="spinner" style="width:32px;height:32px;border-width:3px"></div>
         </div>
-        {% endfor %}
       </div>
-      {% else %}
-      <div class="empty-state">
-        <svg width="64" height="64" viewBox="0 0 64 64" fill="none"><rect width="64" height="64" rx="16" fill="var(--bg-tabs)"/><path d="M22 18h20a2 2 0 012 2v24a2 2 0 01-2 2H22a2 2 0 01-2-2V20a2 2 0 012-2z" stroke="var(--text-faint)" stroke-width="2"/><path d="M27 28h10M27 34h7" stroke="var(--text-faint)" stroke-width="2" stroke-linecap="round"/></svg>
-        <h2 data-i18n="empty_title"></h2>
-        <p data-i18n="empty_desc"></p>
-        <a href="/" class="btn-primary" data-i18n="empty_cta"></a>
-      </div>
-      {% endif %}
     </div>
   </main>
 
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="/static/js/auth.js"></script>
   <script src="/static/js/app.js"></script>
+  <script>
+    document.addEventListener("DOMContentLoaded", async () => {
+      // Dev mode: use server-rendered data
+      if (!window.AUTH_ENABLED && window.SERVER_GENERATIONS !== null) {
+        renderHistory(window.SERVER_GENERATIONS);
+        return;
+      }
+      // Auth mode: require login, then fetch from API
+      const session = await requireAuth();
+      if (!session) return;
+      try {
+        const headers = await getAuthHeaders();
+        const resp = await fetch("/api/history", { headers });
+        const data = await resp.json();
+        renderHistory(data);
+      } catch (e) {
+        renderHistory([]);
+      }
+    });
+
+    function renderHistory(generations) {
+      const container = document.getElementById("history-container");
+      const lang = localStorage.getItem("cv_ui_lang") || "en";
+      const T_hist = window._T_HIST || {};
+
+      if (!generations || generations.length === 0) {
+        container.innerHTML = `
+          <div class="empty-state">
+            <svg width="64" height="64" viewBox="0 0 64 64" fill="none"><rect width="64" height="64" rx="16" fill="var(--bg-tabs)"/><path d="M22 18h20a2 2 0 012 2v24a2 2 0 01-2 2H22a2 2 0 01-2-2V20a2 2 0 012-2z" stroke="var(--text-faint)" stroke-width="2"/><path d="M27 28h10M27 34h7" stroke="var(--text-faint)" stroke-width="2" stroke-linecap="round"/></svg>
+            <h2 data-i18n="empty_title"></h2>
+            <p data-i18n="empty_desc"></p>
+            <a href="/" class="btn-primary" data-i18n="empty_cta"></a>
+          </div>`;
+        applyLang();
+        return;
+      }
+
+      const items = generations.map(gen => {
+        const pdfRef = gen.pdf_storage_path || gen.output_pdf_path || "";
+        const date = (gen.created_at || "").replace("T", " ").slice(0, 16);
+        const icon = gen.status === "completed"
+          ? `<svg width="22" height="22" viewBox="0 0 22 22" fill="none"><circle cx="11" cy="11" r="11" fill="#D1FAE5"/><path d="M7 11l3 3 5-5" stroke="#059669" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>`
+          : `<svg width="22" height="22" viewBox="0 0 22 22" fill="none"><circle cx="11" cy="11" r="11" fill="#FEE2E2"/><path d="M11 7v5M11 14v1" stroke="#DC2626" stroke-width="1.8" stroke-linecap="round"/></svg>`;
+        const action = gen.status === "completed"
+          ? `<a href="/api/download/${gen.id}" class="btn-primary-sm">
+               <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 2v8m0 0l-2.5-2.5M8 10l2.5-2.5M3 12v1a1 1 0 001 1h8a1 1 0 001-1v-1" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+               <span data-i18n="hist_download"></span>
+             </a>`
+          : `<span class="badge-failed" data-i18n="hist_failed"></span>`;
+
+        return `
+          <div class="history-card">
+            <div class="history-card-left">
+              <div class="history-icon">${icon}</div>
+              <div class="history-info">
+                <div class="history-role">${gen.job_title || "—"}</div>
+                <div class="history-company">${gen.company || "—"}</div>
+                <div class="history-meta">${date}${gen.job_url ? ` · <a href="${gen.job_url}" target="_blank" class="link-sm" data-i18n="hist_view_posting"></a>` : ""}</div>
+                ${gen.job_text ? `<details class="job-preview"><summary data-i18n="hist_preview"></summary><p>${gen.job_text.slice(0, 400)}${gen.job_text.length > 400 ? "…" : ""}</p></details>` : ""}
+              </div>
+            </div>
+            <div class="history-card-right">${action}</div>
+          </div>`;
+      }).join("");
+
+      container.innerHTML = `<div class="history-list">${items}</div>`;
+      applyLang();
+    }
+  </script>
 </body>
 </html>

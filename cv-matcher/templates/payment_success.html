@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Payment successful — CV Matcher</title>
+  <link rel="stylesheet" href="/static/css/style.css" />
+  <script>
+    window.SUPABASE_URL = "{{ supabase_url }}";
+    window.SUPABASE_ANON_KEY = "{{ supabase_anon_key }}";
+    window.AUTH_ENABLED = {{ 'true' if auth_enabled else 'false' }};
+  </script>
+</head>
+<body>
+  <main class="main">
+    <div class="container" style="max-width:480px;text-align:center;padding-top:80px">
+      <svg width="80" height="80" viewBox="0 0 80 80" fill="none" style="margin:0 auto 20px"><circle cx="40" cy="40" r="40" fill="#D1FAE5"/><path d="M25 40l10 10 20-20" stroke="#059669" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <h1 style="font-size:1.8rem;font-weight:800;color:var(--text-primary);margin-bottom:10px" data-i18n="pay_success_title"></h1>
+      <p style="color:var(--text-muted);margin-bottom:28px" data-i18n="pay_success_desc"></p>
+      <a href="/" class="btn-primary" style="justify-content:center" data-i18n="pay_success_btn"></a>
+      <p style="margin-top:14px;font-size:0.82rem;color:var(--text-faint)" data-i18n="pay_success_note"></p>
+    </div>
+  </main>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="/static/js/auth.js"></script>
+  <script src="/static/js/app.js"></script>
+</body>
+</html>

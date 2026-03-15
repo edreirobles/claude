@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <title>Signing in… — CV Matcher</title>
+  <link rel="stylesheet" href="/static/css/style.css" />
+  <script>
+    window.SUPABASE_URL = "{{ supabase_url }}";
+    window.SUPABASE_ANON_KEY = "{{ supabase_anon_key }}";
+    window.AUTH_ENABLED = true;
+  </script>
+</head>
+<body>
+  <div style="display:flex;align-items:center;justify-content:center;min-height:100vh">
+    <div style="text-align:center">
+      <div class="spinner" style="margin:0 auto 16px"></div>
+      <p style="color:var(--text-muted)">Signing you in…</p>
+    </div>
+  </div>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="/static/js/auth.js"></script>
+  <script>
+    document.addEventListener("DOMContentLoaded", async () => {
+      // Supabase JS automatically reads the URL hash and establishes the session
+      const sb = initSupabase();
+      if (!sb) { window.location.href = "/"; return; }
+      // Wait briefly for the SDK to process the token from the URL hash
+      await new Promise(r => setTimeout(r, 800));
+      const { data: { session } } = await sb.auth.getSession();
+      window.location.href = session ? "/" : "/login";
+    });
+  </script>
+</body>
+</html>

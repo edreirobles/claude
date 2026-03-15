@@ -5,6 +5,15 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>CV Matcher</title>
   <link rel="stylesheet" href="/static/css/style.css" />
+  <script>
+    window.SUPABASE_URL       = "{{ supabase_url }}";
+    window.SUPABASE_ANON_KEY  = "{{ supabase_anon_key }}";
+    window.AUTH_ENABLED       = {{ 'true' if auth_enabled else 'false' }};
+    window.PAYMENTS_ENABLED   = {{ 'true' if payments_enabled else 'false' }};
+    window.FREE_LIMIT         = {{ free_limit }};
+    window.PRICE_CREDITS_DISPLAY = "{{ price_credits_display }}";
+    window.PRICE_MONTHLY_DISPLAY = "{{ price_monthly_display }}";
+  </script>
 </head>
 <body>
   <header class="header">
@@ -14,10 +23,23 @@
         <span>CV Matcher</span>
       </a>
       <div class="header-controls">
-        <a href="/history" class="btn-ghost" data-i18n="nav_history"></a>
-        <button class="btn-icon" id="lang-toggle" title="Switch language">
-          <span id="lang-label"></span>
-        </button>
+        <!-- Usage badge -->
+        <div id="usage-badge" class="usage-badge hidden"></div>
+        <!-- User menu -->
+        <div id="user-menu" class="user-menu hidden">
+          <button class="user-avatar" id="user-avatar-btn"></button>
+          <div class="user-dropdown hidden" id="user-dropdown">
+            <div class="user-dropdown-email" id="dropdown-email"></div>
+            <div class="user-dropdown-divider"></div>
+            <a href="/history" class="user-dropdown-item" data-i18n="nav_history"></a>
+            <button class="user-dropdown-item" id="billing-btn" data-i18n="nav_billing"></button>
+            <div class="user-dropdown-divider"></div>
+            <button class="user-dropdown-item danger" id="logout-btn" data-i18n="nav_logout"></button>
+          </div>
+        </div>
+        <a href="/login" class="btn-primary" id="login-btn" style="display:none" data-i18n="nav_signin"></a>
+        <a href="/history" class="btn-ghost" id="history-link" data-i18n="nav_history"></a>
+        <button class="btn-icon" id="lang-toggle"><span id="lang-label"></span></button>
         <button class="btn-icon" id="dark-toggle">
           <svg id="icon-sun" width="18" height="18" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="4" stroke="currentColor" stroke-width="2"/><path d="M12 2v2M12 20v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M2 12h2M20 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
           <svg id="icon-moon" class="hidden" width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
@@ -28,41 +50,27 @@
 
   <main class="main">
     <div class="container">
-
-      <!-- Hero -->
       <div class="hero">
         <h1 data-i18n="hero_title"></h1>
         <p class="subtitle" data-i18n="hero_subtitle"></p>
       </div>
 
-      <!-- Stepper -->
       <div class="stepper">
-        <div class="step active" data-step="1">
-          <div class="step-circle">1</div>
-          <span data-i18n="step1_label"></span>
-        </div>
+        <div class="step active" data-step="1"><div class="step-circle">1</div><span data-i18n="step1_label"></span></div>
         <div class="step-line"></div>
-        <div class="step" data-step="2">
-          <div class="step-circle">2</div>
-          <span data-i18n="step2_label"></span>
-        </div>
+        <div class="step" data-step="2"><div class="step-circle">2</div><span data-i18n="step2_label"></span></div>
         <div class="step-line"></div>
-        <div class="step" data-step="3">
-          <div class="step-circle">3</div>
-          <span data-i18n="step3_label"></span>
-        </div>
+        <div class="step" data-step="3"><div class="step-circle">3</div><span data-i18n="step3_label"></span></div>
       </div>
 
-      <!-- Step 1: Job posting -->
+      <!-- Step 1 -->
       <div class="card" id="step-1">
         <h2 class="card-title" data-i18n="s1_title"></h2>
         <p class="card-desc" data-i18n="s1_desc"></p>
-
         <div class="tabs">
           <button class="tab active" data-tab="url" data-i18n="tab_url"></button>
           <button class="tab" data-tab="text" data-i18n="tab_text"></button>
         </div>
-
         <div id="tab-url" class="tab-panel">
           <div class="input-group">
             <label for="job-url" data-i18n="url_label"></label>
@@ -70,15 +78,12 @@
             <p class="hint" data-i18n="url_hint"></p>
           </div>
         </div>
-
         <div id="tab-text" class="tab-panel hidden">
           <div class="input-group">
             <label for="job-text" data-i18n="text_label"></label>
             <textarea id="job-text" rows="10" class="input textarea" data-i18n-ph="text_ph"></textarea>
           </div>
         </div>
-
-        <!-- Output language selector -->
         <div class="lang-output-section">
           <label class="lang-output-label" data-i18n="output_lang_label"></label>
           <div class="lang-pills" id="lang-pills">
@@ -91,43 +96,36 @@
           </div>
           <p class="hint" data-i18n="output_lang_hint"></p>
         </div>
-
         <div class="card-actions">
           <button class="btn-primary" id="next-to-step2" data-i18n="btn_continue"></button>
         </div>
       </div>
 
-      <!-- Step 2: CV upload -->
+      <!-- Step 2 -->
       <div class="card hidden" id="step-2">
         <h2 class="card-title" data-i18n="s2_title"></h2>
         <p class="card-desc" data-i18n="s2_desc"></p>
-
         <div class="upload-zone" id="upload-zone">
           <input type="file" id="cv-file" accept=".pdf,.doc,.docx" class="file-input" />
           <div class="upload-icon">
             <svg width="40" height="40" viewBox="0 0 40 40" fill="none"><rect width="40" height="40" rx="12" fill="var(--blue-light)"/><path d="M20 26V14M14 20l6-6 6 6" stroke="#2563EB" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M13 30h14" stroke="#2563EB" stroke-width="2" stroke-linecap="round"/></svg>
           </div>
-          <p class="upload-label">
-            <span data-i18n="upload_drop"></span> <span class="link" data-i18n="upload_browse"></span>
-          </p>
+          <p class="upload-label"><span data-i18n="upload_drop"></span> <span class="link" data-i18n="upload_browse"></span></p>
           <p class="upload-hint" data-i18n="upload_hint"></p>
         </div>
-
         <div class="file-selected hidden" id="file-selected">
           <svg width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M10 18a8 8 0 100-16 8 8 0 000 16zm-1-5l-2-2 1.4-1.4L9 10.2l3.6-3.6L14 8l-5 5z" fill="#059669"/></svg>
           <span id="file-name"></span>
           <button class="btn-ghost-sm" id="change-file" data-i18n="btn_change"></button>
         </div>
-
         <div class="card-actions">
           <button class="btn-ghost" id="back-to-step1" data-i18n="btn_back"></button>
           <button class="btn-primary" id="generate-btn" disabled data-i18n="btn_generate"></button>
         </div>
       </div>
 
-      <!-- Step 3: Loading / Result -->
+      <!-- Step 3 -->
       <div class="card hidden" id="step-3">
-
         <div id="loading-state">
           <div class="loading-animation"><div class="spinner"></div></div>
           <h2 class="card-title center" data-i18n="loading_title"></h2>
@@ -139,11 +137,8 @@
           </div>
           <p class="loading-note" data-i18n="loading_note"></p>
         </div>
-
         <div id="success-state" class="hidden">
-          <div class="success-icon">
-            <svg width="64" height="64" viewBox="0 0 64 64" fill="none"><circle cx="32" cy="32" r="32" fill="#D1FAE5"/><path d="M20 32l8 8 16-16" stroke="#059669" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>
-          </div>
+          <div class="success-icon"><svg width="64" height="64" viewBox="0 0 64 64" fill="none"><circle cx="32" cy="32" r="32" fill="#D1FAE5"/><path d="M20 32l8 8 16-16" stroke="#059669" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
           <h2 class="card-title center" data-i18n="success_title"></h2>
           <p class="success-subtitle" id="success-subtitle"></p>
           <div class="card-actions center">
@@ -154,42 +149,60 @@
             <button class="btn-ghost" id="start-over" data-i18n="btn_start_over"></button>
           </div>
         </div>
-
         <div id="error-state" class="hidden">
-          <div class="error-icon">
-            <svg width="64" height="64" viewBox="0 0 64 64" fill="none"><circle cx="32" cy="32" r="32" fill="#FEE2E2"/><path d="M32 20v14M32 40v2" stroke="#DC2626" stroke-width="3" stroke-linecap="round"/></svg>
-          </div>
+          <div class="error-icon"><svg width="64" height="64" viewBox="0 0 64 64" fill="none"><circle cx="32" cy="32" r="32" fill="#FEE2E2"/><path d="M32 20v14M32 40v2" stroke="#DC2626" stroke-width="3" stroke-linecap="round"/></svg></div>
           <h2 class="card-title center" data-i18n="error_title"></h2>
           <p class="error-message" id="error-message"></p>
           <div class="card-actions center">
             <button class="btn-primary" id="try-again" data-i18n="btn_retry"></button>
           </div>
         </div>
-
       </div>
 
-      <!-- Features -->
       <div class="features" id="features">
-        <div class="feature">
-          <div class="feature-icon">✦</div>
-          <h3 data-i18n="f1_title"></h3>
-          <p data-i18n="f1_desc"></p>
-        </div>
-        <div class="feature">
-          <div class="feature-icon">⌘</div>
-          <h3 data-i18n="f2_title"></h3>
-          <p data-i18n="f2_desc"></p>
-        </div>
-        <div class="feature">
-          <div class="feature-icon">↓</div>
-          <h3 data-i18n="f3_title"></h3>
-          <p data-i18n="f3_desc"></p>
-        </div>
+        <div class="feature"><div class="feature-icon">✦</div><h3 data-i18n="f1_title"></h3><p data-i18n="f1_desc"></p></div>
+        <div class="feature"><div class="feature-icon">⌘</div><h3 data-i18n="f2_title"></h3><p data-i18n="f2_desc"></p></div>
+        <div class="feature"><div class="feature-icon">↓</div><h3 data-i18n="f3_title"></h3><p data-i18n="f3_desc"></p></div>
       </div>
-
     </div>
   </main>
 
+  <!-- ── PAYWALL MODAL ──────────────────────────────────── -->
+  <div class="modal-overlay hidden" id="paywall-modal">
+    <div class="modal">
+      <div class="modal-header">
+        <h2 data-i18n="paywall_title"></h2>
+        <p data-i18n="paywall_desc"></p>
+      </div>
+      <div class="pricing-cards">
+        <div class="pricing-card">
+          <div class="pricing-label" data-i18n="price_credits_label"></div>
+          <div class="pricing-amount" id="price-credits-amount"></div>
+          <ul class="pricing-features">
+            <li data-i18n="price_credits_f1"></li>
+            <li data-i18n="price_credits_f2"></li>
+            <li data-i18n="price_credits_f3"></li>
+          </ul>
+          <button class="btn-ghost" id="buy-credits-btn" data-i18n="price_credits_btn"></button>
+        </div>
+        <div class="pricing-card featured">
+          <div class="pricing-badge" data-i18n="price_monthly_badge"></div>
+          <div class="pricing-label" data-i18n="price_monthly_label"></div>
+          <div class="pricing-amount" id="price-monthly-amount"></div>
+          <ul class="pricing-features">
+            <li data-i18n="price_monthly_f1"></li>
+            <li data-i18n="price_monthly_f2"></li>
+            <li data-i18n="price_monthly_f3"></li>
+          </ul>
+          <button class="btn-primary" id="buy-monthly-btn" data-i18n="price_monthly_btn"></button>
+        </div>
+      </div>
+      <button class="modal-close" id="paywall-close" data-i18n="paywall_close"></button>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="/static/js/auth.js"></script>
   <script src="/static/js/app.js"></script>
 </body>
 </html>

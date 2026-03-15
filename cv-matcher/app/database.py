@@ -43,8 +43,16 @@ def create_generation(job_title, company, job_url, job_text, original_cv_filenam
     return gen_id
 
 
-def update_generation(gen_id, output_pdf_path, status="completed"):
+def update_generation(gen_id, output_pdf_path="", job_title=None, company=None, status="completed"):
     conn = get_db()
+    if job_title and company:
+        conn.execute(
+            "UPDATE generations SET output_pdf_path=?, job_title=?, company=?, status=? WHERE id=?",
+            (output_pdf_path, job_title, company, status, gen_id),
+        )
+        conn.commit()
+        conn.close()
+        return
     conn.execute(
         "UPDATE generations SET output_pdf_path=?, status=? WHERE id=?",
         (output_pdf_path, status, gen_id),
