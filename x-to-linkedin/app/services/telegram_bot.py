@@ -37,8 +37,10 @@ _application: Optional[Application] = None
 # Clave: message_id del mensaje de preview → datos del post
 _pending: dict[int, dict] = {}
 
-# Modo edición: user_id → post_id (post programado esperando texto nuevo)
+# Modo edición para post programado: user_id → post_id
 _awaiting_edit: dict[int, int] = {}
+# Modo edición para preview pendiente (antes de programar/publicar): user_id → mid
+_awaiting_edit_preview: dict[int, int] = {}
 
 # Regex para detectar URLs de X / Twitter
 _TWEET_RE = re.compile(
@@ -70,7 +72,10 @@ def _preview_keyboard(mid: int) -> InlineKeyboardMarkup:
             InlineKeyboardButton("🚀 Publicar ahora", callback_data=f"pub:{mid}"),
         ],
         [
+            InlineKeyboardButton("✏️ Editar texto", callback_data=f"edit_pending:{mid}"),
             InlineKeyboardButton("🔄 Regenerar", callback_data=f"regen:{mid}"),
+        ],
+        [
             InlineKeyboardButton("🗑️ Descartar", callback_data=f"disc:{mid}"),
         ],
     ])
@@ -288,7 +293,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     text = update.message.text or ""
 
-    # Modo edición activo: el texto es el nuevo contenido del post
+    # Modo edición de preview pendiente (antes de publicar/programar)
+    if user_id in _awaiting_edit_preview:
+        await _handle_edit_preview_text(update, text)
+        return
+
+    # Modo edición de post programado
     if user_id in _awaiting_edit:
         await _handle_edit_text(update, text)
         return
@@ -420,7 +430,10 @@ async def _show_preview(msg, post_data: dict, edit: bool = False):
     char_bar = f"{char_count}/{_LI_CHAR_LIMIT}"
     if char_count > _LI_CHAR_LIMIT:
         char_bar = f"⚠️ {char_bar} — EXCEDE el límite"
-    preview = linkedin_text[:900] + ("…" if len(linkedin_text) > 900 else "")
+    # Mostrar el texto completo hasta el límite de Telegram (~3800 chars disponibles para el texto)
+    # Header (~40) + footer (~60) + margen = ~3800 para el cuerpo del post
+    _TG_BODY_LIMIT = 3800
+    preview = linkedin_text[:_TG_BODY_LIMIT] + ("…\n_(texto cortado — usa ✏️ Editar para ver completo)_" if len(linkedin_text) > _TG_BODY_LIMIT else "")
 
     text = (
         f"{media_icon} *Preview del post:*\n\n"
@@ -487,6 +500,8 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_reply_markup(_preview_keyboard(mid))
     elif data.startswith("regen:"):
         await _do_regenerate(query, int(data.split(":")[1]))
+    elif data.startswith("edit_pending:"):
+        await _do_edit_pending(query, int(data.split(":")[1]))
     elif data.startswith("edit_pre:"):
         await _do_edit_pre(query, int(data.split(":")[1]))
     elif data.startswith("cancel_pre:"):
@@ -708,7 +723,8 @@ async def _do_regenerate(query, mid: int):
 
     icons = {"video": "🎥", "document": "📄", "image": "🖼️", "generate": "🎨"}
     media_icon = icons.get(post_data["media_type"], "📝")
-    preview = linkedin_text[:900] + ("…" if len(linkedin_text) > 900 else "")
+    _TG_BODY_LIMIT = 3800
+    preview = linkedin_text[:_TG_BODY_LIMIT] + ("…\n_(texto cortado — usa ✏️ Editar para ver completo)_" if len(linkedin_text) > _TG_BODY_LIMIT else "")
 
     await query.edit_message_text(
         f"{media_icon} *Preview del post (regenerado):*\n\n"
@@ -808,9 +824,12 @@ async def _do_publish_now(query, msg_id: int):
         generated_image_bytes = None
 
         if media_type == "video":
+            await status_msg.edit_text("⏳ Descargando video del tweet…")
             video_bytes = await download_tweet_video(post_data["tweet_url"])
             if not video_bytes:
-                media_type = "image"
+                logger.warning("Video download failed, falling back to thumbnail/image")
+                await status_msg.edit_text("⚠️ No se pudo descargar el video, publicando con thumbnail…")
+                media_type = "image"  # usará el poster/thumbnail en image_urls si lo hay
         elif media_type == "document" and post_data.get("pdf_url"):
             document_bytes = await download_pdf(post_data["pdf_url"])
         elif media_type == "generate":
@@ -874,6 +893,73 @@ async def _do_cancel(query, post_id: int):
 
     await query.edit_message_reply_markup(None)
     await query.message.reply_text(f"❌ Post #{post_id} cancelado.")
+
+
+async def _do_edit_pending(query, mid: int):
+    """Entra en modo edición para un post pendiente (preview antes de publicar/programar)."""
+    post_data = _pending.get(mid)
+    if not post_data:
+        await query.edit_message_reply_markup(None)
+        await query.message.reply_text("⚠️ Los datos ya no están en memoria. Genera el post de nuevo.")
+        return
+
+    user_id = query.from_user.id
+    _awaiting_edit_preview[user_id] = mid
+
+    full_text = post_data["linkedin_text"]
+    char_count = len(full_text)
+    # Mostrar el texto completo en bloques si supera el límite de Telegram
+    header = (
+        f"✏️ *Modo edición — Preview*\n\n"
+        f"Texto actual ({char_count}/{_LI_CHAR_LIMIT} chars):\n\n"
+    )
+    footer = "\n\n_Envía el nuevo texto en tu próximo mensaje para reemplazarlo._"
+
+    # Si el texto + header + footer caben en un mensaje, enviarlo junto
+    if len(header) + len(full_text) + len(footer) <= 4096:
+        await query.message.reply_text(
+            header + f"`{full_text}`" + footer,
+            parse_mode="Markdown",
+        )
+    else:
+        # Enviar header + texto en mensaje(s) separado(s)
+        await query.message.reply_text(header, parse_mode="Markdown")
+        # Enviar el texto en chunks de 4000 chars
+        for i in range(0, len(full_text), 4000):
+            chunk = full_text[i:i + 4000]
+            await query.message.reply_text(f"`{chunk}`", parse_mode="Markdown")
+        await query.message.reply_text(footer, parse_mode="Markdown")
+
+
+async def _handle_edit_preview_text(update: Update, new_text: str):
+    """Actualiza el texto del preview pendiente con el texto enviado."""
+    user_id = update.effective_user.id
+    mid = _awaiting_edit_preview.pop(user_id)
+
+    if not new_text.strip():
+        await update.message.reply_text("⚠️ El texto está vacío. Edición cancelada.")
+        return
+
+    post_data = _pending.get(mid)
+    if not post_data:
+        await update.message.reply_text("⚠️ Los datos ya no están en memoria. Genera el post de nuevo.")
+        return
+
+    post_data["linkedin_text"] = new_text.strip()
+    _pending[mid] = post_data
+
+    char_count = len(new_text.strip())
+    char_bar = f"{char_count}/{_LI_CHAR_LIMIT}"
+    if char_count > _LI_CHAR_LIMIT:
+        char_bar = f"⚠️ {char_bar} — EXCEDE el límite"
+
+    await update.message.reply_text(
+        f"✅ *Texto actualizado* ({char_bar} chars)\n\n"
+        f"Usa los botones del mensaje anterior para programar o publicar.",
+        parse_mode="Markdown",
+    )
+    # Mostrar nuevo preview
+    await _show_preview(update.message, post_data, edit=False)
 
 
 async def _do_edit_pre(query, post_id: int):

@@ -144,14 +144,39 @@ async def scrape_with_playwright(url: str) -> TweetData | None:
                     src = re.sub(r"&name=\w+", "&name=large", src)
                     images.append(src)
 
-            # Enlace de video thumbnail y detección de video
+            # Detección de video y captura de thumbnail
+            # Dar tiempo al player de X para renderizar antes de buscar el poster
+            await page.wait_for_timeout(1500)
+
             video_poster_els = await page.query_selector_all("video[poster]")
             has_video = len(video_poster_els) > 0
             for v in video_poster_els:
                 poster = await v.get_attribute("poster")
-                if poster:
+                # Ignorar blob: URLs y URLs vacías
+                if poster and poster.startswith("http") and "twimg.com" in poster:
+                    # Obtener versión de mayor resolución del thumbnail
+                    poster = re.sub(r"&name=\w+", "&name=large", poster)
                     images.append(poster)
-            # También detectar videos sin poster
+
+            # Si no hay poster, buscar thumbnail en otros elementos del player de X
+            if not images or not any("twimg.com" in img for img in images):
+                thumb_selectors = [
+                    '[data-testid="videoComponent"] img[src*="twimg.com"]',
+                    '[data-testid="previewInterstitial"] img[src*="twimg.com"]',
+                    'div[data-testid="tweetPhoto"] img[src*="twimg.com"]',
+                    'div[aria-label*="video"] img[src*="twimg.com"]',
+                ]
+                for sel in thumb_selectors:
+                    thumb_els = await page.query_selector_all(sel)
+                    for el in thumb_els:
+                        src = await el.get_attribute("src")
+                        if src and "twimg.com" in src and src not in images:
+                            src = re.sub(r"&name=\w+", "&name=large", src)
+                            images.append(src)
+                    if images:
+                        break
+
+            # Detectar videos sin poster como fallback
             if not has_video:
                 all_video_els = await page.query_selector_all("video")
                 has_video = len(all_video_els) > 0

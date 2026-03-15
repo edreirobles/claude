@@ -355,7 +355,7 @@ async def generate_nano_banana_image(linkedin_text: str) -> Optional[bytes]:
 
 async def download_tweet_video(tweet_url: str) -> Optional[bytes]:
     """
-    Descarga el video de un tweet usando yt-dlp.
+    Descarga el video de un tweet usando yt-dlp con cookies de X para autenticación.
     Retorna los bytes del video (MP4) o None si falla.
     """
     try:
@@ -366,13 +366,36 @@ async def download_tweet_video(tweet_url: str) -> Optional[bytes]:
 
     with tempfile.TemporaryDirectory() as tmpdir:
         output_template = os.path.join(tmpdir, "video.%(ext)s")
+
         ydl_opts = {
-            "format": "best[ext=mp4]/best[height<=720]/best",
+            "format": "best[ext=mp4][height<=720]/best[ext=mp4]/best[height<=720]/best",
             "outtmpl": output_template,
             "quiet": True,
             "no_warnings": True,
-            "max_filesize": 150 * 1024 * 1024,  # 150 MB límite
+            "max_filesize": 150 * 1024 * 1024,  # 150 MB
         }
+
+        # Escribir cookies de X en formato Netscape si están disponibles
+        cookie_file = None
+        try:
+            x_auth = settings.x_auth_token
+            x_ct0 = settings.x_ct0
+            if x_auth:
+                cookie_file = os.path.join(tmpdir, "cookies.txt")
+                with open(cookie_file, "w") as f:
+                    f.write("# Netscape HTTP Cookie File\n")
+                    f.write(f".x.com\tTRUE\t/\tTRUE\t2147483647\tauth_token\t{x_auth}\n")
+                    f.write(f".twitter.com\tTRUE\t/\tTRUE\t2147483647\tauth_token\t{x_auth}\n")
+                    if x_ct0:
+                        f.write(f".x.com\tTRUE\t/\tTRUE\t2147483647\tct0\t{x_ct0}\n")
+                        f.write(f".twitter.com\tTRUE\t/\tTRUE\t2147483647\tct0\t{x_ct0}\n")
+                ydl_opts["cookiefile"] = cookie_file
+                logger.info("yt-dlp: usando cookies de X para autenticación")
+            else:
+                logger.warning("yt-dlp: X_AUTH_TOKEN no configurado, descarga puede fallar en videos privados")
+        except Exception as e:
+            logger.debug(f"yt-dlp: error preparando cookies: {e}")
+
         try:
             loop = asyncio.get_event_loop()
 
@@ -382,11 +405,16 @@ async def download_tweet_video(tweet_url: str) -> Optional[bytes]:
 
             await loop.run_in_executor(None, _download)
 
-            files = os.listdir(tmpdir)
+            # Buscar el archivo descargado (ignorar el cookies.txt)
+            files = [f for f in os.listdir(tmpdir) if not f.endswith(".txt")]
             if files:
                 filepath = os.path.join(tmpdir, files[0])
                 with open(filepath, "rb") as f:
-                    return f.read()
+                    video_bytes = f.read()
+                logger.info(f"yt-dlp: video descargado ({len(video_bytes) // 1024} KB)")
+                return video_bytes
+            else:
+                logger.warning("yt-dlp: no se encontró archivo descargado")
         except Exception as e:
             logger.error(f"Error descargando video con yt-dlp: {e}")
     return None
