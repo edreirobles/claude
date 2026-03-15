@@ -64,6 +64,7 @@ async def generate(
     cv_file: UploadFile = File(...),
     job_text: str = Form(""),
     job_url: str = Form(""),
+    output_language: str = Form("auto"),
 ):
     if not job_text and not job_url:
         raise HTTPException(status_code=400, detail="Provide a job URL or paste the job description")
@@ -115,7 +116,7 @@ async def generate(
 
     # Generate adapted CV
     try:
-        result = await generate_adapted_cv(cv_text, final_job_text, gen_id)
+        result = await generate_adapted_cv(cv_text, final_job_text, gen_id, output_language)
         cv_data = result["cv_data"]
         pdf_path = result["pdf_path"]
 

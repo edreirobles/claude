@@ -457,5 +457,43 @@ body.dark .badge-processing { background: #2d1f00; color: #fbbf24; }
 .empty-state h2 { font-size: 1.2rem; font-weight: 700; color: var(--text-secondary); margin-bottom: 8px; }
 .empty-state p { color: var(--text-faint); margin-bottom: 20px; }
 
+/* ── OUTPUT LANGUAGE SELECTOR ───────────────────────────── */
+.lang-output-section {
+  margin-top: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.lang-output-label {
+  font-size: 0.87rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.lang-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.lang-pill {
+  padding: 5px 14px;
+  border-radius: 20px;
+  font-size: 0.82rem;
+  font-weight: 500;
+  cursor: pointer;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-muted);
+  transition: background .15s, color .15s, border-color .15s;
+}
+.lang-pill:hover { background: var(--bg-tabs); color: var(--text-primary); }
+.lang-pill.active {
+  background: var(--blue);
+  color: #fff;
+  border-color: var(--blue);
+}
+
 /* ── UTILS ───────────────────────────────────────────────── */
 .hidden { display: none !important; }
