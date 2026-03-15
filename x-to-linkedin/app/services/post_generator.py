@@ -194,7 +194,13 @@ async def generate_free_image(linkedin_text: str) -> Optional[bytes]:
         logger.warning("Google API falló para imagen, usando Pollinations como fallback")
 
     # ── Intento 3: Pollinations.ai (sin API key, gratis) ────────────
-    return await _generate_pollinations(img_prompt)
+    result = await _generate_pollinations(img_prompt)
+    if result:
+        return result
+
+    # ── Último recurso: placeholder con Pillow ───────────────────────
+    logger.warning("generate_free_image: todos los servicios fallaron, usando placeholder con Pillow")
+    return _generate_placeholder_image()
 
 
 async def _generate_imagen3(prompt: str, api_key: str) -> Optional[bytes]:
@@ -247,21 +253,67 @@ async def _generate_gemini_image(prompt: str, api_key: str) -> Optional[bytes]:
 
 
 async def _generate_pollinations(prompt: str) -> Optional[bytes]:
-    """Fallback gratuito: Pollinations.ai."""
+    """Fallback gratuito: Pollinations.ai. Reintenta hasta 3 veces."""
     encoded = urllib.parse.quote(prompt[:300])
     url = (
         f"https://image.pollinations.ai/prompt/{encoded}"
         f"?width=1024&height=1024&nologo=true&model=flux"
     )
-    try:
-        async with httpx.AsyncClient(timeout=90, follow_redirects=True) as client:
-            r = await client.get(url)
-            if r.status_code == 200 and r.headers.get("content-type", "").startswith("image/"):
-                return r.content
-            logger.warning(f"Pollinations devolvió {r.status_code}")
-    except Exception as e:
-        logger.error(f"Error con Pollinations.ai: {e}")
+    for attempt in range(3):
+        try:
+            async with httpx.AsyncClient(timeout=90, follow_redirects=True) as client:
+                r = await client.get(url)
+                ct = r.headers.get("content-type", "")
+                if r.status_code == 200 and ct.startswith("image/"):
+                    return r.content
+                logger.warning(f"Pollinations intento {attempt + 1}: status {r.status_code}, content-type '{ct}'")
+        except Exception as e:
+            logger.warning(f"Pollinations intento {attempt + 1} error: {e}")
+        if attempt < 2:
+            await asyncio.sleep(5)
+    logger.error("Pollinations.ai falló después de 3 intentos")
     return None
+
+
+def _generate_placeholder_image() -> Optional[bytes]:
+    """Genera imagen de placeholder profesional con Pillow. Último recurso sin internet."""
+    try:
+        from PIL import Image, ImageDraw
+        import io
+
+        w, h = 1024, 1024
+        img = Image.new("RGB", (w, h), color=(10, 22, 40))
+        draw = ImageDraw.Draw(img)
+
+        # Líneas diagonales de fondo
+        for i in range(0, w + h, 80):
+            draw.line([(max(0, i - h), min(i, h)), (min(i, w), max(0, i - w))], fill=(20, 45, 75), width=1)
+
+        # Círculos concéntricos (teal)
+        draw.ellipse([100, 100, 924, 924], outline=(20, 184, 166), width=2)
+        draw.ellipse([200, 200, 824, 824], outline=(20, 184, 166, 150), width=1)
+
+        # Marco interior (purple)
+        draw.ellipse([300, 300, 724, 724], outline=(147, 51, 234), width=2)
+
+        # Punto central
+        cx, cy = w // 2, h // 2
+        draw.ellipse([cx - 70, cy - 70, cx + 70, cy + 70], fill=(147, 51, 234))
+        draw.ellipse([cx - 35, cy - 35, cx + 35, cy + 35], fill=(20, 184, 166))
+        draw.ellipse([cx - 10, cy - 10, cx + 10, cy + 10], fill=(255, 255, 255))
+
+        # Acentos en esquinas
+        for x, y in [(80, 80), (w - 80, 80), (80, h - 80), (w - 80, h - 80)]:
+            draw.rectangle([x - 25, y - 25, x + 25, y + 25], outline=(20, 184, 166), width=2)
+            draw.line([(x - 12, y), (x + 12, y)], fill=(20, 184, 166), width=2)
+            draw.line([(x, y - 12), (x, y + 12)], fill=(20, 184, 166), width=2)
+
+        buf = io.BytesIO()
+        img.save(buf, format="JPEG", quality=85)
+        return buf.getvalue()
+    except Exception as e:
+        logger.error(f"Error generando placeholder con Pillow: {e}")
+        return None
 
 
 async def generate_nano_banana_image(linkedin_text: str) -> Optional[bytes]:
@@ -294,7 +346,11 @@ async def generate_nano_banana_image(linkedin_text: str) -> Optional[bytes]:
     result = await _generate_pollinations(img_prompt)
     if result:
         logger.info("Nano Banana: imagen generada con Pollinations")
-    return result
+        return result
+
+    # Último recurso: placeholder con Pillow (sin internet, siempre funciona)
+    logger.warning("Nano Banana: todos los servicios fallaron, usando placeholder con Pillow")
+    return _generate_placeholder_image()
 
 
 async def download_tweet_video(tweet_url: str) -> Optional[bytes]:

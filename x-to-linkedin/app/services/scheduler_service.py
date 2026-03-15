@@ -147,12 +147,26 @@ async def execute_scheduled_post(post_id: int):
             await db.commit()
             logger.info(f"Post {post_id} publicado correctamente")
 
+            # Notificación de Telegram
+            try:
+                from .telegram_bot import notify_published
+                await notify_published(post_id, post.linkedin_text or "")
+            except Exception:
+                pass
+
         except Exception as e:
             logger.error(f"Error publicando post programado {post_id}: {e}")
             if post:
                 post.status = "failed"
                 post.error_message = str(e)
                 await db.commit()
+
+                # Notificación de Telegram
+                try:
+                    from .telegram_bot import notify_failed
+                    await notify_failed(post_id, str(e))
+                except Exception:
+                    pass
 
 
 def schedule_post(post_id: int, run_date: datetime) -> str:

@@ -581,7 +581,10 @@ async def generate_post_image(
 
     image_bytes = await generate_nano_banana_image(post.linkedin_text)
     if not image_bytes:
-        raise HTTPException(status_code=500, detail="No se pudo generar la imagen. Revisa GOOGLE_API_KEY en .env.")
+        raise HTTPException(
+            status_code=500,
+            detail="No se pudo generar la imagen. Todos los servicios fallaron (Google Imagen 3, Gemini Flash, Pollinations.ai, Pillow). Revisa los logs del servidor.",
+        )
 
     # Guardar imagen en static/generated_images/
     images_dir = os.path.join("static", "generated_images")

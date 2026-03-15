@@ -13,6 +13,7 @@ from .routers import posts, auth
 from .routers import x_monitor
 from .routers import admin
 from .services.scheduler_service import start_scheduler, stop_scheduler
+from .services.telegram_bot import start_bot, stop_bot
 
 logging.basicConfig(
     level=logging.INFO,
@@ -25,8 +26,10 @@ async def lifespan(app: FastAPI):
     # Startup
     await init_db()
     start_scheduler()
+    await start_bot()
     yield
     # Shutdown
+    await stop_bot()
     stop_scheduler()
 
 

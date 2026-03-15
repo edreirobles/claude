@@ -28,6 +28,12 @@ class Settings(BaseSettings):
     database_url: str = "sqlite+aiosqlite:///./x_to_linkedin.db"
     post_language: str = "es"
 
+    # Telegram Bot — Control y notificaciones
+    # Obtener token en: @BotFather → /newbot
+    # Obtener user_id en: @userinfobot
+    telegram_bot_token: str = ""
+    telegram_user_id: int = 0
+
     # X (Twitter) — Scraping de likes con sesión de browser (gratis)
     # Obtener en: x.com → F12 → Application → Cookies → x.com
     x_username: str = ""              # @ handle sin el @  (ej: "johndoe")
