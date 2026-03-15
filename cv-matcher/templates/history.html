@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>History — CV Matcher</title>
+  <link rel="stylesheet" href="/static/css/style.css" />
+</head>
+<body>
+  <header class="header">
+    <div class="container header-inner">
+      <a href="/" class="logo">
+        <svg width="28" height="28" viewBox="0 0 28 28" fill="none"><rect width="28" height="28" rx="8" fill="#2563EB"/><path d="M7 14h14M7 9h9M7 19h11" stroke="#fff" stroke-width="2" stroke-linecap="round"/></svg>
+        <span>CV Matcher</span>
+      </a>
+      <a href="/" class="btn-primary">+ New CV</a>
+    </div>
+  </header>
+
+  <main class="main">
+    <div class="container">
+      <h1 class="page-title">Generation history</h1>
+
+      {% if generations %}
+      <div class="history-list">
+        {% for gen in generations %}
+        <div class="history-card status-{{ gen.status }}">
+          <div class="history-card-left">
+            <div class="history-icon">
+              {% if gen.status == 'completed' %}
+              <svg width="22" height="22" viewBox="0 0 22 22" fill="none"><circle cx="11" cy="11" r="11" fill="#D1FAE5"/><path d="M7 11l3 3 5-5" stroke="#059669" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              {% elif gen.status == 'failed' %}
+              <svg width="22" height="22" viewBox="0 0 22 22" fill="none"><circle cx="11" cy="11" r="11" fill="#FEE2E2"/><path d="M11 7v5M11 14v1" stroke="#DC2626" stroke-width="1.8" stroke-linecap="round"/></svg>
+              {% else %}
+              <svg width="22" height="22" viewBox="0 0 22 22" fill="none"><circle cx="11" cy="11" r="11" fill="#FEF9C3"/><path d="M11 7v4l3 3" stroke="#D97706" stroke-width="1.8" stroke-linecap="round"/></svg>
+              {% endif %}
+            </div>
+            <div class="history-info">
+              <div class="history-role">{{ gen.job_title or '—' }}</div>
+              <div class="history-company">{{ gen.company or '—' }}</div>
+              <div class="history-meta">
+                <span>{{ gen.created_at[:16].replace('T', ' at ') }}</span>
+                {% if gen.job_url %}
+                  · <a href="{{ gen.job_url }}" target="_blank" class="link-sm">View posting ↗</a>
+                {% endif %}
+              </div>
+              {% if gen.job_text %}
+              <details class="job-preview">
+                <summary>Job description preview</summary>
+                <p>{{ gen.job_text[:400] }}{% if gen.job_text|length > 400 %}…{% endif %}</p>
+              </details>
+              {% endif %}
+            </div>
+          </div>
+          <div class="history-card-right">
+            {% if gen.status == 'completed' %}
+            <a href="/api/download/{{ gen.id }}" class="btn-primary-sm">
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 2v8m0 0l-2.5-2.5M8 10l2.5-2.5M3 12v1a1 1 0 001 1h8a1 1 0 001-1v-1" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              Download PDF
+            </a>
+            {% elif gen.status == 'failed' %}
+            <span class="badge-failed">Failed</span>
+            {% else %}
+            <span class="badge-processing">Processing</span>
+            {% endif %}
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+      {% else %}
+      <div class="empty-state">
+        <svg width="64" height="64" viewBox="0 0 64 64" fill="none"><rect width="64" height="64" rx="16" fill="#F1F5F9"/><path d="M22 18h20a2 2 0 012 2v24a2 2 0 01-2 2H22a2 2 0 01-2-2V20a2 2 0 012-2z" stroke="#94A3B8" stroke-width="2"/><path d="M27 28h10M27 34h7" stroke="#94A3B8" stroke-width="2" stroke-linecap="round"/></svg>
+        <h2>No CVs generated yet</h2>
+        <p>Your generated CVs will appear here once you create one.</p>
+        <a href="/" class="btn-primary">Generate your first CV</a>
+      </div>
+      {% endif %}
+    </div>
+  </main>
+</body>
+</html>
