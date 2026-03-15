@@ -13,13 +13,22 @@
         <svg width="28" height="28" viewBox="0 0 28 28" fill="none"><rect width="28" height="28" rx="8" fill="#2563EB"/><path d="M7 14h14M7 9h9M7 19h11" stroke="#fff" stroke-width="2" stroke-linecap="round"/></svg>
         <span>CV Matcher</span>
       </a>
-      <a href="/" class="btn-primary">+ New CV</a>
+      <div class="header-controls">
+        <a href="/" class="btn-primary" data-i18n="nav_new">+ New CV</a>
+        <button class="btn-icon" id="lang-toggle" title="Switch language">
+          <span id="lang-label">ES</span>
+        </button>
+        <button class="btn-icon" id="dark-toggle" title="Toggle dark mode">
+          <svg id="icon-sun" width="18" height="18" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="4" stroke="currentColor" stroke-width="2"/><path d="M12 2v2M12 20v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M2 12h2M20 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+          <svg id="icon-moon" class="hidden" width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+      </div>
     </div>
   </header>
 
   <main class="main">
     <div class="container">
-      <h1 class="page-title">Generation history</h1>
+      <h1 class="page-title" data-i18n="hist_title">Generation history</h1>
 
       {% if generations %}
       <div class="history-list">
@@ -39,14 +48,14 @@
               <div class="history-role">{{ gen.job_title or '—' }}</div>
               <div class="history-company">{{ gen.company or '—' }}</div>
               <div class="history-meta">
-                <span>{{ gen.created_at[:16].replace('T', ' at ') }}</span>
+                <span>{{ gen.created_at[:16].replace('T', ' ') }}</span>
                 {% if gen.job_url %}
-                  · <a href="{{ gen.job_url }}" target="_blank" class="link-sm">View posting ↗</a>
+                  · <a href="{{ gen.job_url }}" target="_blank" class="link-sm" data-i18n="hist_view_posting">View posting ↗</a>
                 {% endif %}
               </div>
               {% if gen.job_text %}
               <details class="job-preview">
-                <summary>Job description preview</summary>
+                <summary data-i18n="hist_preview">Job description preview</summary>
                 <p>{{ gen.job_text[:400] }}{% if gen.job_text|length > 400 %}…{% endif %}</p>
               </details>
               {% endif %}
@@ -56,12 +65,12 @@
             {% if gen.status == 'completed' %}
             <a href="/api/download/{{ gen.id }}" class="btn-primary-sm">
               <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 2v8m0 0l-2.5-2.5M8 10l2.5-2.5M3 12v1a1 1 0 001 1h8a1 1 0 001-1v-1" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
-              Download PDF
+              <span data-i18n="hist_download">Download PDF</span>
             </a>
             {% elif gen.status == 'failed' %}
-            <span class="badge-failed">Failed</span>
+            <span class="badge-failed" data-i18n="hist_failed">Failed</span>
             {% else %}
-            <span class="badge-processing">Processing</span>
+            <span class="badge-processing" data-i18n="hist_processing">Processing</span>
             {% endif %}
           </div>
         </div>
@@ -69,13 +78,15 @@
       </div>
       {% else %}
       <div class="empty-state">
-        <svg width="64" height="64" viewBox="0 0 64 64" fill="none"><rect width="64" height="64" rx="16" fill="#F1F5F9"/><path d="M22 18h20a2 2 0 012 2v24a2 2 0 01-2 2H22a2 2 0 01-2-2V20a2 2 0 012-2z" stroke="#94A3B8" stroke-width="2"/><path d="M27 28h10M27 34h7" stroke="#94A3B8" stroke-width="2" stroke-linecap="round"/></svg>
-        <h2>No CVs generated yet</h2>
-        <p>Your generated CVs will appear here once you create one.</p>
-        <a href="/" class="btn-primary">Generate your first CV</a>
+        <svg width="64" height="64" viewBox="0 0 64 64" fill="none"><rect width="64" height="64" rx="16" fill="var(--slate-100)"/><path d="M22 18h20a2 2 0 012 2v24a2 2 0 01-2 2H22a2 2 0 01-2-2V20a2 2 0 012-2z" stroke="var(--slate-400)" stroke-width="2"/><path d="M27 28h10M27 34h7" stroke="var(--slate-400)" stroke-width="2" stroke-linecap="round"/></svg>
+        <h2 data-i18n="empty_title">No CVs generated yet</h2>
+        <p data-i18n="empty_desc">Your generated CVs will appear here once you create one.</p>
+        <a href="/" class="btn-primary" data-i18n="empty_cta">Generate your first CV</a>
       </div>
       {% endif %}
     </div>
   </main>
+
+  <script src="/static/js/app.js"></script>
 </body>
 </html>
