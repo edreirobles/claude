@@ -4,6 +4,9 @@ Usa playwright para obtener texto, imágenes y enlaces del tweet.
 Fallback a oEmbed para obtener al menos el texto cuando el browser no está disponible.
 """
 import re
+import sys
+import asyncio
+import concurrent.futures
 import httpx
 from bs4 import BeautifulSoup
 from dataclasses import dataclass, field
@@ -85,12 +88,11 @@ def parse_oembed(data: dict, url: str) -> TweetData:
     )
 
 
-async def scrape_with_playwright(url: str) -> TweetData | None:
-    """Scraping completo con playwright (texto + imágenes)."""
-    try:
-        from playwright.async_api import async_playwright, TimeoutError as PWTimeout
+async def _playwright_impl(url: str) -> TweetData | None:
+    """Lógica interna de playwright, ejecutada en su propio event loop."""
+    from playwright.async_api import async_playwright, TimeoutError as PWTimeout
 
-        async with async_playwright() as p:
+    async with async_playwright() as p:
             browser = await p.chromium.launch(headless=True)
             context = await browser.new_context(
                 user_agent=(
@@ -209,9 +211,31 @@ async def scrape_with_playwright(url: str) -> TweetData | None:
                 has_video=has_video,
             )
 
-    except ImportError:
-        logger.warning("playwright no está instalado")
-        return None
+
+async def scrape_with_playwright(url: str) -> TweetData | None:
+    """Scraping completo con playwright (texto + imágenes).
+    En Windows corre en un thread con ProactorEventLoop para soportar subprocesos."""
+    try:
+        import importlib
+        if importlib.util.find_spec("playwright") is None:
+            logger.warning("playwright no está instalado")
+            return None
+
+        def run_in_thread() -> TweetData | None:
+            if sys.platform == "win32":
+                loop = asyncio.ProactorEventLoop()
+            else:
+                loop = asyncio.new_event_loop()
+            try:
+                asyncio.set_event_loop(loop)
+                return loop.run_until_complete(_playwright_impl(url))
+            finally:
+                loop.close()
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(run_in_thread)
+            return await asyncio.get_event_loop().run_in_executor(None, future.result)
+
     except Exception as e:
         logger.error(f"playwright scraping falló: {e}")
         return None
