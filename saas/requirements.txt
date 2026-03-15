@@ -10,20 +10,20 @@ passlib[bcrypt]>=1.7.4
 
 # Database
 sqlalchemy>=2.0.0
-aiosqlite>=0.20.0          # SQLite para desarrollo local
-asyncpg>=0.29.0           # PostgreSQL para producción (Railway)
+aiosqlite>=0.20.0
+asyncpg>=0.29.0
 alembic>=1.13.0
 
 # Pagos
 stripe>=8.0.0
 
-# Telegram Bot
-python-telegram-bot>=21.0.0
-
-# Automatización
+# HTTP / Scraping
 httpx>=0.26.0
-anthropic>=0.26.0
-apscheduler>=3.10.0
-playwright>=1.42.0
 beautifulsoup4>=4.12.0
 lxml>=5.1.0
+
+# IA
+anthropic>=0.26.0
+
+# Scheduler
+apscheduler>=3.10.0
