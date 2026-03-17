@@ -420,6 +420,43 @@ async def _process_tweet_url(
     await _show_preview(wait_msg, post_data, edit=True)
 
 
+def _build_media_summary(post_data: dict) -> str:
+    """Resumen de la multimedia que se adjuntará al publicar."""
+    media_type = post_data["media_type"]
+    lines = []
+
+    if media_type == "video":
+        lines.append("🎥 *Multimedia:* Video del tweet")
+        if post_data.get("tweet_url"):
+            lines.append(f"   └ Fuente: {post_data['tweet_url']}")
+
+    elif media_type == "document":
+        lines.append("📄 *Multimedia:* Documento PDF")
+        title = post_data.get("document_title", "")
+        pdf_url = post_data.get("pdf_url", "")
+        if title:
+            lines.append(f"   └ Título: {title}")
+        if pdf_url:
+            lines.append(f"   └ URL: {pdf_url}")
+
+    elif media_type == "image":
+        image_urls = post_data.get("image_urls") or []
+        n = len(image_urls)
+        lines.append(f"🖼️ *Multimedia:* {n} imagen{'es' if n != 1 else ''} del tweet")
+        for i, url in enumerate(image_urls[:4], 1):
+            lines.append(f"   └ [{i}] {url}")
+        if n > 4:
+            lines.append(f"   └ … y {n - 4} más")
+
+    elif media_type == "generate":
+        lines.append("🎨 *Multimedia:* Sin imagen/video — Google Imagen generará una automáticamente")
+
+    else:
+        lines.append("📝 *Multimedia:* Sin adjunto")
+
+    return "\n".join(lines)
+
+
 async def _show_preview(msg, post_data: dict, edit: bool = False):
     """Muestra (o edita) el mensaje de preview con botones de acción."""
     icons = {"video": "🎥", "document": "📄", "image": "🖼️", "generate": "🎨"}
@@ -430,15 +467,21 @@ async def _show_preview(msg, post_data: dict, edit: bool = False):
     char_bar = f"{char_count}/{_LI_CHAR_LIMIT}"
     if char_count > _LI_CHAR_LIMIT:
         char_bar = f"⚠️ {char_bar} — EXCEDE el límite"
-    # Mostrar el texto completo hasta el límite de Telegram (~3800 chars disponibles para el texto)
-    # Header (~40) + footer (~60) + margen = ~3800 para el cuerpo del post
-    _TG_BODY_LIMIT = 3800
-    preview = linkedin_text[:_TG_BODY_LIMIT] + ("…\n_(texto cortado — usa ✏️ Editar para ver completo)_" if len(linkedin_text) > _TG_BODY_LIMIT else "")
+
+    media_summary = _build_media_summary(post_data)
+
+    # Header + media_summary + footer → ~3600 chars disponibles para el cuerpo
+    _TG_BODY_LIMIT = 3600
+    preview = linkedin_text[:_TG_BODY_LIMIT] + (
+        "…\n_(texto cortado — usa ✏️ Editar para ver completo)_"
+        if len(linkedin_text) > _TG_BODY_LIMIT else ""
+    )
 
     text = (
         f"{media_icon} *Preview del post:*\n\n"
         f"{preview}\n\n"
-        f"_{char_bar} caracteres_"
+        f"_{char_bar} caracteres_\n\n"
+        f"{media_summary}"
     )
 
     if edit:
@@ -723,13 +766,18 @@ async def _do_regenerate(query, mid: int):
 
     icons = {"video": "🎥", "document": "📄", "image": "🖼️", "generate": "🎨"}
     media_icon = icons.get(post_data["media_type"], "📝")
-    _TG_BODY_LIMIT = 3800
-    preview = linkedin_text[:_TG_BODY_LIMIT] + ("…\n_(texto cortado — usa ✏️ Editar para ver completo)_" if len(linkedin_text) > _TG_BODY_LIMIT else "")
+    media_summary = _build_media_summary(post_data)
+    _TG_BODY_LIMIT = 3600
+    preview = linkedin_text[:_TG_BODY_LIMIT] + (
+        "…\n_(texto cortado — usa ✏️ Editar para ver completo)_"
+        if len(linkedin_text) > _TG_BODY_LIMIT else ""
+    )
 
     await query.edit_message_text(
         f"{media_icon} *Preview del post (regenerado):*\n\n"
         f"{preview}\n\n"
-        f"_{char_bar} caracteres_",
+        f"_{char_bar} caracteres_\n\n"
+        f"{media_summary}",
         reply_markup=_preview_keyboard(mid),
         parse_mode="Markdown",
     )
@@ -803,7 +851,7 @@ async def _do_publish_now(query, msg_id: int):
     from ..services.post_generator import (
         download_pdf,
         download_tweet_video,
-        generate_free_image,
+        generate_nano_banana_image,
     )
 
     await query.edit_message_reply_markup(None)
@@ -833,7 +881,7 @@ async def _do_publish_now(query, msg_id: int):
         elif media_type == "document" and post_data.get("pdf_url"):
             document_bytes = await download_pdf(post_data["pdf_url"])
         elif media_type == "generate":
-            generated_image_bytes = await generate_free_image(post_data["linkedin_text"])
+            generated_image_bytes = await generate_nano_banana_image(post_data["linkedin_text"])
 
         li_client = LinkedInClient(token.access_token, token.person_urn)
         try:
@@ -1021,13 +1069,25 @@ async def notify_failed(post_id: int, error: str):
         logger.warning(f"Notificación Telegram (error) falló: {e}")
 
 
-async def notify_upcoming(post_id: int, linkedin_text: str, scheduled_at_str: str):
-    """Llamar desde el scheduler 5 min antes de la publicación."""
+async def notify_upcoming(
+    post_id: int,
+    linkedin_text: str,
+    scheduled_at_str: str,
+    media_type: str = "",
+    media_detail: str = "",
+):
+    """Llamar desde el scheduler 10 min antes de la publicación."""
     if not _application or not settings.telegram_user_id:
         return
     try:
         preview = (linkedin_text or "")[:300]
         suffix = "…" if len(linkedin_text) > 300 else ""
+
+        media_icons = {"video": "🎥 Video", "document": "📄 PDF", "image": "🖼️ Imagen", "generate": "🎨 Imagen generada por IA"}
+        media_line = media_icons.get(media_type, "📝 Sin multimedia")
+        if media_detail:
+            media_line += f"\n   └ {media_detail}"
+
         keyboard = InlineKeyboardMarkup([[
             InlineKeyboardButton("✏️ Editar", callback_data=f"edit_pre:{post_id}"),
             InlineKeyboardButton("❌ Cancelar", callback_data=f"cancel_pre:{post_id}"),
@@ -1036,8 +1096,9 @@ async def notify_upcoming(post_id: int, linkedin_text: str, scheduled_at_str: st
             chat_id=settings.telegram_user_id,
             text=(
                 f"⏰ *Post #{post_id} se publica a las {scheduled_at_str}*\n"
-                f"_(en ~5 minutos)_\n\n"
-                f"{preview}{suffix}"
+                f"_(en ~10 minutos)_\n\n"
+                f"{preview}{suffix}\n\n"
+                f"*Multimedia:* {media_line}"
             ),
             reply_markup=keyboard,
             parse_mode="Markdown",

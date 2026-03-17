@@ -204,51 +204,71 @@ async def generate_free_image(linkedin_text: str) -> Optional[bytes]:
 
 
 async def _generate_imagen3(prompt: str, api_key: str) -> Optional[bytes]:
-    """Genera imagen con Google Imagen 3."""
+    """
+    Genera imagen con Google Imagen 3.
+    Intenta primero imagen-3.0-generate-001, luego imagen-3.0-fast-generate-001 como fallback.
+    """
     import base64
-    url = (
-        f"https://generativelanguage.googleapis.com/v1beta"
-        f"/models/imagen-3.0-generate-002:predict?key={api_key}"
-    )
+    models = [
+        "imagen-3.0-generate-001",
+        "imagen-3.0-fast-generate-001",  # Nano Banana Pro — más rápido
+        "imagen-3.0-generate-002",        # alias anterior
+    ]
     payload = {
         "instances": [{"prompt": prompt}],
         "parameters": {"sampleCount": 1, "aspectRatio": "1:1"},
     }
-    try:
-        async with httpx.AsyncClient(timeout=60) as client:
-            r = await client.post(url, json=payload)
-            if r.status_code == 200:
-                predictions = r.json().get("predictions", [])
-                if predictions and "bytesBase64Encoded" in predictions[0]:
-                    return base64.b64decode(predictions[0]["bytesBase64Encoded"])
-            logger.warning(f"Imagen 3 devolvió {r.status_code}: {r.text[:200]}")
-    except Exception as e:
-        logger.warning(f"Error con Imagen 3: {e}")
+    for model in models:
+        url = (
+            f"https://generativelanguage.googleapis.com/v1beta"
+            f"/models/{model}:predict?key={api_key}"
+        )
+        try:
+            async with httpx.AsyncClient(timeout=60) as client:
+                r = await client.post(url, json=payload)
+                if r.status_code == 200:
+                    predictions = r.json().get("predictions", [])
+                    if predictions and "bytesBase64Encoded" in predictions[0]:
+                        logger.info(f"Imagen generada con {model}")
+                        return base64.b64decode(predictions[0]["bytesBase64Encoded"])
+                logger.warning(f"{model} devolvió {r.status_code}: {r.text[:200]}")
+        except Exception as e:
+            logger.warning(f"Error con {model}: {e}")
     return None
 
 
 async def _generate_gemini_image(prompt: str, api_key: str) -> Optional[bytes]:
-    """Genera imagen con Gemini 2.0 Flash (image generation mode)."""
+    """
+    Genera imagen con Gemini (imagen nativa).
+    Intenta gemini-2.0-flash y gemini-2.0-flash-exp.
+    """
     import base64
-    url = (
-        f"https://generativelanguage.googleapis.com/v1beta"
-        f"/models/gemini-2.0-flash-preview-image-generation:generateContent?key={api_key}"
-    )
+    models = [
+        "gemini-2.0-flash-preview-image-generation",
+        "gemini-2.0-flash-exp",
+        "gemini-2.0-flash",
+    ]
     payload = {
         "contents": [{"parts": [{"text": prompt}]}],
-        "generationConfig": {"responseModalities": ["IMAGE"]},
+        "generationConfig": {"responseModalities": ["IMAGE", "TEXT"]},
     }
-    try:
-        async with httpx.AsyncClient(timeout=60) as client:
-            r = await client.post(url, json=payload)
-            if r.status_code == 200:
-                for candidate in r.json().get("candidates", []):
-                    for part in candidate.get("content", {}).get("parts", []):
-                        if "inlineData" in part:
-                            return base64.b64decode(part["inlineData"]["data"])
-            logger.warning(f"Gemini image gen devolvió {r.status_code}: {r.text[:200]}")
-    except Exception as e:
-        logger.warning(f"Error con Gemini image gen: {e}")
+    for model in models:
+        url = (
+            f"https://generativelanguage.googleapis.com/v1beta"
+            f"/models/{model}:generateContent?key={api_key}"
+        )
+        try:
+            async with httpx.AsyncClient(timeout=60) as client:
+                r = await client.post(url, json=payload)
+                if r.status_code == 200:
+                    for candidate in r.json().get("candidates", []):
+                        for part in candidate.get("content", {}).get("parts", []):
+                            if "inlineData" in part:
+                                logger.info(f"Imagen generada con {model}")
+                                return base64.b64decode(part["inlineData"]["data"])
+                logger.warning(f"Gemini {model} devolvió {r.status_code}: {r.text[:200]}")
+        except Exception as e:
+            logger.warning(f"Error con Gemini {model}: {e}")
     return None
 
 

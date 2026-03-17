@@ -71,7 +71,7 @@ def stop_scheduler():
 
 
 async def execute_pre_notify(post_id: int):
-    """Envía notificación de Telegram 5 minutos antes de publicar un post."""
+    """Envía notificación de Telegram 10 minutos antes de publicar un post."""
     from ..database import AsyncSessionLocal
     from ..models import ScheduledPost
     from sqlalchemy import select
@@ -92,10 +92,22 @@ async def execute_pre_notify(post_id: int):
             scheduled_at_str = sched_mty.strftime("%H:%M")
 
         linkedin_text = post.linkedin_text or ""
+        media_type = getattr(post, "media_type", "") or ""
+
+        # Construir detalle de multimedia para la notificación
+        media_detail = ""
+        if media_type == "image":
+            urls = getattr(post, "image_urls", None) or []
+            if urls:
+                media_detail = urls[0]
+        elif media_type == "document":
+            media_detail = getattr(post, "document_title", "") or ""
+        elif media_type == "video":
+            media_detail = getattr(post, "tweet_url", "") or ""
 
     try:
         from .telegram_bot import notify_upcoming
-        await notify_upcoming(post_id, linkedin_text, scheduled_at_str)
+        await notify_upcoming(post_id, linkedin_text, scheduled_at_str, media_type, media_detail)
     except Exception as e:
         logger.warning(f"Pre-notificación Telegram para post {post_id} falló: {e}")
 
@@ -127,7 +139,7 @@ async def execute_scheduled_post(post_id: int):
                 return
 
             # Descargar media según tipo
-            from .post_generator import generate_free_image, download_tweet_video, download_pdf
+            from .post_generator import generate_free_image, generate_nano_banana_image, download_tweet_video, download_pdf
 
             media_type = getattr(post, "media_type", "auto")
             video_bytes = None
@@ -157,7 +169,8 @@ async def execute_scheduled_post(post_id: int):
                     else:
                         logger.warning(f"Post {post_id}: imagen pre-generada no encontrada en {disk_path}, regenerando")
                 if not generated_image_bytes:
-                    generated_image_bytes = await generate_free_image(post.linkedin_text)
+                    # Usar nano banana (Gemini + Imagen 3 + Pollinations como fallback)
+                    generated_image_bytes = await generate_nano_banana_image(post.linkedin_text)
 
             # Publicar
             client = LinkedInClient(token.access_token, token.person_urn)
@@ -212,8 +225,8 @@ def schedule_post(post_id: int, run_date: datetime) -> str:
     )
     logger.info(f"Post {post_id} programado para {run_date}")
 
-    # Programar notificación 5 min antes si hay margen suficiente
-    notify_at = run_date - timedelta(minutes=5)
+    # Programar notificación 10 min antes si hay margen suficiente
+    notify_at = run_date - timedelta(minutes=10)
     now_utc = datetime.now(timezone.utc).replace(tzinfo=None)
     if notify_at > now_utc:
         notify_job_id = f"pre_notify_{post_id}"
@@ -225,7 +238,7 @@ def schedule_post(post_id: int, run_date: datetime) -> str:
             id=notify_job_id,
             replace_existing=True,
         )
-        logger.info(f"Pre-notificación post {post_id} programada para {notify_at}")
+        logger.info(f"Pre-notificación post {post_id} programada para {notify_at} (10 min antes)")
 
     return job_id
 
