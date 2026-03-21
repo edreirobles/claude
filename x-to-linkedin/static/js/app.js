@@ -623,16 +623,24 @@ function renderHistory(posts) {
     if (post.status === 'published') {
       const likes = post.li_likes != null ? post.li_likes : '—';
       const comments = post.li_comments != null ? post.li_comments : '—';
-      const impressions = post.li_impressions != null ? post.li_impressions : '—';
+      const impressions = post.li_impressions != null ? post.li_impressions.toLocaleString('es-MX') : '—';
+      const clicks = post.li_clicks != null ? post.li_clicks : null;
+      const shares = post.li_shares != null ? post.li_shares : null;
       const updatedAt = post.metrics_updated_at
         ? new Date(post.metrics_updated_at + 'Z').toLocaleString('es-MX', { dateStyle: 'short', timeStyle: 'short' })
+        : null;
+      const engRate = (post.li_impressions && post.li_likes != null)
+        ? (((post.li_likes || 0) + (post.li_comments || 0) + (post.li_clicks || 0)) / post.li_impressions * 100).toFixed(2)
         : null;
       metricsHtml = `
         <div class="history-metrics">
           <span title="Likes">👍 ${likes}</span>
           <span title="Comentarios">💬 ${comments}</span>
           <span title="Impresiones">👁 ${impressions}</span>
-          <button class="btn-refresh-metrics" onclick="refreshMetrics(${post.id})" title="Actualizar métricas">↺ Métricas</button>
+          ${clicks != null ? `<span title="Clicks">🖱 ${clicks}</span>` : ''}
+          ${shares != null ? `<span title="Compartidos">🔁 ${shares}</span>` : ''}
+          ${engRate != null ? `<span title="Engagement" style="color:var(--success)">${engRate}%</span>` : ''}
+          <button class="btn-refresh-metrics" onclick="refreshMetrics(${post.id})" title="Actualizar métricas">↺</button>
           <button class="btn-refresh-metrics" onclick="debugMetrics(${post.id})" title="Ver diagnóstico" style="opacity:0.5">🔍</button>
           ${updatedAt ? `<span class="metrics-date">actualizado ${updatedAt}</span>` : ''}
         </div>`;
@@ -1188,9 +1196,27 @@ async function loadAnalytics() {
 function renderAnalytics(data) {
   // KPIs
   document.getElementById('kpi-published').textContent = data.total_published ?? 0;
+  const withM = data.posts_with_metrics ?? 0;
+  const subM = document.getElementById('kpi-with-metrics');
+  if (subM) subM.textContent = withM > 0 ? `${withM} con métricas` : 'sin métricas aún';
+
+  document.getElementById('kpi-impressions').textContent = (data.total_impressions ?? 0).toLocaleString('es-MX');
+  const avgImp = document.getElementById('kpi-avg-impressions');
+  if (avgImp) avgImp.textContent = data.avg_impressions ? `~${data.avg_impressions.toLocaleString('es-MX')} promedio` : '';
+
   document.getElementById('kpi-likes').textContent = data.total_likes ?? 0;
+  const avgL = document.getElementById('kpi-avg-likes');
+  if (avgL) avgL.textContent = data.avg_likes ? `${data.avg_likes} promedio` : '';
+
   document.getElementById('kpi-comments').textContent = data.total_comments ?? 0;
-  document.getElementById('kpi-avg').textContent = data.avg_likes ?? 0;
+  document.getElementById('kpi-clicks').textContent = (data.total_clicks ?? 0).toLocaleString('es-MX');
+
+  const engEl = document.getElementById('kpi-engagement');
+  if (engEl) {
+    const eng = data.engagement_rate ?? 0;
+    engEl.textContent = eng > 0 ? `${eng}%` : '—';
+    engEl.style.color = eng > 3 ? 'var(--success)' : eng > 1 ? 'var(--primary)' : '';
+  }
 
   // Chart: posts por día
   _destroyChart('by-day');
@@ -1315,6 +1341,9 @@ function renderAnalytics(data) {
       <div class="top-post-stats">
         <span title="Likes">👍 ${p.likes}</span>
         <span title="Comentarios">💬 ${p.comments}</span>
+        ${p.impressions > 0 ? `<span title="Impresiones">👁 ${p.impressions.toLocaleString('es-MX')}</span>` : ''}
+        ${p.clicks > 0 ? `<span title="Clicks">🖱 ${p.clicks}</span>` : ''}
+        ${p.engagement_rate > 0 ? `<span title="Engagement" style="color:var(--success)">${p.engagement_rate}%</span>` : ''}
       </div>
     </div>
   `).join('');
@@ -1328,14 +1357,36 @@ async function refreshMetrics(postId) {
     const res = await fetch(`/api/posts/${postId}/refresh-metrics`, { method: 'POST' });
     const data = await res.json();
     if (!res.ok) throw new Error(data.detail);
-    const li = data.li_likes != null ? `👍 ${data.li_likes}` : '';
-    const co = data.li_comments != null ? `💬 ${data.li_comments}` : '';
-    const im = data.li_impressions != null ? `👁 ${data.li_impressions}` : '';
-    const summary = [li, co, im].filter(Boolean).join('  ') || '(sin datos)';
+    const parts = [
+      data.li_likes != null ? `👍 ${data.li_likes}` : '',
+      data.li_comments != null ? `💬 ${data.li_comments}` : '',
+      data.li_impressions != null ? `👁 ${data.li_impressions.toLocaleString('es-MX')}` : '',
+      data.li_clicks != null ? `🖱 ${data.li_clicks}` : '',
+      data.li_shares != null ? `🔁 ${data.li_shares}` : '',
+    ].filter(Boolean);
+    const summary = parts.join('  ') || '(sin datos — reconecta LinkedIn para habilitar r_member_social)';
     showToast(`Métricas: ${summary}`, data.li_likes != null ? 'success' : 'info');
     loadHistory();
   } catch (e) {
     showToast(`Error: ${e.message}`, 'error');
+  }
+}
+
+async function refreshAllMetrics() {
+  const btn = document.getElementById('btn-refresh-all');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Actualizando...'; }
+  try {
+    showToast('Actualizando métricas de todos los posts...', 'info');
+    const res = await fetch('/api/posts/refresh-all-metrics', { method: 'POST' });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail);
+    showToast(data.message || `✅ Actualizado: ${data.refreshed} posts`, 'success');
+    loadHistory();
+    loadAnalytics();
+  } catch (e) {
+    showToast(`Error: ${e.message}`, 'error');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '↺ Actualizar todas las métricas'; }
   }
 }
 

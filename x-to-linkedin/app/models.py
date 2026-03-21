@@ -50,10 +50,12 @@ class ScheduledPost(Base):
     # Imagen pre-generada con Nano Banana (Gemini image gen)
     generated_image_path: Mapped[str | None] = mapped_column(Text, nullable=True)
 
-    # Métricas de LinkedIn (se actualizan manualmente vía endpoint refresh)
+    # Métricas de LinkedIn (se actualizan manualmente o automáticamente)
     li_likes: Mapped[int | None] = mapped_column(Integer, nullable=True)
     li_comments: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    li_impressions: Mapped[int | None] = mapped_column(Integer, nullable=True)  # Solo disponible en cuentas empresa
+    li_impressions: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    li_clicks: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    li_shares: Mapped[int | None] = mapped_column(Integer, nullable=True)
     metrics_updated_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
 

@@ -341,36 +341,92 @@ class LinkedInClient:
         Obtiene métricas de un post publicado.
 
         Estrategia:
-        1. Playwright (scraping con cookies li_at/JSESSIONID) — devuelve
-           likes, comentarios e impresiones para cuentas personales.
-        2. API /v2/socialActions — fallback; solo devuelve likes/comentarios,
-           impresiones = None (LinkedIn no las expone en la API para personas).
+        1. Voyager API (cookies li_at/JSESSIONID) — devuelve likes, comentarios
+           e impresiones para cuentas personales sin scopes adicionales.
+        2. shareStatistics API v2 — requiere r_member_social scope. Devuelve
+           likes, comentarios, impresiones, clicks y shares.
+        3. socialActions API v2 — fallback final, solo likes/comentarios.
         """
+        import urllib.parse
         from ..config import get_settings
         settings = get_settings()
 
-        # ── Intento 1: Playwright ───────────────────────────────────────────
+        empty = {"likes": None, "comments": None, "impressions": None,
+                 "clicks": None, "shares": None}
+
+        # Normalizar post_id (quitar prefijo URN si viene así)
+        numeric_id = post_id
+        if numeric_id.startswith("urn:li:ugcPost:"):
+            numeric_id = numeric_id.split(":")[-1]
+        elif numeric_id.startswith("urn:li:share:"):
+            numeric_id = numeric_id.split(":")[-1]
+
+        # ── Intento 1: Voyager API (cookies) ───────────────────────────────
         if settings.linkedin_li_at:
             try:
                 from .linkedin_scraper import scrape_linkedin_post_metrics
                 metrics = await scrape_linkedin_post_metrics(
-                    post_id=post_id,
+                    post_id=numeric_id,
                     li_at=settings.linkedin_li_at,
                     jsessionid=settings.linkedin_jsessionid,
                 )
-                # Si al menos uno de los valores se obtuvo, retornar
                 if any(v is not None for v in metrics.values()):
-                    return metrics
+                    # Voyager no devuelve clicks/shares, completar con None
+                    return {**empty, **metrics}
                 logger.warning(
-                    f"[LinkedIn] Playwright no extrajo métricas para {post_id}, "
-                    "intentando con API..."
+                    f"[LinkedIn] Voyager no extrajo métricas para {numeric_id}, "
+                    "intentando con shareStatistics API..."
                 )
             except Exception as e:
-                logger.warning(f"[LinkedIn] Playwright falló ({e}), cayendo a API...")
+                logger.warning(f"[LinkedIn] Voyager falló ({e}), intentando API...")
 
-        # ── Intento 2: API /v2/socialActions (solo likes/comentarios) ───────
-        import urllib.parse
-        urn = f"urn:li:ugcPost:{post_id}"
+        # ── Intento 2: shareStatistics API v2 (requiere r_member_social) ───
+        # Devuelve: likeCount, commentCount, impressionCount, clickCount, shareCount
+        try:
+            person_urn_encoded = urllib.parse.quote(
+                f"urn:li:person:{self.person_urn}", safe=""
+            )
+            share_urn_encoded = urllib.parse.quote(
+                f"urn:li:ugcPost:{numeric_id}", safe=""
+            )
+            stats_url = (
+                f"{LINKEDIN_API_BASE}/shareStatistics"
+                f"?q=authors"
+                f"&authors[0]={person_urn_encoded}"
+                f"&shares[0]={share_urn_encoded}"
+            )
+            async with httpx.AsyncClient(timeout=15) as client:
+                r = await client.get(stats_url, headers=self._headers)
+                if r.status_code == 200:
+                    data = r.json()
+                    elements = data.get("elements", [])
+                    if elements:
+                        stats = elements[0].get("totalShareStatistics", {})
+                        result = {
+                            "likes": stats.get("likeCount"),
+                            "comments": stats.get("commentCount"),
+                            "impressions": stats.get("impressionCount"),
+                            "clicks": stats.get("clickCount"),
+                            "shares": stats.get("shareCount"),
+                        }
+                        if any(v is not None for v in result.values()):
+                            logger.info(
+                                f"[LinkedIn] shareStatistics ✓ post {numeric_id}: {result}"
+                            )
+                            return result
+                    logger.warning(
+                        f"[LinkedIn] shareStatistics devolvió 200 pero sin elementos para {numeric_id}"
+                    )
+                else:
+                    logger.warning(
+                        f"[LinkedIn] shareStatistics devolvió {r.status_code} para {numeric_id}. "
+                        f"Si es 403, reconecta LinkedIn para obtener el scope r_member_social."
+                    )
+        except Exception as e:
+            logger.warning(f"[LinkedIn] shareStatistics falló ({e}), intentando socialActions...")
+
+        # ── Intento 3: socialActions (solo likes/comentarios, requiere r_member_social) ──
+        urn = f"urn:li:ugcPost:{numeric_id}"
         encoded_urn = urllib.parse.quote(urn, safe="")
         url = f"{LINKEDIN_API_BASE}/socialActions/{encoded_urn}"
         try:
@@ -381,18 +437,22 @@ class LinkedInClient:
                     return {
                         "likes": data.get("likesSummary", {}).get("totalLikes"),
                         "comments": data.get("commentsSummary", {}).get("totalFirstLevelComments"),
-                        "impressions": None,  # No disponible en API para personas
+                        "impressions": None,
+                        "clicks": None,
+                        "shares": None,
                     }
-                logger.warning(f"[LinkedIn] socialActions devolvió {r.status_code} para {post_id}")
+                logger.warning(f"[LinkedIn] socialActions devolvió {r.status_code} para {numeric_id}")
         except Exception as e:
-            logger.error(f"[LinkedIn] Error en API de métricas: {e}")
+            logger.error(f"[LinkedIn] Error en socialActions: {e}")
 
-        return {"likes": None, "comments": None, "impressions": None}
+        return empty
 
 
 def get_oauth_url(client_id: str, redirect_uri: str, state: str) -> str:
     """Genera la URL de autorización OAuth 2.0 de LinkedIn."""
-    scope = "openid profile email w_member_social"
+    # r_member_social es necesario para leer métricas (likes, comentarios, impresiones)
+    # w_member_social es para crear posts
+    scope = "openid profile email w_member_social r_member_social"
     return (
         f"{LINKEDIN_AUTH_URL}"
         f"?response_type=code"

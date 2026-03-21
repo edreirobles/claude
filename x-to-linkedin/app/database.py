@@ -25,6 +25,8 @@ async def init_db():
         for stmt in [
             "ALTER TABLE scheduled_posts ADD COLUMN source VARCHAR(20) DEFAULT 'manual'",
             "ALTER TABLE scheduled_posts ADD COLUMN generated_image_path TEXT",
+            "ALTER TABLE scheduled_posts ADD COLUMN li_clicks INTEGER",
+            "ALTER TABLE scheduled_posts ADD COLUMN li_shares INTEGER",
         ]:
             try:
                 await conn.execute(text(stmt))

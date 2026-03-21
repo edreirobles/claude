@@ -57,6 +57,8 @@ class PostResponse(BaseModel):
     li_likes: Optional[int] = None
     li_comments: Optional[int] = None
     li_impressions: Optional[int] = None
+    li_clicks: Optional[int] = None
+    li_shares: Optional[int] = None
     metrics_updated_at: Optional[datetime] = None
     use_first_image: bool = True
     media_type: str = "auto"

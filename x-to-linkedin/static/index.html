@@ -306,24 +306,39 @@
       <div class="kpi-card">
         <div class="kpi-label">Publicaciones</div>
         <div class="kpi-value" id="kpi-published">—</div>
+        <div class="kpi-sub" id="kpi-with-metrics"></div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Total impresiones</div>
+        <div class="kpi-value" id="kpi-impressions">—</div>
+        <div class="kpi-sub" id="kpi-avg-impressions"></div>
       </div>
       <div class="kpi-card">
         <div class="kpi-label">Total likes</div>
         <div class="kpi-value" id="kpi-likes">—</div>
+        <div class="kpi-sub" id="kpi-avg-likes"></div>
       </div>
       <div class="kpi-card">
         <div class="kpi-label">Total comentarios</div>
         <div class="kpi-value" id="kpi-comments">—</div>
       </div>
       <div class="kpi-card">
-        <div class="kpi-label">Promedio likes/post</div>
-        <div class="kpi-value" id="kpi-avg">—</div>
+        <div class="kpi-label">Total clicks</div>
+        <div class="kpi-value" id="kpi-clicks">—</div>
+      </div>
+      <div class="kpi-card kpi-highlight">
+        <div class="kpi-label">Tasa de engagement</div>
+        <div class="kpi-value" id="kpi-engagement">—</div>
+        <div class="kpi-sub">(likes + comentarios + clicks) / impresiones</div>
       </div>
     </div>
 
-    <p class="analytics-note">
-      💡 Los likes y comentarios se actualizan manualmente desde el historial. Actualiza las métricas de tus posts publicados para ver datos más precisos.
-    </p>
+    <div class="analytics-actions">
+      <button class="btn btn-primary btn-sm" onclick="refreshAllMetrics()" id="btn-refresh-all">
+        ↺ Actualizar todas las métricas
+      </button>
+      <span class="analytics-note">Las métricas se actualizan automáticamente cada 6 horas. Para ver impresiones y clicks reconecta LinkedIn para habilitar el permiso <code>r_member_social</code>.</span>
+    </div>
 
     <!-- Fila de gráficas 1 -->
     <div class="analytics-row">
@@ -351,7 +366,7 @@
 
     <!-- Top posts -->
     <div class="chart-box" style="margin-top:16px">
-      <div class="chart-title">Top posts por engagement (likes + comentarios)</div>
+      <div class="chart-title">Top posts por engagement (likes + comentarios + clicks)</div>
       <div id="top-posts-list" class="top-posts-list">
         <div class="empty-state">Actualiza las métricas de tus posts para ver el ranking.</div>
       </div>

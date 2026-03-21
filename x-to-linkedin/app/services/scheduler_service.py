@@ -24,6 +24,92 @@ def start_scheduler():
         scheduler.start()
         logger.info("Scheduler iniciado")
         _start_x_monitor_job()
+        _start_metrics_refresh_job()
+
+
+def _start_metrics_refresh_job():
+    """Registra el job periódico de auto-refresh de métricas de posts publicados."""
+    scheduler.add_job(
+        auto_refresh_metrics,
+        trigger="interval",
+        hours=6,
+        id="metrics_auto_refresh",
+        replace_existing=True,
+    )
+    logger.info("Métricas: job de auto-refresh registrado (cada 6 horas)")
+
+
+async def auto_refresh_metrics():
+    """
+    Actualiza automáticamente las métricas de posts publicados en los últimos 60 días
+    que no se han actualizado en las últimas 6 horas.
+    """
+    from ..database import AsyncSessionLocal
+    from ..models import ScheduledPost, LinkedInToken
+    from ..services.linkedin_client import LinkedInClient
+    from sqlalchemy import select, and_
+
+    logger.info("[AutoMetrics] Iniciando refresh automático de métricas...")
+
+    async with AsyncSessionLocal() as db:
+        # Obtener token de LinkedIn
+        token_result = await db.execute(select(LinkedInToken).limit(1))
+        token = token_result.scalar_one_or_none()
+        if not token:
+            logger.debug("[AutoMetrics] No hay token de LinkedIn, saltando")
+            return
+
+        # Posts publicados en los últimos 60 días con linkedin_post_id
+        cutoff = datetime.utcnow() - timedelta(days=60)
+        # Solo refrescar los que no se han actualizado en las últimas 6 horas
+        refresh_cutoff = datetime.utcnow() - timedelta(hours=6)
+
+        result = await db.execute(
+            select(ScheduledPost).where(
+                and_(
+                    ScheduledPost.status == "published",
+                    ScheduledPost.linkedin_post_id.isnot(None),
+                    ScheduledPost.linkedin_post_id != "",
+                    ScheduledPost.published_at >= cutoff,
+                )
+            )
+        )
+        posts = result.scalars().all()
+
+        # Filtrar los que necesitan actualización
+        to_refresh = [
+            p for p in posts
+            if p.metrics_updated_at is None or p.metrics_updated_at < refresh_cutoff
+        ]
+
+        if not to_refresh:
+            logger.info("[AutoMetrics] Todos los posts tienen métricas recientes, nada que actualizar")
+            return
+
+        logger.info(f"[AutoMetrics] Actualizando métricas de {len(to_refresh)} posts...")
+        li_client = LinkedInClient(token.access_token, token.person_urn)
+
+        refreshed = 0
+        for post in to_refresh:
+            try:
+                metrics = await li_client.get_post_metrics(post.linkedin_post_id)
+                if metrics.get("likes") is not None:
+                    post.li_likes = metrics["likes"]
+                if metrics.get("comments") is not None:
+                    post.li_comments = metrics["comments"]
+                if metrics.get("impressions") is not None:
+                    post.li_impressions = metrics["impressions"]
+                if metrics.get("clicks") is not None:
+                    post.li_clicks = metrics["clicks"]
+                if metrics.get("shares") is not None:
+                    post.li_shares = metrics["shares"]
+                post.metrics_updated_at = datetime.utcnow()
+                refreshed += 1
+            except Exception as e:
+                logger.warning(f"[AutoMetrics] Falló post {post.id}: {e}")
+
+        await db.commit()
+        logger.info(f"[AutoMetrics] Completado: {refreshed}/{len(to_refresh)} posts actualizados")
 
 
 def _start_x_monitor_job():

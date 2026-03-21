@@ -411,9 +411,20 @@ async def get_analytics(db: AsyncSession = Depends(get_db)):
 
     # KPIs
     total_published = len(published)
+    posts_with_metrics = [p for p in published if p.li_likes is not None or p.li_impressions is not None]
+
     total_likes = sum(p.li_likes or 0 for p in published)
     total_comments = sum(p.li_comments or 0 for p in published)
-    avg_likes = round(total_likes / total_published, 1) if total_published else 0
+    total_impressions = sum(p.li_impressions or 0 for p in published)
+    total_clicks = sum((getattr(p, 'li_clicks', None) or 0) for p in published)
+    total_shares = sum((getattr(p, 'li_shares', None) or 0) for p in published)
+
+    avg_likes = round(total_likes / len(posts_with_metrics), 1) if posts_with_metrics else 0
+    avg_impressions = round(total_impressions / len(posts_with_metrics), 0) if posts_with_metrics else 0
+
+    # Engagement rate: (likes + comments + clicks) / impressions * 100
+    engagement_numerator = total_likes + total_comments + total_clicks
+    engagement_rate = round(engagement_numerator / total_impressions * 100, 2) if total_impressions > 0 else 0
 
     # Posts por día — últimos 60 días
     today = datetime.utcnow().date()
@@ -442,7 +453,7 @@ async def get_analytics(db: AsyncSession = Depends(get_db)):
         k = p.media_type or "auto"
         media_counts[k] = media_counts.get(k, 0) + 1
 
-    # Top posts por engagement
+    # Top posts por engagement total (likes + comments + clicks)
     top_posts = sorted(
         [
             {
@@ -450,7 +461,14 @@ async def get_analytics(db: AsyncSession = Depends(get_db)):
                 "text": (p.linkedin_text or "")[:120],
                 "likes": p.li_likes or 0,
                 "comments": p.li_comments or 0,
-                "total": (p.li_likes or 0) + (p.li_comments or 0),
+                "impressions": p.li_impressions or 0,
+                "clicks": getattr(p, 'li_clicks', None) or 0,
+                "shares": getattr(p, 'li_shares', None) or 0,
+                "total": (p.li_likes or 0) + (p.li_comments or 0) + (getattr(p, 'li_clicks', None) or 0),
+                "engagement_rate": round(
+                    ((p.li_likes or 0) + (p.li_comments or 0) + (getattr(p, 'li_clicks', None) or 0))
+                    / (p.li_impressions or 1) * 100, 2
+                ) if p.li_impressions else 0,
                 "published_at": p.published_at.isoformat() if p.published_at else None,
             }
             for p in published
@@ -461,9 +479,15 @@ async def get_analytics(db: AsyncSession = Depends(get_db)):
 
     return {
         "total_published": total_published,
+        "posts_with_metrics": len(posts_with_metrics),
         "total_likes": total_likes,
         "total_comments": total_comments,
+        "total_impressions": total_impressions,
+        "total_clicks": total_clicks,
+        "total_shares": total_shares,
         "avg_likes": avg_likes,
+        "avg_impressions": int(avg_impressions),
+        "engagement_rate": engagement_rate,
         "posts_by_day": posts_by_day,
         "posts_by_hour": posts_by_hour,
         "status_breakdown": status_counts,
@@ -501,17 +525,74 @@ async def refresh_post_metrics(post_id: int, db: AsyncSession = Depends(get_db))
 
     log.info(f"[Metrics] Resultado para post {post_id}: {metrics}")
 
-    # Solo actualizar si obtuvimos al menos un valor
-    if metrics["likes"] is not None:
+    # Actualizar todos los valores disponibles
+    if metrics.get("likes") is not None:
         post.li_likes = metrics["likes"]
-    if metrics["comments"] is not None:
+    if metrics.get("comments") is not None:
         post.li_comments = metrics["comments"]
-    if metrics["impressions"] is not None:
+    if metrics.get("impressions") is not None:
         post.li_impressions = metrics["impressions"]
+    if metrics.get("clicks") is not None:
+        post.li_clicks = metrics["clicks"]
+    if metrics.get("shares") is not None:
+        post.li_shares = metrics["shares"]
     post.metrics_updated_at = datetime.utcnow()
     await db.commit()
     await db.refresh(post)
     return post
+
+
+@router.post("/posts/refresh-all-metrics")
+async def refresh_all_metrics(db: AsyncSession = Depends(get_db)):
+    """
+    Actualiza las métricas de TODOS los posts publicados que tienen linkedin_post_id.
+    Útil para hacer un refresh masivo desde el dashboard.
+    """
+    import logging
+    log = logging.getLogger(__name__)
+
+    result = await db.execute(
+        select(ScheduledPost)
+        .where(ScheduledPost.status == "published")
+        .where(ScheduledPost.linkedin_post_id.isnot(None))
+        .where(ScheduledPost.linkedin_post_id != "")
+    )
+    posts = result.scalars().all()
+
+    if not posts:
+        return {"refreshed": 0, "message": "No hay posts publicados con ID de LinkedIn"}
+
+    li_client = await get_linkedin_client(db)
+
+    refreshed = 0
+    failed = 0
+    for post in posts:
+        try:
+            metrics = await li_client.get_post_metrics(post.linkedin_post_id)
+            if metrics.get("likes") is not None:
+                post.li_likes = metrics["likes"]
+            if metrics.get("comments") is not None:
+                post.li_comments = metrics["comments"]
+            if metrics.get("impressions") is not None:
+                post.li_impressions = metrics["impressions"]
+            if metrics.get("clicks") is not None:
+                post.li_clicks = metrics["clicks"]
+            if metrics.get("shares") is not None:
+                post.li_shares = metrics["shares"]
+            post.metrics_updated_at = datetime.utcnow()
+            refreshed += 1
+        except Exception as e:
+            log.warning(f"[RefreshAll] Falló post {post.id}: {e}")
+            failed += 1
+
+    await db.commit()
+    log.info(f"[RefreshAll] Completado: {refreshed} actualizados, {failed} fallidos")
+    return {
+        "refreshed": refreshed,
+        "failed": failed,
+        "total": len(posts),
+        "message": f"Métricas actualizadas: {refreshed}/{len(posts)} posts",
+    }
 
 
 @router.get("/linkedin-scraper/status")
