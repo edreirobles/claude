@@ -41,6 +41,10 @@ _pending: dict[int, dict] = {}
 _awaiting_edit: dict[int, int] = {}
 # Modo edición para preview pendiente (antes de programar/publicar): user_id → mid
 _awaiting_edit_preview: dict[int, int] = {}
+# Modo reprogramar: user_id → post_id
+_awaiting_reschedule: dict[int, int] = {}
+# Modo consulta por día: users esperando escribir una fecha
+_awaiting_dia: set[int] = set()
 
 # Regex para detectar URLs de X / Twitter
 _TWEET_RE = re.compile(
@@ -115,7 +119,8 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "2\\. El bot genera el post de LinkedIn con IA\n"
         "3\\. Elige: *Programar* / *Publicar ahora* / *Regenerar* / *Descartar*\n\n"
         "*Comandos:*\n"
-        "/hoy — posts programados para hoy con horario\n"
+        "/hoy — posts de hoy con botones de edición\n"
+        "/dia \\[DD/MM\\] — posts de cualquier día\n"
         "/pendientes — todos los posts en cola \\(con opción a cancelar\\)\n"
         "/status — estado del sistema de un vistazo\n"
         "/start — bienvenida",
@@ -223,16 +228,30 @@ async def cmd_hoy(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("📭 No hay posts programados para hoy.")
         return
 
-    icons = {"scheduled": "⏰", "published": "✅", "failed": "❌"}
-    lines = ["📅 *Posts de hoy:*\n"]
-    for p in posts:
-        sched = datetime.fromisoformat(str(p.scheduled_at)).replace(tzinfo=timezone.utc)
-        sched_mty = sched.astimezone(mty_tz)
-        icon = icons.get(p.status, "❓")
-        preview = (p.linkedin_text or "")[:80].replace("\n", " ")
-        lines.append(f"{icon} {sched_mty.strftime('%H:%M')} — {preview}…")
+    await update.message.reply_text(
+        f"📅 *Posts de hoy ({now_mty.strftime('%d/%m')}):* {len(posts)} post{'s' if len(posts) > 1 else ''}",
+        parse_mode="Markdown",
+    )
+    await _send_posts_list(update.message, posts, mty_tz)
 
-    await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
+
+async def cmd_dia(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not _authorized(update):
+        await _deny(update)
+        return
+
+    args = context.args
+    if args:
+        fecha_str = args[0]
+        await _show_day_posts(update.message, fecha_str)
+    else:
+        _awaiting_dia.add(update.effective_user.id)
+        await update.message.reply_text(
+            "📅 ¿Qué día quieres consultar?\n"
+            "Envía la fecha en formato *DD/MM* o *DD/MM/AAAA*\n"
+            "Ejemplo: `25/03` o `25/03/2026`",
+            parse_mode="Markdown",
+        )
 
 
 async def cmd_pendientes(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -303,6 +322,17 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await _handle_edit_text(update, text)
         return
 
+    # Modo reprogramar post
+    if user_id in _awaiting_reschedule:
+        await _handle_reschedule_text(update, text)
+        return
+
+    # Modo consulta por día
+    if user_id in _awaiting_dia:
+        _awaiting_dia.discard(user_id)
+        await _show_day_posts(update.message, text.strip())
+        return
+
     match = _TWEET_RE.search(text)
     if match:
         await _process_tweet_url(update, context, match.group(0))
@@ -342,6 +372,253 @@ async def _handle_edit_text(update: Update, new_text: str):
     char_count = len(new_text.strip())
     await update.message.reply_text(
         f"✅ *Post #{post_id} actualizado* ({char_count}/{_LI_CHAR_LIMIT} chars)",
+        parse_mode="Markdown",
+    )
+
+
+# ── Helpers posts por día ─────────────────────────────────────────────────
+
+def _post_keyboard(post_id: int, status: str) -> InlineKeyboardMarkup:
+    """Teclado inline para un post en la lista /hoy o /dia."""
+    rows = [[InlineKeyboardButton("👁 Ver completo", callback_data=f"view_post:{post_id}")]]
+    if status == "scheduled":
+        rows.append([
+            InlineKeyboardButton("✏️ Editar", callback_data=f"edit_pre:{post_id}"),
+            InlineKeyboardButton("📅 Cambiar fecha", callback_data=f"reschedule:{post_id}"),
+        ])
+        rows.append([InlineKeyboardButton("❌ Cancelar post", callback_data=f"cancel:{post_id}")])
+    return InlineKeyboardMarkup(rows)
+
+
+async def _send_posts_list(msg, posts, mty_tz):
+    """Envía cada post como mensaje individual con botones de acción."""
+    from datetime import datetime, timezone
+
+    icons = {"scheduled": "⏰", "published": "✅", "failed": "❌"}
+    for p in posts:
+        sched = datetime.fromisoformat(str(p.scheduled_at)).replace(tzinfo=timezone.utc)
+        sched_mty = sched.astimezone(mty_tz)
+        icon = icons.get(p.status, "❓")
+        preview = (p.linkedin_text or "")[:120].replace("\n", " ")
+        keyboard = _post_keyboard(p.id, p.status) if p.status in ("scheduled", "published", "failed") else None
+        await msg.reply_text(
+            f"{icon} *{sched_mty.strftime('%H:%M')}* — {preview}…",
+            reply_markup=keyboard,
+            parse_mode="Markdown",
+        )
+
+
+async def _show_day_posts(msg, fecha_str: str):
+    """Muestra posts de una fecha específica (formato DD/MM o DD/MM/AAAA)."""
+    from datetime import datetime, timezone
+    from zoneinfo import ZoneInfo
+    from sqlalchemy import select
+    from ..database import AsyncSessionLocal
+    from ..models import ScheduledPost
+
+    mty_tz = ZoneInfo("America/Monterrey")
+
+    # Parsear fecha
+    fecha_str = fecha_str.strip()
+    target_date = None
+    for fmt in ("%d/%m/%Y", "%d/%m", "%d-%m-%Y", "%d-%m"):
+        try:
+            parsed = datetime.strptime(fecha_str, fmt)
+            if fmt in ("%d/%m", "%d-%m"):
+                parsed = parsed.replace(year=datetime.now(mty_tz).year)
+            target_date = parsed
+            break
+        except ValueError:
+            continue
+
+    if not target_date:
+        await msg.reply_text(
+            "⚠️ No entendí esa fecha. Usa formato *DD/MM* o *DD/MM/AAAA*.\nEjemplo: `25/03` o `25/03/2026`",
+            parse_mode="Markdown",
+        )
+        return
+
+    target_mty = target_date.replace(hour=0, minute=0, second=0, microsecond=0, tzinfo=mty_tz)
+    day_start = target_mty.astimezone(timezone.utc).replace(tzinfo=None)
+    day_end = target_mty.replace(hour=23, minute=59, second=59).astimezone(timezone.utc).replace(tzinfo=None)
+
+    async with AsyncSessionLocal() as db:
+        result = await db.execute(
+            select(ScheduledPost)
+            .where(ScheduledPost.status.in_(["scheduled", "published", "failed"]))
+            .where(ScheduledPost.scheduled_at >= day_start)
+            .where(ScheduledPost.scheduled_at <= day_end)
+            .order_by(ScheduledPost.scheduled_at)
+        )
+        posts = result.scalars().all()
+
+    label = target_mty.strftime("%d/%m/%Y")
+    if not posts:
+        await msg.reply_text(f"📭 No hay posts para el *{label}*.", parse_mode="Markdown")
+        return
+
+    await msg.reply_text(
+        f"📅 *Posts del {label}:* {len(posts)} post{'s' if len(posts) > 1 else ''}",
+        parse_mode="Markdown",
+    )
+    await _send_posts_list(msg, posts, mty_tz)
+
+
+async def _do_view_post(query, post_id: int):
+    """Muestra el texto completo de un post programado/publicado."""
+    from sqlalchemy import select
+    from ..database import AsyncSessionLocal
+    from ..models import ScheduledPost
+    from datetime import datetime, timezone
+    from zoneinfo import ZoneInfo
+
+    mty_tz = ZoneInfo("America/Monterrey")
+    async with AsyncSessionLocal() as db:
+        result = await db.execute(select(ScheduledPost).where(ScheduledPost.id == post_id))
+        post = result.scalar_one_or_none()
+
+    if not post:
+        await query.message.reply_text("⚠️ Post no encontrado.")
+        return
+
+    sched = datetime.fromisoformat(str(post.scheduled_at)).replace(tzinfo=timezone.utc)
+    sched_mty = sched.astimezone(mty_tz)
+    full_text = post.linkedin_text or ""
+    char_count = len(full_text)
+
+    header = (
+        f"📄 *Post #{post_id}* — {sched_mty.strftime('%d/%m %H:%M')} — "
+        f"{'⏰ programado' if post.status == 'scheduled' else '✅ publicado' if post.status == 'published' else post.status}\n"
+        f"_{char_count}/{_LI_CHAR_LIMIT} chars_\n\n"
+    )
+
+    keyboard = None
+    if post.status == "scheduled":
+        keyboard = InlineKeyboardMarkup([
+            [
+                InlineKeyboardButton("✏️ Editar texto", callback_data=f"edit_pre:{post_id}"),
+                InlineKeyboardButton("📅 Cambiar fecha", callback_data=f"reschedule:{post_id}"),
+            ],
+            [InlineKeyboardButton("❌ Cancelar post", callback_data=f"cancel:{post_id}")],
+        ])
+
+    # Enviar en chunks si es muy largo
+    if len(header) + len(full_text) <= 4000:
+        await query.message.reply_text(
+            header + full_text,
+            reply_markup=keyboard,
+            parse_mode="Markdown",
+        )
+    else:
+        await query.message.reply_text(header, parse_mode="Markdown")
+        for i in range(0, len(full_text), 4000):
+            is_last = (i + 4000) >= len(full_text)
+            await query.message.reply_text(
+                full_text[i:i + 4000],
+                reply_markup=keyboard if is_last else None,
+            )
+
+
+async def _do_reschedule_start(query, post_id: int):
+    """Entra en modo espera de nueva fecha para reprogramar un post."""
+    from sqlalchemy import select
+    from ..database import AsyncSessionLocal
+    from ..models import ScheduledPost
+    from datetime import datetime, timezone
+    from zoneinfo import ZoneInfo
+
+    mty_tz = ZoneInfo("America/Monterrey")
+    async with AsyncSessionLocal() as db:
+        result = await db.execute(select(ScheduledPost).where(ScheduledPost.id == post_id))
+        post = result.scalar_one_or_none()
+
+    if not post or post.status != "scheduled":
+        await query.message.reply_text("⚠️ Este post ya no está programado.")
+        return
+
+    sched = datetime.fromisoformat(str(post.scheduled_at)).replace(tzinfo=timezone.utc)
+    sched_mty = sched.astimezone(mty_tz)
+
+    user_id = query.from_user.id
+    _awaiting_reschedule[user_id] = post_id
+
+    await query.message.reply_text(
+        f"📅 *Reprogramar post #{post_id}*\n\n"
+        f"Fecha actual: *{sched_mty.strftime('%d/%m/%Y %H:%M')}*\n\n"
+        f"Envía la nueva fecha y hora:\n"
+        f"• `DD/MM HH:MM` — mismo año\n"
+        f"• `DD/MM/AAAA HH:MM` — con año\n"
+        f"• `HH:MM` — solo cambiar hora (mismo día)\n\n"
+        f"Ejemplo: `28/03 09:30`",
+        parse_mode="Markdown",
+    )
+
+
+async def _handle_reschedule_text(update: Update, new_text: str):
+    """Parsea la nueva fecha/hora y reprograma el post."""
+    from datetime import datetime, timezone
+    from zoneinfo import ZoneInfo
+    from sqlalchemy import select
+    from ..database import AsyncSessionLocal
+    from ..models import ScheduledPost
+    from ..services.scheduler_service import schedule_post, cancel_scheduled_post
+
+    user_id = update.effective_user.id
+    post_id = _awaiting_reschedule.pop(user_id)
+    mty_tz = ZoneInfo("America/Monterrey")
+    text = new_text.strip()
+
+    # Obtener fecha actual del post para usar como base si solo se da hora
+    async with AsyncSessionLocal() as db:
+        result = await db.execute(select(ScheduledPost).where(ScheduledPost.id == post_id))
+        post = result.scalar_one_or_none()
+        if not post or post.status != "scheduled":
+            await update.message.reply_text("⚠️ El post ya no está programado.")
+            return
+        current_sched = datetime.fromisoformat(str(post.scheduled_at)).replace(tzinfo=timezone.utc).astimezone(mty_tz)
+
+    new_dt = None
+    for fmt in ("%d/%m/%Y %H:%M", "%d/%m %H:%M", "%H:%M"):
+        try:
+            parsed = datetime.strptime(text, fmt)
+            if fmt == "%H:%M":
+                # Solo hora: usar mismo día que el post actual
+                new_dt = current_sched.replace(hour=parsed.hour, minute=parsed.minute, second=0, microsecond=0)
+            elif fmt == "%d/%m %H:%M":
+                new_dt = parsed.replace(year=datetime.now(mty_tz).year, second=0, microsecond=0, tzinfo=mty_tz)
+            else:
+                new_dt = parsed.replace(second=0, microsecond=0, tzinfo=mty_tz)
+            break
+        except ValueError:
+            continue
+
+    if not new_dt:
+        _awaiting_reschedule[user_id] = post_id  # devolver al modo espera
+        await update.message.reply_text(
+            "⚠️ No entendí esa fecha. Usa:\n"
+            "• `DD/MM HH:MM` — ej: `28/03 09:30`\n"
+            "• `DD/MM/AAAA HH:MM` — ej: `28/03/2026 09:30`\n"
+            "• `HH:MM` — solo cambiar hora",
+            parse_mode="Markdown",
+        )
+        return
+
+    new_dt_utc = new_dt.astimezone(timezone.utc).replace(tzinfo=None)
+
+    async with AsyncSessionLocal() as db:
+        result = await db.execute(select(ScheduledPost).where(ScheduledPost.id == post_id))
+        post = result.scalar_one_or_none()
+        if not post or post.status != "scheduled":
+            await update.message.reply_text("⚠️ El post ya no está programado.")
+            return
+        cancel_scheduled_post(post_id)
+        post.scheduled_at = new_dt_utc
+        await db.commit()
+        schedule_post(post_id, new_dt_utc)
+
+    await update.message.reply_text(
+        f"✅ *Post #{post_id} reprogramado* para el "
+        f"*{new_dt.strftime('%d/%m/%Y a las %H:%M')}* (Monterrey)",
         parse_mode="Markdown",
     )
 
@@ -549,49 +826,20 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await _do_edit_pre(query, int(data.split(":")[1]))
     elif data.startswith("cancel_pre:"):
         await _do_cancel(query, int(data.split(":")[1]))
+    elif data.startswith("view_post:"):
+        await _do_view_post(query, int(data.split(":")[1]))
+    elif data.startswith("reschedule:"):
+        await _do_reschedule_start(query, int(data.split(":")[1]))
 
 
 async def _do_quick_cmd(query, cmd: str):
     """Ejecuta un comando desde los botones inline del /start."""
     fake_update = query.message
     if cmd == "hoy":
-        await fake_update.reply_text("Cargando posts de hoy…")
-        # Invocar lógica directamente
-        from datetime import datetime, timezone
+        from datetime import datetime
         from zoneinfo import ZoneInfo
-        from sqlalchemy import select
-        from ..database import AsyncSessionLocal
-        from ..models import ScheduledPost
-
-        mty_tz = ZoneInfo("America/Monterrey")
-        now_mty = datetime.now(mty_tz)
-        today_start = now_mty.replace(hour=0, minute=0, second=0, microsecond=0).astimezone(timezone.utc).replace(tzinfo=None)
-        today_end = now_mty.replace(hour=23, minute=59, second=59).astimezone(timezone.utc).replace(tzinfo=None)
-
-        async with AsyncSessionLocal() as db:
-            result = await db.execute(
-                select(ScheduledPost)
-                .where(ScheduledPost.status.in_(["scheduled", "published", "failed"]))
-                .where(ScheduledPost.scheduled_at >= today_start)
-                .where(ScheduledPost.scheduled_at <= today_end)
-                .order_by(ScheduledPost.scheduled_at)
-            )
-            posts = result.scalars().all()
-
-        if not posts:
-            await fake_update.reply_text("📭 No hay posts programados para hoy.")
-            return
-
-        icons = {"scheduled": "⏰", "published": "✅", "failed": "❌"}
-        lines = ["📅 *Posts de hoy:*\n"]
-        for p in posts:
-            sched = datetime.fromisoformat(str(p.scheduled_at)).replace(tzinfo=timezone.utc)
-            sched_mty = sched.astimezone(mty_tz)
-            icon = icons.get(p.status, "❓")
-            preview = (p.linkedin_text or "")[:80].replace("\n", " ")
-            lines.append(f"{icon} {sched_mty.strftime('%H:%M')} — {preview}…")
-
-        await fake_update.reply_text("\n".join(lines), parse_mode="Markdown")
+        now_mty = datetime.now(ZoneInfo("America/Monterrey"))
+        await _show_day_posts(fake_update, now_mty.strftime("%d/%m/%Y"))
 
     elif cmd == "pendientes":
         from datetime import datetime, timezone
@@ -677,7 +925,8 @@ async def _do_quick_cmd(query, cmd: str):
             "2. El bot genera el post de LinkedIn con IA\n"
             "3. Elige: *Programar* / *Publicar ahora* / *Regenerar* / *Descartar*\n\n"
             "*Comandos:*\n"
-            "/hoy — posts programados para hoy\n"
+            "/hoy — posts de hoy con opciones de edición\n"
+            "/dia [DD/MM] — posts de cualquier día\n"
             "/pendientes — todos los posts en cola\n"
             "/status — estado del sistema\n"
             "/start — bienvenida",
@@ -1125,6 +1374,7 @@ async def start_bot():
     _application.add_handler(CommandHandler("start", cmd_start))
     _application.add_handler(CommandHandler("help", cmd_help))
     _application.add_handler(CommandHandler("hoy", cmd_hoy))
+    _application.add_handler(CommandHandler("dia", cmd_dia))
     _application.add_handler(CommandHandler("pendientes", cmd_pendientes))
     _application.add_handler(CommandHandler("status", cmd_status))
     _application.add_handler(
