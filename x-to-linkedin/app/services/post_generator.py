@@ -155,6 +155,7 @@ async def generate_linkedin_post(
         max_tokens=1024,
         system=system_prompt,
         messages=[{"role": "user", "content": user_message}],
+        timeout=90.0,
     )
 
     generated = message.content[0].text.strip()
@@ -216,6 +217,7 @@ async def generate_linkedin_post_from_url_content(
         max_tokens=1024,
         system=system_prompt,
         messages=[{"role": "user", "content": user_message}],
+        timeout=90.0,
     )
 
     generated = message.content[0].text.strip()
