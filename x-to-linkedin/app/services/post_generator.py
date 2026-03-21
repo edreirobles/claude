@@ -110,6 +110,16 @@ async def generate_linkedin_post(
     # Construir el contexto del tweet
     context_parts = [f"Texto del tweet:\n{tweet.text}"]
 
+    # Si es un artículo largo de X, usar el contenido completo del artículo
+    if tweet.is_article and tweet.article_content:
+        # Limitar a 4000 chars para no saturar el prompt
+        article_excerpt = tweet.article_content[:4000]
+        if len(tweet.article_content) > 4000:
+            article_excerpt += "…"
+        context_parts.append(
+            f"\n⚠️ Este tweet es un ARTÍCULO LARGO de X. Contenido completo del artículo:\n{article_excerpt}"
+        )
+
     if tweet.author_name:
         context_parts.append(f"Autor: {tweet.author_name} (@{tweet.author_handle})")
 
@@ -152,6 +162,67 @@ async def generate_linkedin_post(
     # Agregar fuente al final
     if tweet.tweet_url:
         generated = f"{generated}\n\nFuente: {tweet.tweet_url}"
+
+    return generated
+
+
+async def generate_linkedin_post_from_url_content(
+    url_content,  # UrlContent dataclass from url_scraper
+    language: str = "es",
+    custom_prompt: Optional[str] = None,
+) -> str:
+    """
+    Genera una publicación de LinkedIn a partir del contenido de una URL genérica
+    (artículo, blog, noticia, etc.).
+    """
+    client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
+
+    if custom_prompt:
+        system_prompt = custom_prompt
+    else:
+        system_prompt = SYSTEM_PROMPT_ES if language == "es" else SYSTEM_PROMPT_EN
+
+    context_parts = []
+
+    if url_content.title:
+        context_parts.append(f"Título: {url_content.title}")
+
+    if url_content.author:
+        context_parts.append(f"Autor: {url_content.author}")
+
+    if url_content.source_domain:
+        context_parts.append(f"Fuente: {url_content.source_domain}")
+
+    if url_content.text:
+        context_parts.append(f"Contenido:\n{url_content.text}")
+
+    if url_content.images:
+        n = len(url_content.images)
+        context_parts.append(
+            f"La página incluye {n} imagen{'es' if n > 1 else ''} "
+            f"que se pueden adjuntar al post de LinkedIn."
+        )
+
+    context = "\n\n".join(context_parts)
+
+    user_message = (
+        f"Genera una publicación de LinkedIn basada en este artículo/contenido web:\n\n{context}"
+        if language == "es"
+        else f"Generate a LinkedIn post based on this web article/content:\n\n{context}"
+    )
+
+    message = await client.messages.create(
+        model="claude-opus-4-6",
+        max_tokens=1024,
+        system=system_prompt,
+        messages=[{"role": "user", "content": user_message}],
+    )
+
+    generated = message.content[0].text.strip()
+
+    # Agregar fuente al final
+    if url_content.url:
+        generated = f"{generated}\n\nFuente: {url_content.url}"
 
     return generated
 

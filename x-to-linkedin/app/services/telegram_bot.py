@@ -52,6 +52,12 @@ _TWEET_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Regex para detectar cualquier URL genérica (no tweet)
+_URL_RE = re.compile(
+    r"https?://[^\s]+",
+    re.IGNORECASE,
+)
+
 _LI_CHAR_LIMIT = 3000
 
 
@@ -103,7 +109,8 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ])
     await update.message.reply_text(
         "👋 *X → LinkedIn Bot*\n\n"
-        "Envíame un URL de tweet y lo convierto en un post de LinkedIn.",
+        "Envíame un URL de tweet *o cualquier artículo/noticia web* y lo convierto en un post de LinkedIn.\n\n"
+        "Si no hay imagen en la fuente, genero una automáticamente con IA.",
         parse_mode="Markdown",
         reply_markup=keyboard,
     )
@@ -115,13 +122,15 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     await update.message.reply_text(
         "📖 *Cómo usar el bot*\n\n"
-        "1\\. Envía un URL de tweet \\(x\\.com o twitter\\.com\\)\n"
-        "2\\. El bot genera el post de LinkedIn con IA\n"
-        "3\\. Elige: *Programar* / *Publicar ahora* / *Regenerar* / *Descartar*\n\n"
+        "1\\. Envía un URL de tweet \\(x\\.com\\) *o cualquier artículo web*\n"
+        "2\\. El bot extrae el contenido y genera el post de LinkedIn con IA\n"
+        "3\\. Si no hay imagen, se genera automáticamente con IA \\(Nano Banana Pro\\)\n"
+        "4\\. Elige: *Programar* / *Publicar ahora* / *Regenerar* / *Descartar*\n\n"
         "*Comandos:*\n"
         "/hoy — posts de hoy con botones de edición\n"
         "/dia \\[DD/MM\\] — posts de cualquier día\n"
         "/pendientes — todos los posts en cola \\(con opción a cancelar\\)\n"
+        "/articulos — busca artículos largos de X entre tus likes pendientes\n"
         "/status — estado del sistema de un vistazo\n"
         "/start — bienvenida",
         parse_mode="MarkdownV2",
@@ -302,6 +311,83 @@ async def cmd_pendientes(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 
+async def cmd_articulos(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Escanea los likes pendientes (skipped) y los posts programados para
+    identificar artículos largos de X que pueden tener contenido incompleto.
+    Permite re-procesar los que son artículos.
+    """
+    if not _authorized(update):
+        await _deny(update)
+        return
+
+    from sqlalchemy import select
+    from ..database import AsyncSessionLocal
+    from ..models import XLikedTweet, ScheduledPost
+
+    wait_msg = await update.message.reply_text("🔍 Buscando artículos de X entre tus likes y posts programados…")
+
+    # 1. Likes skipped (nunca procesados) — candidatos a ser artículos
+    async with AsyncSessionLocal() as db:
+        skipped_result = await db.execute(
+            select(XLikedTweet)
+            .where(XLikedTweet.status == "skipped")
+            .order_by(XLikedTweet.id.desc())
+            .limit(50)
+        )
+        skipped = skipped_result.scalars().all()
+
+        # 2. Posts programados (aún no publicados)
+        sched_result = await db.execute(
+            select(ScheduledPost)
+            .where(ScheduledPost.status == "scheduled")
+            .order_by(ScheduledPost.scheduled_at)
+        )
+        scheduled = sched_result.scalars().all()
+
+    if not skipped and not scheduled:
+        await wait_msg.edit_text("📭 No hay likes skipped ni posts programados para revisar.")
+        return
+
+    lines = [
+        f"📰 *Análisis de artículos de X*\n\n"
+        f"Likes no procesados (skipped): *{len(skipped)}*\n"
+        f"Posts programados pendientes: *{len(scheduled)}*\n\n"
+        f"Los artículos de X se reconocen por su URL normal pero tienen contenido largo.\n\n"
+        f"Para re-procesar un like skipped, envíame su URL directamente.\n"
+        f"Para ver posts programados usa /hoy o /pendientes.\n\n"
+        f"*Últimos likes sin procesar:*"
+    ]
+
+    await wait_msg.edit_text("\n".join(lines), parse_mode="Markdown")
+
+    # Mostrar los últimos likes skipped con botón para procesar
+    shown = 0
+    for liked in skipped[:10]:
+        if not liked.tweet_url:
+            continue
+        keyboard = InlineKeyboardMarkup([[
+            InlineKeyboardButton(
+                f"▶️ Procesar este like",
+                callback_data=f"proc_liked:{liked.id}",
+            )
+        ]])
+        await update.message.reply_text(
+            f"🔗 {liked.tweet_url}\n_ID: {liked.tweet_id} | Autor: {liked.tweet_author}_",
+            reply_markup=keyboard,
+            parse_mode="Markdown",
+        )
+        shown += 1
+
+    if not shown:
+        await update.message.reply_text("No hay likes skipped con URL disponible.")
+    elif len(skipped) > 10:
+        await update.message.reply_text(
+            f"_Mostrando 10 de {len(skipped)} likes sin procesar._",
+            parse_mode="Markdown",
+        )
+
+
 # ── Mensajes de texto (detección de URL de tweet o modo edición) ──────────
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -333,15 +419,23 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await _show_day_posts(update.message, text.strip())
         return
 
-    match = _TWEET_RE.search(text)
-    if match:
-        await _process_tweet_url(update, context, match.group(0))
-    else:
-        await update.message.reply_text(
-            "Envíame un URL de tweet para generar un post de LinkedIn.\n"
-            "Ejemplo: https://x.com/usuario/status/12345\n\n"
-            "O usa /pendientes para ver los posts en cola."
-        )
+    tweet_match = _TWEET_RE.search(text)
+    if tweet_match:
+        await _process_tweet_url(update, context, tweet_match.group(0))
+        return
+
+    url_match = _URL_RE.search(text)
+    if url_match:
+        await _process_generic_url(update, context, url_match.group(0))
+        return
+
+    await update.message.reply_text(
+        "Envíame un URL de tweet o cualquier artículo/noticia web para generar un post de LinkedIn.\n\n"
+        "Ejemplos:\n"
+        "• https://x.com/usuario/status/12345\n"
+        "• https://techcrunch.com/articulo\n\n"
+        "O usa /pendientes para ver los posts en cola."
+    )
 
 
 async def _handle_edit_text(update: Update, new_text: str):
@@ -645,8 +739,15 @@ async def _process_tweet_url(
         await wait_msg.edit_text(f"❌ No pude extraer el tweet:\n`{e}`", parse_mode="Markdown")
         return
 
-    # Paso 2: Generando con IA
-    await wait_msg.edit_text("🤖 Generando post con IA…")
+    # Notificar si es un artículo largo de X
+    if tweet.is_article:
+        await wait_msg.edit_text(
+            "📰 Artículo largo de X detectado — extrayendo contenido completo…\n"
+            "🤖 Generando post con IA…"
+        )
+    else:
+        # Paso 2: Generando con IA
+        await wait_msg.edit_text("🤖 Generando post con IA…")
 
     async with AsyncSessionLocal() as db:
         cfg_result = await db.execute(select(AppSettings).where(AppSettings.id == 1))
@@ -692,6 +793,83 @@ async def _process_tweet_url(
         "document_title": (
             tweet.paper_info.get("title", "Documento") if tweet.paper_info else "Documento"
         ),
+        "is_article": tweet.is_article,
+    }
+
+    await _show_preview(wait_msg, post_data, edit=True)
+
+
+async def _process_generic_url(
+    update: Update, context: ContextTypes.DEFAULT_TYPE, url: str
+):
+    """Extrae contenido de cualquier URL web y genera un post de LinkedIn."""
+    from sqlalchemy import select
+
+    from ..database import AsyncSessionLocal
+    from ..models import AppSettings
+    from ..services.url_scraper import scrape_url
+    from ..services.post_generator import generate_linkedin_post_from_url_content
+
+    wait_msg = await update.message.reply_text("🔍 Analizando contenido del enlace…")
+
+    try:
+        content = await scrape_url(url)
+    except Exception as e:
+        await wait_msg.edit_text(
+            f"❌ No pude acceder al enlace:\n`{e}`", parse_mode="Markdown"
+        )
+        return
+
+    if not content.text and not content.title:
+        await wait_msg.edit_text(
+            "⚠️ No se pudo extraer contenido útil de ese enlace. "
+            "Prueba con otro URL o envía el texto manualmente."
+        )
+        return
+
+    await wait_msg.edit_text("🤖 Generando post con IA…")
+
+    async with AsyncSessionLocal() as db:
+        cfg_result = await db.execute(select(AppSettings).where(AppSettings.id == 1))
+        cfg = cfg_result.scalar_one_or_none()
+        custom_prompt = cfg.custom_prompt if cfg else None
+
+    try:
+        linkedin_text = await generate_linkedin_post_from_url_content(
+            url_content=content,
+            language=settings.post_language or "es",
+            custom_prompt=custom_prompt,
+        )
+    except Exception as e:
+        await wait_msg.edit_text(
+            f"❌ Error generando el post:\n`{e}`", parse_mode="Markdown"
+        )
+        return
+
+    if linkedin_text.startswith("[NO_PUBLICAR]"):
+        reason = linkedin_text.split(":", 1)[-1].strip()
+        await wait_msg.edit_text(
+            f"⚠️ Este contenido no es publicable:\n_{reason}_",
+            parse_mode="Markdown",
+        )
+        return
+
+    # Determinar tipo de media: imágenes del sitio o generar
+    if content.images:
+        media_type = "image"
+    else:
+        media_type = "generate"
+
+    post_data = {
+        "tweet_url": url,  # reutilizamos el campo tweet_url para la fuente
+        "tweet_text": (content.title or content.text[:200]),
+        "tweet_author": content.author or content.source_domain or "",
+        "linkedin_text": linkedin_text,
+        "media_type": media_type,
+        "image_urls": content.images or [],
+        "use_first_image": media_type == "image",
+        "pdf_url": None,
+        "document_title": "Documento",
     }
 
     await _show_preview(wait_msg, post_data, edit=True)
@@ -701,6 +879,10 @@ def _build_media_summary(post_data: dict) -> str:
     """Resumen de la multimedia que se adjuntará al publicar."""
     media_type = post_data["media_type"]
     lines = []
+
+    # Indicador de artículo largo de X
+    if post_data.get("is_article"):
+        lines.append("📰 *Tipo:* Artículo largo de X (contenido completo extraído)")
 
     if media_type == "video":
         lines.append("🎥 *Multimedia:* Video del tweet")
@@ -719,14 +901,15 @@ def _build_media_summary(post_data: dict) -> str:
     elif media_type == "image":
         image_urls = post_data.get("image_urls") or []
         n = len(image_urls)
-        lines.append(f"🖼️ *Multimedia:* {n} imagen{'es' if n != 1 else ''} del tweet")
+        source_label = "de la fuente" if not post_data.get("tweet_url", "").startswith("https://x.com") and not post_data.get("tweet_url", "").startswith("https://twitter.com") else "del tweet"
+        lines.append(f"🖼️ *Multimedia:* {n} imagen{'es' if n != 1 else ''} {source_label}")
         for i, url in enumerate(image_urls[:4], 1):
             lines.append(f"   └ [{i}] {url}")
         if n > 4:
             lines.append(f"   └ … y {n - 4} más")
 
     elif media_type == "generate":
-        lines.append("🎨 *Multimedia:* Sin imagen/video — Google Imagen generará una automáticamente")
+        lines.append("🎨 *Multimedia:* Sin imagen/video — Nano Banana Pro generará una imagen con IA")
 
     else:
         lines.append("📝 *Multimedia:* Sin adjunto")
@@ -830,6 +1013,74 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await _do_view_post(query, int(data.split(":")[1]))
     elif data.startswith("reschedule:"):
         await _do_reschedule_start(query, int(data.split(":")[1]))
+    elif data.startswith("proc_liked:"):
+        await _do_process_liked(query, int(data.split(":")[1]))
+
+
+async def _do_process_liked(query, liked_id: int):
+    """Re-procesa un liked tweet marcado como 'skipped', extrayendo contenido completo (incluyendo artículos)."""
+    from sqlalchemy import select
+    from ..database import AsyncSessionLocal
+    from ..models import XLikedTweet
+    from ..services.x_likes_monitor import process_liked_tweet
+
+    async with AsyncSessionLocal() as db:
+        result = await db.execute(select(XLikedTweet).where(XLikedTweet.id == liked_id))
+        liked = result.scalar_one_or_none()
+
+    if not liked:
+        await query.message.reply_text("⚠️ Like no encontrado.")
+        return
+
+    if liked.status not in ("skipped", "failed"):
+        await query.message.reply_text(
+            f"ℹ️ Este like ya tiene estado '{liked.status}'. Solo se pueden re-procesar los 'skipped' o 'failed'."
+        )
+        return
+
+    await query.edit_message_reply_markup(None)
+    status_msg = await query.message.reply_text(
+        f"⏳ Procesando tweet {liked.tweet_id}…\n"
+        f"_Esto puede tomar hasta 30 segundos mientras se extrae el contenido._",
+        parse_mode="Markdown",
+    )
+
+    # Cambiar estado a processing antes de procesar
+    async with AsyncSessionLocal() as db:
+        result = await db.execute(select(XLikedTweet).where(XLikedTweet.id == liked_id))
+        liked_row = result.scalar_one_or_none()
+        if liked_row:
+            liked_row.status = "processing"
+            liked_row.error_message = None
+            await db.commit()
+
+    try:
+        await process_liked_tweet(liked.tweet_id, liked.tweet_url, liked.tweet_author)
+    except Exception as e:
+        await status_msg.edit_text(f"❌ Error procesando el tweet:\n`{e}`", parse_mode="Markdown")
+        return
+
+    # Verificar resultado
+    async with AsyncSessionLocal() as db:
+        result = await db.execute(select(XLikedTweet).where(XLikedTweet.id == liked_id))
+        updated = result.scalar_one_or_none()
+
+    if updated and updated.status == "processed" and updated.post_id:
+        await status_msg.edit_text(
+            f"✅ Tweet procesado y programado como *Post #{updated.post_id}*",
+            parse_mode="Markdown",
+        )
+    elif updated and updated.status == "rejected":
+        await status_msg.edit_text(
+            f"⚠️ Tweet rechazado (no publicable):\n_{updated.error_message}_",
+            parse_mode="Markdown",
+        )
+    else:
+        error = updated.error_message if updated else "desconocido"
+        await status_msg.edit_text(
+            f"❌ No se pudo procesar el tweet.\nError: `{error}`",
+            parse_mode="Markdown",
+        )
 
 
 async def _do_quick_cmd(query, cmd: str):
@@ -921,13 +1172,15 @@ async def _do_quick_cmd(query, cmd: str):
     elif cmd == "help":
         await fake_update.reply_text(
             "📖 *Cómo usar el bot*\n\n"
-            "1. Envía un URL de tweet (x.com o twitter.com)\n"
-            "2. El bot genera el post de LinkedIn con IA\n"
-            "3. Elige: *Programar* / *Publicar ahora* / *Regenerar* / *Descartar*\n\n"
+            "1. Envía un URL de tweet (x.com) *o cualquier artículo web*\n"
+            "2. El bot extrae el contenido y genera el post de LinkedIn con IA\n"
+            "3. Si no hay imagen, se genera automáticamente con IA (Nano Banana Pro)\n"
+            "4. Elige: *Programar* / *Publicar ahora* / *Regenerar* / *Descartar*\n\n"
             "*Comandos:*\n"
             "/hoy — posts de hoy con opciones de edición\n"
             "/dia [DD/MM] — posts de cualquier día\n"
             "/pendientes — todos los posts en cola\n"
+            "/articulos — busca artículos largos de X entre tus likes pendientes\n"
             "/status — estado del sistema\n"
             "/start — bienvenida",
             parse_mode="Markdown",
@@ -1377,6 +1630,7 @@ async def start_bot():
     _application.add_handler(CommandHandler("dia", cmd_dia))
     _application.add_handler(CommandHandler("pendientes", cmd_pendientes))
     _application.add_handler(CommandHandler("status", cmd_status))
+    _application.add_handler(CommandHandler("articulos", cmd_articulos))
     _application.add_handler(
         MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message)
     )

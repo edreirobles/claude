@@ -27,6 +27,8 @@ class TweetData:
     paper_info: Optional[dict] = None
     has_video: bool = False
     pdf_url: Optional[str] = None
+    is_article: bool = False
+    article_content: str = ""  # Contenido completo si es un artículo largo de X
 
 
 def normalize_tweet_url(url: str) -> str:
@@ -183,6 +185,60 @@ async def _playwright_impl(url: str) -> TweetData | None:
                 all_video_els = await page.query_selector_all("video")
                 has_video = len(all_video_els) > 0
 
+            # ── Detección de artículos de X (long-form tweets) ─────────────────
+            is_article = False
+            article_content = ""
+
+            # Los artículos de X tienen un contenedor especial con el cuerpo del artículo
+            article_selectors = [
+                '[data-testid="articleBody"]',
+                '[data-testid="article-body"]',
+                '[data-testid="tweetArticle"]',
+            ]
+            for art_sel in article_selectors:
+                art_els = await page.query_selector_all(art_sel)
+                if art_els:
+                    parts = []
+                    for el in art_els:
+                        t = await el.inner_text()
+                        if t.strip():
+                            parts.append(t.strip())
+                    if parts:
+                        article_content = "\n\n".join(parts)
+                        is_article = True
+                        break
+
+            # Fallback: si hay un heading visible dentro del tweet, es artículo
+            if not is_article:
+                heading_els = await page.query_selector_all(
+                    '[data-testid="tweet"] h1, [data-testid="tweet"] h2'
+                )
+                if heading_els:
+                    is_article = True
+
+            # Fallback 2: si el tweet container tiene mucho más texto que tweetText,
+            # probablemente es un artículo con cuerpo expandido
+            if not is_article:
+                try:
+                    tweet_container = page.locator('[data-testid="tweet"]').first
+                    if await tweet_container.count() > 0:
+                        container_text = await tweet_container.inner_text()
+                        # Si el container tiene más de 3x el texto del tweet, hay contenido extra
+                        if len(container_text.strip()) > max(len(text) * 3, 800):
+                            is_article = True
+                            article_content = container_text.strip()
+                except Exception:
+                    pass
+
+            # Si es artículo pero no tenemos article_content aún, usar container completo
+            if is_article and not article_content:
+                try:
+                    tweet_container = page.locator('[data-testid="tweet"]').first
+                    if await tweet_container.count() > 0:
+                        article_content = (await tweet_container.inner_text()).strip()
+                except Exception:
+                    pass
+
             # Links en el texto
             links: list[str] = []
             link_els = await page.query_selector_all('[data-testid="tweetText"] a')
@@ -209,6 +265,8 @@ async def _playwright_impl(url: str) -> TweetData | None:
                 links=list(set(links)),
                 tweet_url=url,
                 has_video=has_video,
+                is_article=is_article,
+                article_content=article_content,
             )
 
 
