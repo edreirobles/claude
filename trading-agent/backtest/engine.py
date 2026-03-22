@@ -116,6 +116,7 @@ def run_backtest(df: pd.DataFrame, initial_capital: float = INITIAL_CAPITAL_MXN)
                 last_buy_price = None
 
         # ── Ejecutar señal ───────────────────────────────────────────────────
+        # Los umbrales dinámicos ya están aplicados dentro de compute_final_signal
         if decision == "BUY" and mxn >= MIN_TRADE_MXN:
             mxn_to_spend = _kelly_size(score, mxn)
             if mxn_to_spend >= MIN_TRADE_MXN:
@@ -124,18 +125,17 @@ def run_backtest(df: pd.DataFrame, initial_capital: float = INITIAL_CAPITAL_MXN)
                 usd += usd_recv
                 last_buy_price = price
                 trades.append(_trade("BUY", usd_recv, mxn_to_spend, price, date,
-                                     f"score={score:.3f}"))
+                                     f"score={score:.3f} regime={result['signals'].get('regime','')}"))
 
         elif decision == "SELL" and usd > 0:
-            sell_frac = max(0.1, min(1.0, 1.0 - score))
-            usd_sell  = usd * sell_frac
-            mxn_recv  = usd_sell * price
-            usd -= usd_sell
+            # Vender posición completa en una sola operación (evitar cascada de ventas)
+            usd_sell = usd
+            mxn_recv = usd_sell * price
+            usd  = 0.0
             mxn += mxn_recv
-            if usd < 1e-6:
-                last_buy_price = None
+            last_buy_price = None
             trades.append(_trade("SELL", usd_sell, mxn_recv, price, date,
-                                 f"score={score:.3f}"))
+                                 f"score={score:.3f} regime={result['signals'].get('regime','')}") )
 
         total = mxn + usd * price
         peak_total = max(peak_total, total)
