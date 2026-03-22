@@ -64,9 +64,10 @@ MR_LOOKBACK_DAYS    = 60           # Ventana para calcular la media histórica
 
 # ── Gestión de riesgo (Kelly Criterion) ─────────────────────────────────────
 KELLY_FRACTION      = 0.25         # Kelly fraccional (25% del Kelly completo)
+MIN_POSITION_PCT    = 0.40         # Mínimo a invertir cuando hay señal BUY (40% del capital)
 MAX_DRAWDOWN_PCT    = 0.15         # Stop total si drawdown > 15%
 STOP_LOSS_PCT       = 0.10         # Stop loss: 10% (USD/MXN corrige 6-8% en tendencia)
-TAKE_PROFIT_PCT     = 0.08         # Take profit: 8% (no usado en señal diaria, solo referencia)
+TAKE_PROFIT_PCT     = 0.08         # Take profit: 8% (referencia para Kelly b-ratio)
 
 # ── Telegram ─────────────────────────────────────────────────────────────────
 TELEGRAM_BOT_TOKEN  = os.getenv("TELEGRAM_BOT_TOKEN", "")

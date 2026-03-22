@@ -15,7 +15,7 @@ Kelly Criterion fraccional:
 import logging
 from config import (
     INITIAL_CAPITAL_MXN, MAX_POSITION_PCT, MIN_TRADE_MXN,
-    KELLY_FRACTION, MAX_DRAWDOWN_PCT, STOP_LOSS_PCT, TAKE_PROFIT_PCT,
+    KELLY_FRACTION, MIN_POSITION_PCT, MAX_DRAWDOWN_PCT, STOP_LOSS_PCT, TAKE_PROFIT_PCT,
     PAPER_TRADING, DB_PATH,
 )
 from storage.db import save_portfolio_snapshot, save_trade, get_last_portfolio
@@ -56,8 +56,10 @@ class Portfolio:
         kelly_full = (p * b - q) / b
         kelly_frac = kelly_full * KELLY_FRACTION
 
-        # Nunca invertir más del máximo permitido
-        kelly_frac = max(0.0, min(kelly_frac, MAX_POSITION_PCT))
+        # Mínimo garantizado cuando hay señal: MIN_POSITION_PCT del capital
+        # Evita que Kelly calcule posiciones ridículamente pequeñas con scores bajos
+        kelly_frac = max(kelly_frac, MIN_POSITION_PCT)
+        kelly_frac = min(kelly_frac, MAX_POSITION_PCT)
 
         mxn_to_invest = self.mxn * kelly_frac
         return mxn_to_invest

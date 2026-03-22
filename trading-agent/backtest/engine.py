@@ -20,7 +20,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from strategy.signals import compute_final_signal
 from config import (
     INITIAL_CAPITAL_MXN, MAX_POSITION_PCT, MIN_TRADE_MXN,
-    KELLY_FRACTION, STOP_LOSS_PCT, TAKE_PROFIT_PCT, MAX_DRAWDOWN_PCT,
+    KELLY_FRACTION, MIN_POSITION_PCT, STOP_LOSS_PCT, TAKE_PROFIT_PCT, MAX_DRAWDOWN_PCT,
     BUY_THRESHOLD, SELL_THRESHOLD,
     RSI_PERIOD, BB_PERIOD, MACD_SLOW,
 )
@@ -177,6 +177,7 @@ def _kelly_size(score: float, mxn_available: float) -> float:
     q = 1.0 - p
     b = TAKE_PROFIT_PCT / STOP_LOSS_PCT
     kelly = max(0.0, (p * b - q) / b) * KELLY_FRACTION
+    kelly = max(kelly, MIN_POSITION_PCT)   # mínimo 40% cuando hay señal
     kelly = min(kelly, MAX_POSITION_PCT)
     return mxn_available * kelly
 
