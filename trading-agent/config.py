@@ -33,9 +33,9 @@ SIGNAL_WEIGHTS = {
 }
 
 # Umbrales para ejecutar operaciones
-BUY_THRESHOLD       = 0.55         # Score > 0.55 → COMPRAR USD
-SELL_THRESHOLD      = 0.45         # Score < 0.45 → VENDER USD
-NEUTRAL_ZONE        = (0.45, 0.55) # Zona de no operación
+BUY_THRESHOLD       = 0.62         # Score > 0.62 → COMPRAR USD (más selectivo)
+SELL_THRESHOLD      = 0.38         # Score < 0.38 → VENDER USD (más selectivo)
+NEUTRAL_ZONE        = (0.38, 0.62) # Zona de no operación
 
 # RSI
 RSI_PERIOD          = 14
@@ -57,8 +57,8 @@ MR_LOOKBACK_DAYS    = 60           # Ventana para calcular la media histórica
 # ── Gestión de riesgo (Kelly Criterion) ─────────────────────────────────────
 KELLY_FRACTION      = 0.25         # Kelly fraccional (25% del Kelly completo)
 MAX_DRAWDOWN_PCT    = 0.15         # Stop total si drawdown > 15%
-STOP_LOSS_PCT       = 0.03         # Stop loss por operación: 3%
-TAKE_PROFIT_PCT     = 0.05         # Take profit: 5%
+STOP_LOSS_PCT       = 0.05         # Stop loss por operación: 5% (USD/MXN es volátil)
+TAKE_PROFIT_PCT     = 0.08         # Take profit: 8%
 
 # ── Telegram ─────────────────────────────────────────────────────────────────
 TELEGRAM_BOT_TOKEN  = os.getenv("TELEGRAM_BOT_TOKEN", "")
