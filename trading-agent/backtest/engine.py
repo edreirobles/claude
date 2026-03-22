@@ -84,7 +84,9 @@ def run_backtest(df: pd.DataFrame, initial_capital: float = INITIAL_CAPITAL_MXN)
         score  = result["score"]
         decision = result["decision"]
 
-        # ── Stop-loss / Take-profit intradiario ─────────────────────────────
+        # ── Stop-loss (wide, ATR-style para daily USD/MXN) ──────────────────
+        # USD/MXN puede corregir 6-8% en tendencia → SL estrecho genera ruido
+        # Usamos precio promedio ponderado de toda la posición como referencia
         if usd > 0 and last_buy_price:
             chg = (price - last_buy_price) / last_buy_price
             if chg < -STOP_LOSS_PCT:
@@ -95,14 +97,6 @@ def run_backtest(df: pd.DataFrame, initial_capital: float = INITIAL_CAPITAL_MXN)
                 usd  = 0.0
                 last_buy_price = None
                 decision = "SELL_SL"
-            elif chg > TAKE_PROFIT_PCT:
-                mxn_recv = usd * price
-                trades.append(_trade("SELL_TP", usd, mxn_recv, price, date,
-                                     f"Take-profit {chg*100:.2f}%"))
-                mxn += mxn_recv
-                usd  = 0.0
-                last_buy_price = None
-                decision = "SELL_TP"
 
         # ── Drawdown máximo ──────────────────────────────────────────────────
         dd = (peak_total - total) / peak_total if peak_total > 0 else 0
@@ -116,26 +110,30 @@ def run_backtest(df: pd.DataFrame, initial_capital: float = INITIAL_CAPITAL_MXN)
                 last_buy_price = None
 
         # ── Ejecutar señal ───────────────────────────────────────────────────
-        # Los umbrales dinámicos ya están aplicados dentro de compute_final_signal
-        if decision == "BUY" and mxn >= MIN_TRADE_MXN:
-            mxn_to_spend = _kelly_size(score, mxn)
-            if mxn_to_spend >= MIN_TRADE_MXN:
-                usd_recv = mxn_to_spend / price
-                mxn -= mxn_to_spend
-                usd += usd_recv
-                last_buy_price = price
-                trades.append(_trade("BUY", usd_recv, mxn_to_spend, price, date,
-                                     f"score={score:.3f} regime={result['signals'].get('regime','')}"))
+        # Posición binaria: o estás en MXN o en USD, nunca los dos.
+        # Evita acumulación en tendencia bajista y simplifica el riesgo.
+        regime = result["signals"].get("regime", "NEUTRAL")
+
+        if decision == "BUY" and usd == 0 and mxn >= MIN_TRADE_MXN:
+            # No comprar en régimen bajista (el precio sigue cayendo)
+            if regime != "BEARISH":
+                mxn_to_spend = min(_kelly_size(score, mxn), mxn)
+                if mxn_to_spend >= MIN_TRADE_MXN:
+                    usd_recv = mxn_to_spend / price
+                    mxn -= mxn_to_spend
+                    usd += usd_recv
+                    last_buy_price = price
+                    trades.append(_trade("BUY", usd_recv, mxn_to_spend, price, date,
+                                         f"score={score:.3f} regime={regime}"))
 
         elif decision == "SELL" and usd > 0:
-            # Vender posición completa en una sola operación (evitar cascada de ventas)
             usd_sell = usd
             mxn_recv = usd_sell * price
             usd  = 0.0
             mxn += mxn_recv
             last_buy_price = None
             trades.append(_trade("SELL", usd_sell, mxn_recv, price, date,
-                                 f"score={score:.3f} regime={result['signals'].get('regime','')}") )
+                                 f"score={score:.3f} regime={regime}"))
 
         total = mxn + usd * price
         peak_total = max(peak_total, total)

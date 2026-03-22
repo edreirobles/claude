@@ -71,8 +71,16 @@ class Portfolio:
             return False, "Capital insuficiente para operar"
         return True, "OK"
 
-    def buy_usd(self, score: float, price: float, reason: str) -> dict | None:
-        """Compra dólares con MXN."""
+    def buy_usd(self, score: float, price: float, reason: str,
+                regime: str = "NEUTRAL") -> dict | None:
+        """Compra dólares con MXN. Posición binaria: no compra si ya tiene USD."""
+        if self.usd > 0:
+            logger.info("Ya tienes USD, no se abre otra posición")
+            return None
+        if regime == "BEARISH":
+            logger.info("Régimen BEARISH: compra bloqueada")
+            return None
+
         ok, msg = self.can_trade(price)
         if not ok:
             logger.warning(f"Compra bloqueada: {msg}")

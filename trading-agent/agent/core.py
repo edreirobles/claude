@@ -102,6 +102,7 @@ def run_daily_analysis():
             score=signal_result["score"],
             price=price,
             reason=signal_result["reasoning"],
+            regime=signal_result["signals"].get("regime", "NEUTRAL"),
         )
     elif signal_result["decision"] == "SELL":
         trade_result = portfolio.sell_usd(
