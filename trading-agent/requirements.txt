@@ -1,0 +1,15 @@
+yfinance>=1.2.0
+pandas>=2.0.0
+numpy>=1.24.0
+python-telegram-bot>=21.0
+schedule>=1.2.0
+pytz>=2023.3
+requests>=2.31.0
+python-dotenv>=1.0.0
+curl-cffi>=0.7,<0.14
+websockets>=13.0
+platformdirs>=2.0.0
+protobuf>=3.19.0
+peewee>=3.16.2
+frozendict>=2.3.4
+beautifulsoup4>=4.11.1
