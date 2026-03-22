@@ -24,18 +24,26 @@ INTRADAY_INTERVAL   = 60           # Minutos entre checks intradiarios
 
 # ── Estrategia ───────────────────────────────────────────────────────────────
 # Pesos de cada señal en la decisión final (deben sumar 1.0)
+# Ajustados para USD/MXN: tendencia alcista estructural por diferencial inflación
 SIGNAL_WEIGHTS = {
-    "rsi":              0.25,
-    "macd":             0.20,
-    "bollinger":        0.25,
-    "mean_reversion":   0.20,
-    "macro_trend":      0.10,
+    "rsi":              0.30,   # Mejor detector de puntos de entrada/salida
+    "macd":             0.25,   # Confirmación de tendencia
+    "bollinger":        0.20,   # Timing de entrada
+    "mean_reversion":   0.10,   # Reducido: MXN no revierte tan limpiamente
+    "macro_trend":      0.15,   # Aumentado: filtro de dirección importante
 }
 
 # Umbrales para ejecutar operaciones
-BUY_THRESHOLD       = 0.62         # Score > 0.62 → COMPRAR USD (más selectivo)
-SELL_THRESHOLD      = 0.38         # Score < 0.38 → VENDER USD (más selectivo)
-NEUTRAL_ZONE        = (0.38, 0.62) # Zona de no operación
+BUY_THRESHOLD       = 0.60     # Score > 0.60 → COMPRAR USD
+SELL_THRESHOLD      = 0.32     # Score < 0.32 → VENDER USD (más difícil, USD tiende a subir)
+NEUTRAL_ZONE        = (0.32, 0.60)
+
+# Filtro de tendencia: SMA para detectar régimen (rango vs tendencia)
+# Ref: Elder, A. (1993). "Trading for a Living"
+TREND_SMA_FAST      = 20       # SMA corta
+TREND_SMA_SLOW      = 50       # SMA larga
+# Si precio > SMA50: mercado alcista → comprar más agresivo, vender menos
+# Si precio < SMA50: mercado bajista → comprar más conservador
 
 # RSI
 RSI_PERIOD          = 14

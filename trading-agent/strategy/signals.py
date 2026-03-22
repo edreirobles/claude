@@ -33,6 +33,7 @@ from config import (
     MR_LOOKBACK_DAYS,
     SIGNAL_WEIGHTS,
     BUY_THRESHOLD, SELL_THRESHOLD,
+    TREND_SMA_FAST, TREND_SMA_SLOW,
 )
 
 logger = logging.getLogger(__name__)
@@ -224,9 +225,39 @@ def macro_trend_signal(macro_context: dict) -> tuple[float, dict]:
 # Agregador: decisión final
 # ─────────────────────────────────────────────────────────────────────────────
 
+def trend_regime(closes: pd.Series) -> tuple[str, dict]:
+    """
+    Detecta el régimen del mercado usando cruce de SMAs.
+    Ref: Elder, A. (1993). "Trading for a Living"
+
+    BULLISH: precio > SMA20 > SMA50  → tendencia alcista fuerte
+    NEUTRAL: precio entre SMAs        → mercado de rango
+    BEARISH: precio < SMA20 < SMA50  → tendencia bajista
+
+    En régimen BULLISH: bajar umbral de venta (mantener USD)
+    En régimen BEARISH: bajar umbral de compra (ser cauteloso)
+    """
+    if len(closes) < TREND_SMA_SLOW + 1:
+        return "NEUTRAL", {"regime": "NEUTRAL", "sma_fast": None, "sma_slow": None}
+
+    sma_fast = float(closes.rolling(TREND_SMA_FAST).mean().iloc[-1])
+    sma_slow = float(closes.rolling(TREND_SMA_SLOW).mean().iloc[-1])
+    price    = float(closes.iloc[-1])
+
+    if price > sma_fast and sma_fast > sma_slow:
+        regime = "BULLISH"
+    elif price < sma_fast and sma_fast < sma_slow:
+        regime = "BEARISH"
+    else:
+        regime = "NEUTRAL"
+
+    return regime, {"regime": regime, "sma_fast": sma_fast, "sma_slow": sma_slow}
+
+
 def compute_final_signal(df: pd.DataFrame, macro_context: dict) -> dict:
     """
     Combina todas las señales con sus pesos y retorna la decisión final.
+    Aplica filtro de régimen de tendencia para ajustar umbrales dinámicamente.
 
     Returns:
         {
@@ -242,11 +273,12 @@ def compute_final_signal(df: pd.DataFrame, macro_context: dict) -> dict:
 
     closes = pd.to_numeric(df["close"], errors="coerce").dropna()
 
-    s_rsi,  meta_rsi  = rsi_signal(closes)
-    s_macd, meta_macd = macd_signal_score(closes)
-    s_bb,   meta_bb   = bollinger_signal(closes)
-    s_mr,   meta_mr   = mean_reversion_signal(closes)
-    s_mac,  meta_mac  = macro_trend_signal(macro_context)
+    s_rsi,  meta_rsi   = rsi_signal(closes)
+    s_macd, meta_macd  = macd_signal_score(closes)
+    s_bb,   meta_bb    = bollinger_signal(closes)
+    s_mr,   meta_mr    = mean_reversion_signal(closes)
+    s_mac,  meta_mac   = macro_trend_signal(macro_context)
+    regime, meta_reg   = trend_regime(closes)
 
     w = SIGNAL_WEIGHTS
     final_score = (
@@ -257,20 +289,34 @@ def compute_final_signal(df: pd.DataFrame, macro_context: dict) -> dict:
         w["macro_trend"]    * s_mac
     )
 
-    if final_score > BUY_THRESHOLD:
+    # Ajuste dinámico de umbrales según régimen
+    # En tendencia alcista: más difícil vender, más fácil comprar
+    # En tendencia bajista: más difícil comprar
+    buy_thresh  = BUY_THRESHOLD
+    sell_thresh = SELL_THRESHOLD
+    if regime == "BULLISH":
+        buy_thresh  -= 0.05   # 0.55 → comprar en más situaciones
+        sell_thresh -= 0.08   # 0.24 → solo vender en señal muy fuerte
+    elif regime == "BEARISH":
+        buy_thresh  += 0.05   # 0.65 → ser más selectivo al comprar
+        sell_thresh += 0.05   # 0.37 → vender más fácilmente
+
+    if final_score > buy_thresh:
         decision = "BUY"
-    elif final_score < SELL_THRESHOLD:
+    elif final_score < sell_thresh:
         decision = "SELL"
     else:
         decision = "HOLD"
 
     signals = {
-        **meta_rsi, **meta_macd, **meta_bb, **meta_mr, **meta_mac,
+        **meta_rsi, **meta_macd, **meta_bb, **meta_mr, **meta_mac, **meta_reg,
         "score_rsi":    s_rsi,
         "score_macd":   s_macd,
         "score_bb":     s_bb,
         "score_mr":     s_mr,
         "score_macro":  s_mac,
+        "buy_thresh":   buy_thresh,
+        "sell_thresh":  sell_thresh,
     }
 
     reasoning = _build_reasoning(decision, final_score, signals)
@@ -284,7 +330,10 @@ def compute_final_signal(df: pd.DataFrame, macro_context: dict) -> dict:
 
 
 def _build_reasoning(decision: str, score: float, signals: dict) -> str:
-    lines = [f"Decisión: {decision} (score={score:.3f})"]
+    regime_icon = {"BULLISH": "📈", "BEARISH": "📉", "NEUTRAL": "➡️"}.get(signals.get("regime", ""), "")
+    lines = [f"Decisión: {decision} (score={score:.3f})",
+             f"Régimen: {regime_icon} {signals.get('regime', 'N/A')} "
+             f"(umbral compra={signals.get('buy_thresh', 0):.2f} / venta={signals.get('sell_thresh', 0):.2f})"]
 
     rsi = signals.get("rsi_value")
     if rsi:

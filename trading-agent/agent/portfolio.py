@@ -128,9 +128,8 @@ class Portfolio:
             logger.info("Sin USD para vender")
             return None
 
-        sell_fraction = 1.0 - score
-        sell_fraction = max(0.1, min(1.0, sell_fraction))
-        usd_to_sell   = self.usd * sell_fraction
+        # Vender posición completa: evita cascada de ventas parciales
+        usd_to_sell = self.usd
 
         if not PAPER_TRADING:
             from data.bitso_client import BitsoClient
