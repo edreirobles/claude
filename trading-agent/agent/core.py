@@ -31,14 +31,18 @@ from agent.telegram_bot import (
     format_trade_notification, format_daily_report,
 )
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-    handlers=[
-        logging.FileHandler(LOG_PATH),
-        logging.StreamHandler(),
-    ]
-)
+import sys as _sys
+if hasattr(_sys.stdout, "reconfigure"):
+    _sys.stdout.reconfigure(encoding="utf-8")
+if hasattr(_sys.stderr, "reconfigure"):
+    _sys.stderr.reconfigure(encoding="utf-8")
+
+_fmt = logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s")
+_file_handler   = logging.FileHandler(LOG_PATH, encoding="utf-8")
+_stream_handler = logging.StreamHandler(_sys.stdout)
+_file_handler.setFormatter(_fmt)
+_stream_handler.setFormatter(_fmt)
+logging.basicConfig(level=logging.INFO, handlers=[_file_handler, _stream_handler])
 logger = logging.getLogger(__name__)
 
 # Estado global
