@@ -115,18 +115,19 @@ async function generatePost() {
   const url = urlInput.value.trim();
 
   if (!url) {
-    showError('generate-error', 'Por favor ingresa un URL de X/Twitter válido.');
+    showError('generate-error', 'Por favor ingresa un URL válido.');
     urlInput.focus();
     return;
   }
 
-  if (!/^https?:\/\/(www\.)?(twitter|x)\.com\/.+\/status\/\d+/.test(url)) {
-    showError('generate-error', 'El URL debe ser un enlace directo a un tweet. Ejemplo: https://x.com/usuario/status/123456');
+  if (!/^https?:\/\//i.test(url)) {
+    showError('generate-error', 'El URL debe comenzar con http:// o https://');
     return;
   }
 
   hideError('generate-error');
-  showLoading('Extrayendo contenido del tweet...');
+  const isTweet = /^https?:\/\/(www\.)?(twitter|x)\.com\/.+\/status\/\d+/i.test(url);
+  showLoading(isTweet ? 'Extrayendo contenido del tweet...' : 'Analizando contenido del enlace...');
 
   const language = document.getElementById('post-language').value;
 
