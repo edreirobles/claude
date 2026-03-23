@@ -1,0 +1,494 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AutoLearnAI - Mockup</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', system-ui, sans-serif; background: #0f0f13; color: #e8e8f0; min-height: 100vh; }
+
+  /* NAV */
+  nav { display: flex; align-items: center; justify-content: space-between; padding: 16px 40px; background: #0f0f13; border-bottom: 1px solid #1e1e2e; }
+  .logo { font-size: 20px; font-weight: 700; color: #a78bfa; letter-spacing: -0.5px; }
+  .logo span { color: #e8e8f0; }
+  nav .nav-links { display: flex; gap: 24px; font-size: 14px; color: #888; }
+  nav .nav-links a { color: #888; text-decoration: none; cursor: pointer; }
+  nav .nav-links a:hover { color: #e8e8f0; }
+
+  /* SCREENS */
+  .screen { display: none; padding: 40px; max-width: 960px; margin: 0 auto; }
+  .screen.active { display: block; }
+
+  /* SCREEN 1 — HERO */
+  .hero { text-align: center; padding: 80px 40px 60px; }
+  .hero h1 { font-size: 48px; font-weight: 800; line-height: 1.1; letter-spacing: -1px; }
+  .hero h1 span { background: linear-gradient(135deg, #a78bfa, #60a5fa); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+  .hero p { margin-top: 16px; color: #888; font-size: 18px; max-width: 480px; margin-left: auto; margin-right: auto; }
+  .input-box { margin-top: 40px; display: flex; gap: 12px; max-width: 600px; margin-left: auto; margin-right: auto; }
+  .input-box input { flex: 1; padding: 14px 20px; border-radius: 12px; border: 1px solid #2a2a3e; background: #1a1a2e; color: #e8e8f0; font-size: 16px; outline: none; }
+  .input-box input:focus { border-color: #a78bfa; }
+  .btn { padding: 14px 24px; background: linear-gradient(135deg, #a78bfa, #60a5fa); border: none; border-radius: 12px; color: white; font-weight: 600; cursor: pointer; font-size: 15px; white-space: nowrap; }
+  .btn:hover { opacity: 0.9; }
+  .btn-ghost { background: transparent; border: 1px solid #2a2a3e; color: #888; }
+  .btn-ghost:hover { border-color: #a78bfa; color: #a78bfa; background: transparent; }
+  .examples { margin-top: 16px; display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
+  .example-chip { padding: 6px 14px; background: #1a1a2e; border: 1px solid #2a2a3e; border-radius: 99px; font-size: 13px; color: #888; cursor: pointer; }
+  .example-chip:hover { border-color: #a78bfa; color: #a78bfa; }
+
+  /* SCREEN 2 — RESULTS */
+  .section-title { font-size: 13px; font-weight: 600; color: #a78bfa; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px; }
+  .result-query { font-size: 24px; font-weight: 700; margin-bottom: 8px; }
+  .result-sub { color: #888; font-size: 15px; margin-bottom: 32px; }
+
+  .tools-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 40px; }
+  .tool-card { background: #1a1a2e; border: 1px solid #2a2a3e; border-radius: 16px; padding: 20px; cursor: pointer; transition: all 0.2s; }
+  .tool-card:hover, .tool-card.selected { border-color: #a78bfa; background: #1e1a2e; }
+  .tool-card.sponsored { border-color: #60a5fa44; }
+  .tool-header { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+  .tool-icon { width: 40px; height: 40px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 20px; }
+  .tool-name { font-weight: 700; font-size: 16px; }
+  .tool-badge { font-size: 10px; padding: 2px 8px; border-radius: 99px; background: #60a5fa22; color: #60a5fa; margin-left: auto; }
+  .tool-desc { font-size: 13px; color: #888; line-height: 1.5; }
+  .tool-tags { margin-top: 12px; display: flex; gap: 6px; flex-wrap: wrap; }
+  .tag { font-size: 11px; padding: 3px 8px; background: #0f0f13; border-radius: 6px; color: #666; }
+  .tool-score { margin-top: 12px; display: flex; align-items: center; gap: 8px; }
+  .score-bar { flex: 1; height: 4px; background: #0f0f13; border-radius: 2px; }
+  .score-fill { height: 100%; border-radius: 2px; background: linear-gradient(90deg, #a78bfa, #60a5fa); }
+  .score-num { font-size: 12px; font-weight: 600; color: #a78bfa; }
+
+  .cta-row { display: flex; gap: 12px; align-items: center; }
+  .cta-label { color: #888; font-size: 14px; }
+
+  /* SCREEN 3 — DECK */
+  .deck-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 32px; }
+  .deck-meta { display: flex; gap: 16px; align-items: center; }
+  .deck-meta .pill { font-size: 12px; padding: 4px 12px; border-radius: 99px; background: #1a1a2e; border: 1px solid #2a2a3e; color: #888; }
+  .deck-meta .pill.active { background: #a78bfa22; border-color: #a78bfa; color: #a78bfa; }
+
+  .deck-container { background: #1a1a2e; border: 1px solid #2a2a3e; border-radius: 20px; overflow: hidden; }
+  .deck-slide { display: none; }
+  .deck-slide.active { display: block; }
+
+  /* slide types */
+  .slide-title { padding: 60px; background: linear-gradient(135deg, #1e1a2e, #1a1e2e); min-height: 340px; display: flex; flex-direction: column; justify-content: center; }
+  .slide-title .step-num { font-size: 12px; font-weight: 600; color: #a78bfa; text-transform: uppercase; letter-spacing: 2px; margin-bottom: 16px; }
+  .slide-title h2 { font-size: 36px; font-weight: 800; line-height: 1.2; margin-bottom: 16px; }
+  .slide-title p { color: #888; font-size: 16px; max-width: 560px; line-height: 1.6; }
+  .slide-title .slide-icon { font-size: 64px; margin-bottom: 24px; }
+
+  .slide-screenshot { display: grid; grid-template-columns: 1fr 1fr; min-height: 340px; }
+  .slide-screenshot .content { padding: 40px; display: flex; flex-direction: column; justify-content: center; }
+  .slide-screenshot .content .step-num { font-size: 11px; font-weight: 600; color: #a78bfa; text-transform: uppercase; letter-spacing: 2px; margin-bottom: 12px; }
+  .slide-screenshot .content h3 { font-size: 22px; font-weight: 700; margin-bottom: 12px; line-height: 1.3; }
+  .slide-screenshot .content p { color: #888; font-size: 14px; line-height: 1.6; margin-bottom: 16px; }
+  .slide-screenshot .screenshot { background: #0f0f13; border-left: 1px solid #2a2a3e; display: flex; align-items: center; justify-content: center; padding: 24px; position: relative; }
+  .screenshot-mock { background: #1a1a2e; border: 1px solid #2a2a3e; border-radius: 12px; width: 100%; padding: 16px; }
+  .mock-bar { display: flex; gap: 6px; margin-bottom: 12px; }
+  .mock-dot { width: 10px; height: 10px; border-radius: 50%; }
+  .mock-dot.r { background: #ff5f57; }
+  .mock-dot.y { background: #febc2e; }
+  .mock-dot.g { background: #28c840; }
+  .mock-content { background: #0f0f13; border-radius: 8px; padding: 12px; }
+  .mock-row { height: 8px; background: #2a2a3e; border-radius: 4px; margin-bottom: 8px; }
+  .mock-row.short { width: 60%; }
+  .mock-row.highlight { background: #a78bfa44; }
+  .mock-btn { margin-top: 12px; height: 28px; background: linear-gradient(135deg, #a78bfa44, #60a5fa44); border-radius: 6px; border: 1px solid #a78bfa; }
+  .screenshot-label { position: absolute; top: 12px; right: 12px; font-size: 10px; color: #444; background: #0f0f13; padding: 3px 8px; border-radius: 6px; border: 1px solid #1e1e2e; }
+
+  .slide-video { padding: 40px; min-height: 340px; display: flex; align-items: center; gap: 40px; }
+  .video-mock { width: 240px; flex-shrink: 0; aspect-ratio: 16/9; background: #0f0f13; border-radius: 12px; border: 1px solid #2a2a3e; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; cursor: pointer; position: relative; overflow: hidden; }
+  .video-mock::before { content: ''; position: absolute; inset: 0; background: linear-gradient(135deg, #a78bfa11, #60a5fa11); }
+  .play-btn { width: 48px; height: 48px; background: white; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 20px; position: relative; }
+  .video-dur { font-size: 11px; color: #666; position: relative; }
+  .video-content h3 { font-size: 22px; font-weight: 700; margin-bottom: 12px; }
+  .video-content p { color: #888; font-size: 14px; line-height: 1.6; }
+  .checklist { margin-top: 16px; display: flex; flex-direction: column; gap: 8px; }
+  .checklist li { list-style: none; font-size: 14px; color: #ccc; display: flex; gap: 8px; align-items: flex-start; }
+  .checklist li::before { content: '✓'; color: #a78bfa; font-weight: 700; margin-top: 1px; }
+
+  /* DECK NAV */
+  .deck-nav { display: flex; align-items: center; justify-content: space-between; padding: 16px 24px; background: #0f0f13; border-top: 1px solid #1e1e2e; }
+  .deck-progress { display: flex; gap: 6px; }
+  .progress-dot { width: 6px; height: 6px; border-radius: 50%; background: #2a2a3e; cursor: pointer; }
+  .progress-dot.active { background: #a78bfa; width: 20px; border-radius: 3px; }
+  .deck-nav-btns { display: flex; gap: 8px; }
+  .nav-btn { padding: 8px 20px; border-radius: 8px; font-size: 13px; font-weight: 600; border: none; cursor: pointer; }
+  .nav-btn.prev { background: #1a1a2e; border: 1px solid #2a2a3e; color: #888; }
+  .nav-btn.next { background: linear-gradient(135deg, #a78bfa, #60a5fa); color: white; }
+  .deck-counter { font-size: 13px; color: #666; }
+
+  /* SCREEN 4 — MORE */
+  .more-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+  .more-card { background: #1a1a2e; border: 1px solid #2a2a3e; border-radius: 16px; padding: 20px; cursor: pointer; }
+  .more-card:hover { border-color: #a78bfa44; }
+  .more-card h4 { font-size: 15px; font-weight: 600; margin-bottom: 6px; }
+  .more-card p { font-size: 13px; color: #888; line-height: 1.4; }
+  .more-card .arrow { margin-top: 16px; font-size: 20px; color: #a78bfa; }
+
+  /* FORMAT TABS */
+  .format-tabs { display: flex; gap: 8px; margin-bottom: 24px; }
+  .ftab { padding: 8px 16px; border-radius: 8px; font-size: 13px; font-weight: 500; background: #1a1a2e; border: 1px solid #2a2a3e; color: #888; cursor: pointer; }
+  .ftab.active { background: #a78bfa22; border-color: #a78bfa; color: #a78bfa; }
+
+  /* BREADCRUMB */
+  .breadcrumb { display: flex; align-items: center; gap: 8px; font-size: 13px; color: #666; margin-bottom: 24px; }
+  .breadcrumb span { color: #888; cursor: pointer; }
+  .breadcrumb span:hover { color: #a78bfa; }
+  .breadcrumb .sep { color: #333; }
+
+  /* TOOLTIP */
+  .tooltip { position: relative; display: inline-block; }
+  .tooltip .tip { visibility: hidden; background: #2a2a3e; color: #e8e8f0; font-size: 12px; padding: 6px 12px; border-radius: 8px; position: absolute; bottom: 130%; left: 50%; transform: translateX(-50%); white-space: nowrap; pointer-events: none; }
+  .tooltip:hover .tip { visibility: visible; }
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="logo">auto<span>learn</span>.ai</div>
+  <div class="nav-links">
+    <a onclick="goTo(1)">Inicio</a>
+    <a onclick="goTo(2)">Herramientas</a>
+    <a onclick="goTo(3)">Mi biblioteca</a>
+  </div>
+</nav>
+
+<!-- ===================== SCREEN 1: INPUT ===================== -->
+<div id="screen-1" class="screen active">
+  <div class="hero">
+    <h1>Aprende cualquier herramienta<br><span>de IA en 10 minutos.</span></h1>
+    <p>Dinos qué quieres automatizar y te conseguimos la herramienta + tutorial personalizado.</p>
+    <div class="input-box">
+      <input id="main-input" type="text" placeholder="Ej: quiero automatizar mis reportes de ventas…" />
+      <button class="btn" onclick="goTo(2)">→ Buscar</button>
+    </div>
+    <div class="examples">
+      <div class="example-chip" onclick="setInput('automatizar reportes de ventas'); goTo(2)">📊 reportes de ventas</div>
+      <div class="example-chip" onclick="setInput('crear contenido para redes'); goTo(2)">✍️ contenido para redes</div>
+      <div class="example-chip" onclick="setInput('responder emails automáticamente'); goTo(2)">📧 responder emails</div>
+      <div class="example-chip" onclick="setInput('transcribir reuniones'); goTo(2)">🎙️ transcribir reuniones</div>
+    </div>
+  </div>
+</div>
+
+<!-- ===================== SCREEN 2: RESULTS ===================== -->
+<div id="screen-2" class="screen">
+  <div class="breadcrumb">
+    <span onclick="goTo(1)">Inicio</span>
+    <span class="sep">›</span>
+    <span>Resultados</span>
+  </div>
+  <div class="section-title">Mejor match — catálogo Google + There's An AI For That</div>
+  <div class="result-query">Automatizar reportes de ventas</div>
+  <div class="result-sub">Encontramos 3 herramientas. La mejor opción para tu caso:</div>
+
+  <div class="tools-grid">
+    <div class="tool-card selected" onclick="selectTool(this)">
+      <div class="tool-header">
+        <div class="tool-icon" style="background:#7c3aed22">⚡</div>
+        <div>
+          <div class="tool-name">Make</div>
+          <div style="font-size:11px;color:#666">make.com</div>
+        </div>
+      </div>
+      <div class="tool-desc">Automatiza flujos completos sin código. Ideal para conectar CRM → Google Sheets → email.</div>
+      <div class="tool-tags">
+        <span class="tag">Sin código</span>
+        <span class="tag">Integraciones</span>
+        <span class="tag">Reportes</span>
+      </div>
+      <div class="tool-score">
+        <div class="score-bar"><div class="score-fill" style="width:92%"></div></div>
+        <div class="score-num">92%</div>
+      </div>
+    </div>
+
+    <div class="tool-card" onclick="selectTool(this)">
+      <div class="tool-header">
+        <div class="tool-icon" style="background:#0ea5e922">🔗</div>
+        <div>
+          <div class="tool-name">Zapier</div>
+          <div style="font-size:11px;color:#666">zapier.com</div>
+        </div>
+        <div class="tool-badge">Sponsor</div>
+      </div>
+      <div class="tool-desc">El estándar de automatización. 6,000+ apps conectadas. Más simple que Make.</div>
+      <div class="tool-tags">
+        <span class="tag">Popular</span>
+        <span class="tag">Fácil</span>
+        <span class="tag">6000+ apps</span>
+      </div>
+      <div class="tool-score">
+        <div class="score-bar"><div class="score-fill" style="width:85%"></div></div>
+        <div class="score-num">85%</div>
+      </div>
+    </div>
+
+    <div class="tool-card" onclick="selectTool(this)">
+      <div class="tool-header">
+        <div class="tool-icon" style="background:#10b98122">📊</div>
+        <div>
+          <div class="tool-name">n8n</div>
+          <div style="font-size:11px;color:#666">n8n.io</div>
+        </div>
+      </div>
+      <div class="tool-desc">Open source y self-hosted. Máximo control y sin límites. Requiere algo de setup.</div>
+      <div class="tool-tags">
+        <span class="tag">Open source</span>
+        <span class="tag">Gratis</span>
+        <span class="tag">Técnico</span>
+      </div>
+      <div class="tool-score">
+        <div class="score-bar"><div class="score-fill" style="width:78%"></div></div>
+        <div class="score-num">78%</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="cta-row">
+    <button class="btn" onclick="goTo(3)">Ver tutorial de Make →</button>
+    <span class="cta-label">Deck · Screenshots · Micro-video incluidos</span>
+  </div>
+</div>
+
+<!-- ===================== SCREEN 3: TUTORIAL DECK ===================== -->
+<div id="screen-3" class="screen">
+  <div class="breadcrumb">
+    <span onclick="goTo(1)">Inicio</span>
+    <span class="sep">›</span>
+    <span onclick="goTo(2)">Resultados</span>
+    <span class="sep">›</span>
+    <span>Tutorial Make</span>
+  </div>
+
+  <div class="deck-header">
+    <div>
+      <div class="section-title">Tutorial generado · Make.com</div>
+      <div style="font-size:22px;font-weight:700">Automatiza tus reportes de ventas</div>
+    </div>
+    <div class="deck-meta">
+      <div class="pill active">⚡ 10 min</div>
+      <div class="pill">Principiante</div>
+      <div class="pill">5 pasos</div>
+    </div>
+  </div>
+
+  <div class="format-tabs">
+    <div class="ftab active" onclick="setFormat(this,'deck')">🃏 Deck</div>
+    <div class="ftab" onclick="setFormat(this,'video')">🎬 Micro-video</div>
+    <div class="ftab" onclick="setFormat(this,'steps')">📋 Paso a paso</div>
+  </div>
+
+  <div class="deck-container">
+
+    <!-- Slide 1 -->
+    <div class="deck-slide active" id="slide-1">
+      <div class="slide-title">
+        <div class="slide-icon">⚡</div>
+        <div class="step-num">Bienvenida</div>
+        <h2>Automatiza tus reportes<br>de ventas con Make</h2>
+        <p>En 10 minutos vas a conectar tu CRM con Google Sheets y recibir un reporte automático cada lunes por email.</p>
+      </div>
+    </div>
+
+    <!-- Slide 2 -->
+    <div class="deck-slide" id="slide-2">
+      <div class="slide-screenshot">
+        <div class="content">
+          <div class="step-num">Paso 1 de 4</div>
+          <h3>Crea tu cuenta en Make</h3>
+          <p>Ve a make.com y regístrate gratis. No necesitas tarjeta. El plan gratuito incluye 1,000 operaciones/mes, más que suficiente para empezar.</p>
+          <ul class="checklist">
+            <li>Ir a make.com</li>
+            <li>Click en "Get started free"</li>
+            <li>Registrarse con Google</li>
+          </ul>
+        </div>
+        <div class="screenshot">
+          <div class="screenshot-mock">
+            <div class="mock-bar">
+              <div class="mock-dot r"></div>
+              <div class="mock-dot y"></div>
+              <div class="mock-dot g"></div>
+            </div>
+            <div style="font-size:10px;color:#666;margin-bottom:10px">make.com</div>
+            <div class="mock-content">
+              <div class="mock-row"></div>
+              <div class="mock-row short"></div>
+              <div class="mock-row"></div>
+              <div class="mock-row short highlight"></div>
+              <div class="mock-btn"></div>
+            </div>
+          </div>
+          <div class="screenshot-label">📸 Screenshot real al generar</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Slide 3 -->
+    <div class="deck-slide" id="slide-3">
+      <div class="slide-screenshot">
+        <div class="content">
+          <div class="step-num">Paso 2 de 4</div>
+          <h3>Crea un nuevo escenario</h3>
+          <p>Un "escenario" en Make es tu flujo de automatización. Haz click en el botón "+" para comenzar desde cero.</p>
+          <ul class="checklist">
+            <li>Dashboard → "Create a new scenario"</li>
+            <li>Buscar "Google Sheets" como primer módulo</li>
+            <li>Seleccionar "Watch rows"</li>
+          </ul>
+        </div>
+        <div class="screenshot">
+          <div class="screenshot-mock">
+            <div class="mock-bar">
+              <div class="mock-dot r"></div>
+              <div class="mock-dot y"></div>
+              <div class="mock-dot g"></div>
+            </div>
+            <div style="font-size:10px;color:#666;margin-bottom:10px">make.com/dashboard</div>
+            <div class="mock-content">
+              <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
+                <div style="width:32px;height:32px;border-radius:50%;background:linear-gradient(135deg,#a78bfa,#60a5fa);display:flex;align-items:center;justify-content:center;font-size:16px">+</div>
+                <div style="flex:1">
+                  <div class="mock-row" style="height:6px;margin:2px 0"></div>
+                  <div class="mock-row short" style="height:6px;margin:0"></div>
+                </div>
+              </div>
+              <div class="mock-row highlight"></div>
+              <div class="mock-row"></div>
+            </div>
+          </div>
+          <div class="screenshot-label">📸 Screenshot real al generar</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Slide 4 — VIDEO -->
+    <div class="deck-slide" id="slide-4">
+      <div class="slide-video">
+        <div class="video-mock" onclick="this.innerHTML='<div style=\'position:relative;z-index:1;font-size:28px\'>⏸</div><div style=\'position:relative;z-index:1;font-size:11px;color:#888\'>0:23 / 1:45</div>'">
+          <div class="play-btn">▶</div>
+          <div class="video-dur">1:45 min</div>
+        </div>
+        <div class="video-content">
+          <div class="step-num" style="font-size:11px;font-weight:600;color:#a78bfa;text-transform:uppercase;letter-spacing:2px;margin-bottom:12px">Paso 3 de 4 · Micro-video</div>
+          <h3>Conecta tu CRM</h3>
+          <p>Video de 1:45 min mostrando exactamente cómo autorizar la conexión entre Make y tu CRM (HubSpot, Pipedrive o cualquier otro).</p>
+          <ul class="checklist" style="margin-top:16px">
+            <li>Autorizar OAuth del CRM</li>
+            <li>Seleccionar los campos de ventas</li>
+            <li>Configurar el filtro de fechas</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+
+    <!-- Slide 5 -->
+    <div class="deck-slide" id="slide-5">
+      <div class="slide-title" style="background:linear-gradient(135deg,#1a2e1e,#1a2a1e)">
+        <div class="slide-icon">🎉</div>
+        <div class="step-num">¡Listo!</div>
+        <h2>Tu automatización<br>está activa</h2>
+        <p>Cada lunes a las 9am recibirás tu reporte de ventas en el email. ¿Qué quieres automatizar ahora?</p>
+      </div>
+    </div>
+
+    <!-- DECK NAV -->
+    <div class="deck-nav">
+      <button class="nav-btn prev" onclick="prevSlide()">← Anterior</button>
+      <div style="display:flex;flex-direction:column;align-items:center;gap:8px">
+        <div class="deck-progress" id="deck-progress"></div>
+        <div class="deck-counter" id="deck-counter">1 / 5</div>
+      </div>
+      <button class="nav-btn next" onclick="nextSlide()">Siguiente →</button>
+    </div>
+  </div>
+
+  <!-- SUGERENCIAS -->
+  <div style="margin-top:40px">
+    <div class="section-title">¿Qué más puedes hacer con Make?</div>
+    <div style="font-size:20px;font-weight:700;margin-bottom:20px">Tutoriales relacionados</div>
+    <div class="more-grid">
+      <div class="more-card" onclick="goTo(1)">
+        <h4>📧 Automatizar respuestas de email</h4>
+        <p>Conecta Gmail con Make para responder leads automáticamente.</p>
+        <div class="arrow">→</div>
+      </div>
+      <div class="more-card" onclick="goTo(1)">
+        <h4>📱 Publicar en redes sociales</h4>
+        <p>Programa y publica contenido en todas tus redes desde un Sheet.</p>
+        <div class="arrow">→</div>
+      </div>
+      <div class="more-card" onclick="goTo(1)">
+        <h4>🔔 Alertas de Slack desde tu CRM</h4>
+        <p>Recibe una notificación cada vez que cierras un deal.</p>
+        <div class="arrow">→</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  let currentSlide = 1;
+  const totalSlides = 5;
+
+  function goTo(n) {
+    document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+    document.getElementById('screen-' + n).classList.add('active');
+    if (n === 3) initDeck();
+    window.scrollTo(0, 0);
+  }
+
+  function setInput(val) {
+    document.getElementById('main-input').value = val;
+  }
+
+  function selectTool(el) {
+    document.querySelectorAll('.tool-card').forEach(c => c.classList.remove('selected'));
+    el.classList.add('selected');
+  }
+
+  function setFormat(el, fmt) {
+    document.querySelectorAll('.ftab').forEach(t => t.classList.remove('active'));
+    el.classList.add('active');
+  }
+
+  function initDeck() {
+    currentSlide = 1;
+    renderDeck();
+  }
+
+  function renderDeck() {
+    document.querySelectorAll('.deck-slide').forEach((s, i) => {
+      s.classList.toggle('active', i + 1 === currentSlide);
+    });
+    const prog = document.getElementById('deck-progress');
+    prog.innerHTML = '';
+    for (let i = 1; i <= totalSlides; i++) {
+      const d = document.createElement('div');
+      d.className = 'progress-dot' + (i === currentSlide ? ' active' : '');
+      d.onclick = () => { currentSlide = i; renderDeck(); };
+      prog.appendChild(d);
+    }
+    document.getElementById('deck-counter').textContent = currentSlide + ' / ' + totalSlides;
+  }
+
+  function nextSlide() {
+    if (currentSlide < totalSlides) { currentSlide++; renderDeck(); }
+  }
+
+  function prevSlide() {
+    if (currentSlide > 1) { currentSlide--; renderDeck(); }
+  }
+
+  // keyboard nav
+  document.addEventListener('keydown', e => {
+    if (e.key === 'ArrowRight') nextSlide();
+    if (e.key === 'ArrowLeft') prevSlide();
+  });
+
+  initDeck();
+</script>
+</body>
+</html>
