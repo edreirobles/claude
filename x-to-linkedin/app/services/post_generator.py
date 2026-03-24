@@ -231,8 +231,8 @@ async def generate_linkedin_post_from_url_content(
 
 def _build_image_prompt(linkedin_text: str) -> str:
     """
-    Construye un prompt visual compacto a partir del texto del post de LinkedIn.
-    Extrae la primera línea (gancho) y añade estilo profesional.
+    Prompt de imagen genérico como fallback (sin llamada a Claude).
+    Se usa cuando no hay API key o falla la versión inteligente.
     """
     first_line = linkedin_text.strip().split("\n")[0][:180]
     return (
@@ -243,6 +243,37 @@ def _build_image_prompt(linkedin_text: str) -> str:
     )
 
 
+async def _build_image_prompt_smart(linkedin_text: str) -> str:
+    """
+    Usa Claude para generar un prompt de imagen específico y relevante
+    al contenido del post. Produce imágenes mucho más contextuales.
+    """
+    client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
+    try:
+        msg = await client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=200,
+            messages=[{
+                "role": "user",
+                "content": (
+                    "Based on this LinkedIn post, write a concise image generation prompt "
+                    "(max 120 words) for a professional illustration or infographic. "
+                    "The image must be directly relevant to the post's topic. "
+                    "Style: clean, professional, no text in the image, no people's faces, "
+                    "suitable for a LinkedIn post. Output only the prompt, nothing else.\n\n"
+                    f"POST:\n{linkedin_text[:1200]}"
+                ),
+            }],
+            timeout=20.0,
+        )
+        prompt = msg.content[0].text.strip()
+        if prompt:
+            return prompt
+    except Exception as e:
+        logger.warning(f"_build_image_prompt_smart falló, usando fallback: {e}")
+    return _build_image_prompt(linkedin_text)
+
+
 async def generate_free_image(linkedin_text: str) -> Optional[bytes]:
     """
     Genera una imagen para el post usando:
@@ -250,7 +281,7 @@ async def generate_free_image(linkedin_text: str) -> Optional[bytes]:
     2. Google Gemini 2.0 Flash image generation (fallback con la misma key)
     3. Pollinations.ai (fallback gratuito sin key)
     """
-    img_prompt = _build_image_prompt(linkedin_text)
+    img_prompt = await _build_image_prompt_smart(linkedin_text)
     key = settings.google_api_key
 
     if key:
@@ -417,7 +448,7 @@ async def generate_nano_banana_image(linkedin_text: str) -> Optional[bytes]:
     2. Google Imagen 3
     3. Pollinations.ai (fallback gratuito)
     """
-    img_prompt = _build_image_prompt(linkedin_text)
+    img_prompt = await _build_image_prompt_smart(linkedin_text)
     key = settings.google_api_key
 
     if key:
