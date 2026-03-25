@@ -252,15 +252,18 @@ async def _build_image_prompt_smart(linkedin_text: str) -> str:
     try:
         msg = await client.messages.create(
             model="claude-haiku-4-5-20251001",
-            max_tokens=200,
+            max_tokens=220,
             messages=[{
                 "role": "user",
                 "content": (
-                    "Based on this LinkedIn post, write a concise image generation prompt "
-                    "(max 120 words) for a professional illustration or infographic. "
-                    "The image must be directly relevant to the post's topic. "
-                    "Style: clean, professional, no text in the image, no people's faces, "
-                    "suitable for a LinkedIn post. Output only the prompt, nothing else.\n\n"
+                    "Based on this LinkedIn post, write an image generation prompt "
+                    "for a professional visual (illustration or diagram). Rules:\n"
+                    "- Describe a SPECIFIC scene or visualization directly related to the topic\n"
+                    "- NO text, letters, words, or numbers in the image\n"
+                    "- NO human faces or recognizable people\n"
+                    "- Style: clean professional infographic, minimalist, suitable for LinkedIn\n"
+                    "- Be concrete: describe shapes, colors, objects, metaphors — not just 'abstract tech'\n"
+                    "- Max 100 words. Output ONLY the prompt, nothing else.\n\n"
                     f"POST:\n{linkedin_text[:1200]}"
                 ),
             }],
@@ -268,6 +271,7 @@ async def _build_image_prompt_smart(linkedin_text: str) -> str:
         )
         prompt = msg.content[0].text.strip()
         if prompt:
+            logger.info(f"Image prompt generado: {prompt[:120]}…")
             return prompt
     except Exception as e:
         logger.warning(f"_build_image_prompt_smart falló, usando fallback: {e}")
