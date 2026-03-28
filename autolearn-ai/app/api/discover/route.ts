@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { discoverTools } from "@/lib/discovery";
 import { rankToolsForNeed } from "@/lib/claude";
 import { createServerClient } from "@/lib/supabase";
+import { isMockMode, MOCK_TOOLS } from "@/lib/mock";
 import type { DiscoverRequest, DiscoverResponse, Tool } from "@/types";
 
 export async function POST(req: NextRequest) {
@@ -9,6 +10,15 @@ export async function POST(req: NextRequest) {
 
   if (!need?.trim()) {
     return NextResponse.json({ error: "need is required" }, { status: 400 });
+  }
+
+  // Demo mode — no API keys required
+  if (isMockMode()) {
+    return NextResponse.json({
+      tools: MOCK_TOOLS,
+      query: need,
+      demo: true,
+    } satisfies DiscoverResponse & { demo: boolean });
   }
 
   // 1. Get tool candidates

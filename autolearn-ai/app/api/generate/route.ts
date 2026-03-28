@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { generateTutorialSlides } from "@/lib/claude";
 import { createServerClient } from "@/lib/supabase";
+import { isMockMode, getMockTutorial } from "@/lib/mock";
 import type { GenerateRequest, GenerateResponse, Tutorial } from "@/types";
 import { createHash } from "crypto";
 
@@ -9,6 +10,14 @@ export async function POST(req: NextRequest) {
 
   if (!need?.trim() || !tool) {
     return NextResponse.json({ error: "need and tool are required" }, { status: 400 });
+  }
+
+  // Demo mode — no API keys required
+  if (isMockMode()) {
+    return NextResponse.json({
+      tutorial: getMockTutorial(need, tool),
+      demo: true,
+    });
   }
 
   const cacheKey = createHash("md5")
