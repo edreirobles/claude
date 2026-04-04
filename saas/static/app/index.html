@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Dashboard — X to LinkedIn</title>
+  <title>Dashboard — PostLinked</title>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -283,7 +283,7 @@
 <!-- Auth screen -->
 <div id="auth-screen" class="hidden">
   <div class="auth-card">
-    <div class="auth-logo">X → LinkedIn</div>
+    <div class="auth-logo">PostLinked</div>
 
     <div class="tg-auth-box">
       <div class="tg-icon">✈️</div>
@@ -308,9 +308,25 @@
       <form onsubmit="handleLogin(event)">
         <label>Email</label>
         <input type="email" id="login-email" required placeholder="tu@email.com"/>
-        <label>Contraseña</label>
+        <div style="display:flex;justify-content:space-between;align-items:center;">
+          <label style="margin-bottom:0;">Contraseña</label>
+          <a onclick="showForgotTab()" style="font-size:12px;color:var(--blue);cursor:pointer;font-weight:500;margin-bottom:.3rem;">¿Olvidaste tu contraseña?</a>
+        </div>
         <input type="password" id="login-password" required placeholder="••••••••"/>
         <button type="submit" class="btn btn-primary btn-full">Entrar</button>
+      </form>
+    </div>
+
+    <div id="forgot-form" class="hidden">
+      <form onsubmit="handleForgot(event)">
+        <p style="font-size:.88rem;color:var(--gray-500);margin-bottom:1rem;">Ingresa tu email y te enviaremos un enlace para restablecer tu contraseña.</p>
+        <label>Email</label>
+        <input type="email" id="forgot-email" required placeholder="tu@email.com"/>
+        <div id="forgot-ok" class="alert alert-success hidden" style="margin-bottom:.75rem;"></div>
+        <button type="submit" class="btn btn-primary btn-full">Enviar enlace</button>
+        <div style="text-align:center;margin-top:.75rem;font-size:.82rem;">
+          <a onclick="showLoginTab()" style="color:var(--blue);cursor:pointer;font-weight:500;">← Volver a iniciar sesión</a>
+        </div>
       </form>
     </div>
 
@@ -333,7 +349,7 @@
 
   <!-- Sidebar -->
   <aside class="sidebar" id="sidebar">
-    <div class="sidebar-logo">X → LinkedIn</div>
+    <div class="sidebar-logo">PostLinked</div>
     <nav class="sidebar-nav">
       <a class="nav-item active" data-page="overview" onclick="showPage('overview')">
         <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
@@ -678,6 +694,7 @@ function showLoginTab() {
   document.querySelectorAll('.auth-tab').forEach((t, i) => t.classList.toggle('active', i === 0));
   document.getElementById('login-form').classList.remove('hidden');
   document.getElementById('register-form').classList.add('hidden');
+  document.getElementById('forgot-form').classList.add('hidden');
   document.getElementById('auth-error').classList.add('hidden');
 }
 
@@ -685,7 +702,36 @@ function showRegisterTab() {
   document.querySelectorAll('.auth-tab').forEach((t, i) => t.classList.toggle('active', i === 1));
   document.getElementById('login-form').classList.add('hidden');
   document.getElementById('register-form').classList.remove('hidden');
+  document.getElementById('forgot-form').classList.add('hidden');
   document.getElementById('auth-error').classList.add('hidden');
+}
+
+function showForgotTab() {
+  document.querySelectorAll('.auth-tab').forEach(t => t.classList.remove('active'));
+  document.getElementById('login-form').classList.add('hidden');
+  document.getElementById('register-form').classList.add('hidden');
+  document.getElementById('forgot-form').classList.remove('hidden');
+  document.getElementById('forgot-ok').classList.add('hidden');
+  document.getElementById('auth-error').classList.add('hidden');
+}
+
+async function handleForgot(e) {
+  e.preventDefault();
+  const email = document.getElementById('forgot-email').value.trim();
+  const okEl = document.getElementById('forgot-ok');
+  okEl.classList.add('hidden');
+  document.getElementById('auth-error').classList.add('hidden');
+  try {
+    await fetch('/auth/forgot-password', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email }),
+    });
+    okEl.textContent = 'Si el email está registrado, recibirás el enlace en breve.';
+    okEl.classList.remove('hidden');
+  } catch (err) {
+    showAuthError('Error al enviar. Intenta de nuevo.');
+  }
 }
 
 function showAuthError(msg) {
@@ -752,6 +798,7 @@ async function loadDashboard() {
 
   document.getElementById('loading-screen').classList.add('hidden');
   document.getElementById('app-screen').classList.remove('hidden');
+  document.getElementById('app-footer').style.display = 'flex';
 
   // Cargar prompts también
   try {
@@ -1045,5 +1092,26 @@ function showToast(msg, type = 'success') {
 // ---- Boot ----
 init();
 </script>
+
+<style>
+  .app-footer {
+    margin-left: var(--sidebar-w);
+    padding: 16px 2rem;
+    border-top: 1px solid var(--gray-200);
+    font-size: .75rem;
+    color: var(--gray-400);
+    display: flex;
+    gap: 16px;
+    align-items: center;
+  }
+  .app-footer a { color: var(--gray-400); text-decoration: none; }
+  .app-footer a:hover { color: var(--blue); }
+  #auth-screen ~ .app-footer { display: none; }
+</style>
+<footer class="app-footer" id="app-footer" style="display:none;">
+  <span>© 2025 PostLinked</span>
+  <a href="/terms.html" target="_blank">Términos</a>
+  <a href="/privacy.html" target="_blank">Privacidad</a>
+</footer>
 </body>
 </html>

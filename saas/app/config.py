@@ -22,6 +22,10 @@ class Settings(BaseSettings):
     stripe_price_id_influencer: str = ""  # $6/mes — plan Influencer
     stripe_price_id_top_voice: str = ""   # $9/mes — plan Top Voice
 
+    # Email (Resend)
+    resend_api_key: str = ""
+    from_email: str = "PostLinked <noreply@postlinked.com>"
+
     # App
     app_url: str = "http://localhost:8001"
     environment: str = "development"

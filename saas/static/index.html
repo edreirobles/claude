@@ -270,7 +270,7 @@
 </section>
 
 <footer>
-  <p>© 2025 PostLinked · edreirobles.com · Todos los derechos reservados</p>
+  <p>© 2025 PostLinked · edreirobles.com &nbsp;·&nbsp; <a href="/terms.html" style="color:inherit;">Términos de Servicio</a> &nbsp;·&nbsp; <a href="/privacy.html" style="color:inherit;">Política de Privacidad</a></p>
 </footer>
 
 <!-- MODAL AUTH -->
@@ -291,10 +291,25 @@
       <h2>Bienvenido de vuelta</h2>
       <p>Ingresa a tu cuenta para continuar.</p>
       <div class="form-group"><label>Email</label><input type="email" id="login-email" placeholder="tu@email.com" /></div>
-      <div class="form-group"><label>Contraseña</label><input type="password" id="login-password" placeholder="Tu contraseña" /></div>
+      <div class="form-group">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.3rem;">
+          <label style="margin-bottom:0;">Contraseña</label>
+          <a onclick="switchModal('forgot')" style="font-size:12px;color:#0A66C2;cursor:pointer;font-weight:500;">¿Olvidaste tu contraseña?</a>
+        </div>
+        <input type="password" id="login-password" placeholder="Tu contraseña" />
+      </div>
       <div class="error-msg" id="login-error"></div>
       <button class="btn btn-primary btn-lg" onclick="doLogin()"><span id="login-spinner" class="spinner" style="display:none"></span>Iniciar sesión</button>
       <div class="modal-switch">¿No tienes cuenta? <a onclick="switchModal('register')">Regístrate gratis</a></div>
+    </div>
+    <div id="forgotForm" style="display:none">
+      <h2>Recuperar contraseña</h2>
+      <p>Ingresa tu email y te enviaremos un enlace para crear una nueva contraseña.</p>
+      <div class="form-group"><label>Email</label><input type="email" id="forgot-email" placeholder="tu@email.com" /></div>
+      <div class="error-msg" id="forgot-error"></div>
+      <div class="error-msg" id="forgot-ok" style="background:#D1FAE5;color:#065F46;border-radius:6px;padding:10px 12px;font-size:13px;display:none;"></div>
+      <button class="btn btn-primary btn-lg" onclick="doForgot()"><span id="forgot-spinner" class="spinner" style="display:none"></span>Enviar enlace</button>
+      <div class="modal-switch"><a onclick="switchModal('login')">← Volver a iniciar sesión</a></div>
     </div>
   </div>
 </div>
@@ -305,6 +320,7 @@
   function switchModal(type) {
     document.getElementById('registerForm').style.display = type === 'register' ? 'block' : 'none';
     document.getElementById('loginForm').style.display = type === 'login' ? 'block' : 'none';
+    document.getElementById('forgotForm').style.display = type === 'forgot' ? 'block' : 'none';
   }
   document.getElementById('authModal').addEventListener('click', function(e) { if (e.target === this) closeModal(); });
 
@@ -359,6 +375,22 @@
   }
 
   function toggleFaq(el) { el.closest('.faq-item').classList.toggle('open'); }
+
+  async function doForgot() {
+    const email = document.getElementById('forgot-email').value.trim();
+    const errEl = document.getElementById('forgot-error');
+    const okEl = document.getElementById('forgot-ok');
+    const spinner = document.getElementById('forgot-spinner');
+    errEl.style.display = 'none'; okEl.style.display = 'none';
+    if (!email) { errEl.textContent = 'Ingresa tu email.'; errEl.style.display = 'block'; return; }
+    spinner.style.display = 'inline-block';
+    try {
+      const res = await fetch('/auth/forgot-password', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email }) });
+      okEl.textContent = 'Si el email está registrado, recibirás el enlace en breve. Revisa tu bandeja de entrada.';
+      okEl.style.display = 'block';
+    } catch (e) { errEl.textContent = 'Error al enviar. Intenta de nuevo.'; errEl.style.display = 'block'; }
+    finally { spinner.style.display = 'none'; }
+  }
 </script>
 </body>
 </html>

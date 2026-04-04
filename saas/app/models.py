@@ -103,6 +103,18 @@ class Subscription(Base):
         return max(0, self.monthly_limit - self.posts_used_this_month)
 
 
+class PasswordResetToken(Base):
+    """Token de un solo uso para recuperar contraseña."""
+    __tablename__ = "password_reset_tokens"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), nullable=False)
+    token: Mapped[str] = mapped_column(String(128), unique=True, nullable=False, index=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    used: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
 class PostLog(Base):
     """Historial de cada post generado."""
     __tablename__ = "post_logs"
