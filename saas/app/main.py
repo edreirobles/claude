@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from app.database import init_db
-from app.routers import auth, billing, posts
+from app.routers import auth, billing, linkedin, posts
 
 scheduler = AsyncIOScheduler(timezone="UTC")
 
@@ -32,7 +32,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="PostLinked — X to LinkedIn SaaS",
+    title="Linkr — X to LinkedIn SaaS",
     description="Transforma cualquier URL en publicaciones profesionales para LinkedIn",
     version="2.0.0",
     lifespan=lifespan,
@@ -49,6 +49,7 @@ app.add_middleware(
 app.include_router(auth.router)
 app.include_router(billing.router)
 app.include_router(posts.router)
+app.include_router(linkedin.router)
 
 app.mount("/", StaticFiles(directory="static", html=True), name="static")
 

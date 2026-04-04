@@ -4,6 +4,8 @@ Modelos de la base de datos del SaaS.
 Tablas:
   - users: clientes (identificados por email)
   - subscriptions: plan y estado de pago (Stripe)
+  - linkedin_credentials: token OAuth de LinkedIn por usuario
+  - password_reset_tokens: tokens de recuperación de contraseña
   - post_logs: historial de posts generados
 """
 
@@ -49,6 +51,7 @@ class User(Base):
 
     subscription: Mapped["Subscription"] = relationship(back_populates="user", uselist=False)
     logs: Mapped[list["PostLog"]] = relationship(back_populates="user")
+    linkedin: Mapped["LinkedInCredential"] = relationship(back_populates="user", uselist=False)
 
     @property
     def display_name(self) -> str:
@@ -101,6 +104,25 @@ class Subscription(Base):
         if self.plan == SubscriptionPlan.FREEMIUM:
             return max(0, 5 - self.freemium_posts_used)
         return max(0, self.monthly_limit - self.posts_used_this_month)
+
+
+class LinkedInCredential(Base):
+    """Token OAuth de LinkedIn para publicación directa."""
+    __tablename__ = "linkedin_credentials"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), unique=True, nullable=False)
+
+    access_token: Mapped[str] = mapped_column(String(2000), nullable=False)
+    person_id: Mapped[str] = mapped_column(String(255), nullable=False)   # LinkedIn person URN id
+    person_name: Mapped[str] = mapped_column(String(255), nullable=True)
+    person_email: Mapped[str] = mapped_column(String(255), nullable=True)
+
+    expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    user: Mapped["User"] = relationship(back_populates="linkedin")
 
 
 class PasswordResetToken(Base):

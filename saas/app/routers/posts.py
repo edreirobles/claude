@@ -1,8 +1,9 @@
 """
 Rutas para generación de posts de LinkedIn.
 
-  POST /posts/generate   → Genera un post a partir de una URL
-  GET  /posts/history    → Historial de posts del usuario
+  POST /posts/generate      → Genera un post a partir de una URL
+  POST /posts/{id}/publish  → Publica un post directamente en LinkedIn
+  GET  /posts/history       → Historial de posts del usuario
 """
 
 import logging
@@ -15,7 +16,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import get_current_user
 from app.database import get_db
-from app.models import PostLog, Subscription, SubscriptionPlan, User
+from app.models import LinkedInCredential, PostLog, Subscription, SubscriptionPlan, User
+from app.services.linkedin_client import LinkedInClient
 from app.services.post_generator import (
     build_image_prompt,
     generate_image_with_google,
@@ -145,3 +147,59 @@ async def get_post_history(
         }
         for log in logs
     ]
+
+
+@router.post("/{log_id}/publish")
+async def publish_to_linkedin(
+    log_id: int,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Publica un post generado directamente en LinkedIn usando el token OAuth del usuario.
+    """
+    # 1. Obtener el log del post
+    log_result = await db.execute(
+        select(PostLog).where(PostLog.id == log_id, PostLog.user_id == current_user.id)
+    )
+    log = log_result.scalar_one_or_none()
+    if not log:
+        raise HTTPException(status_code=404, detail="Post no encontrado.")
+    if not log.linkedin_post_text:
+        raise HTTPException(status_code=400, detail="El post no tiene contenido.")
+
+    # 2. Obtener credenciales de LinkedIn
+    cred_result = await db.execute(
+        select(LinkedInCredential).where(LinkedInCredential.user_id == current_user.id)
+    )
+    cred = cred_result.scalar_one_or_none()
+    if not cred:
+        raise HTTPException(
+            status_code=403,
+            detail="No tienes LinkedIn conectado. Ve a Configuración para conectar tu cuenta.",
+        )
+
+    from datetime import datetime
+    if cred.expires_at and cred.expires_at < datetime.utcnow():
+        raise HTTPException(
+            status_code=403,
+            detail="Tu sesión de LinkedIn expiró. Ve a Configuración para reconectar.",
+        )
+
+    # 3. Publicar en LinkedIn
+    li = LinkedInClient(access_token=cred.access_token, person_urn=cred.person_id)
+    try:
+        image_urls = [log.generated_image_url] if log.generated_image_url else None
+        result = await li.create_post(
+            text=log.linkedin_post_text,
+            image_urls=image_urls,
+        )
+    except Exception as e:
+        logger.error(f"Error publicando en LinkedIn para usuario {current_user.id}: {e}")
+        raise HTTPException(status_code=500, detail="Error al publicar en LinkedIn. Intenta de nuevo.")
+
+    # 4. Actualizar estado en el log
+    log.status = "published"
+    await db.commit()
+
+    return {"published": True, "linkedin_post_id": result.get("post_id", "")}

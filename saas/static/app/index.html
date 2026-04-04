@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Dashboard — PostLinked</title>
+  <title>Dashboard — Linkr</title>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -283,7 +283,7 @@
 <!-- Auth screen -->
 <div id="auth-screen" class="hidden">
   <div class="auth-card">
-    <div class="auth-logo">PostLinked</div>
+    <div class="auth-logo">Linkr</div>
 
     <div class="tg-auth-box">
       <div class="tg-icon">✈️</div>
@@ -349,7 +349,7 @@
 
   <!-- Sidebar -->
   <aside class="sidebar" id="sidebar">
-    <div class="sidebar-logo">PostLinked</div>
+    <div class="sidebar-logo">Linkr</div>
     <nav class="sidebar-nav">
       <a class="nav-item active" data-page="overview" onclick="showPage('overview')">
         <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
@@ -396,45 +396,61 @@
     <!-- PAGE: Overview -->
     <div id="page-overview" class="page">
       <div class="page-header">
-        <h1>Resumen</h1>
-        <p>Tu actividad y estado de automatización</p>
+        <h1>Generar post</h1>
+        <p>Pega cualquier URL y obtén un post profesional para LinkedIn en segundos</p>
       </div>
 
+      <!-- Stats -->
       <div class="stats-grid">
         <div class="stat-card">
-          <div class="stat-value" id="stat-total">—</div>
-          <div class="stat-label">Posts publicados</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-value" id="stat-month">—</div>
-          <div class="stat-label">Este mes</div>
+          <div class="stat-value" id="stat-remaining">—</div>
+          <div class="stat-label">Posts restantes</div>
         </div>
         <div class="stat-card">
           <div class="stat-value" id="stat-plan">—</div>
-          <div class="stat-label">Plan actual</div>
+          <div class="stat-label">Plan</div>
         </div>
         <div class="stat-card">
-          <div class="stat-value" id="stat-automation">—</div>
-          <div class="stat-label">Automatización</div>
+          <div class="stat-value" id="stat-li-status">—</div>
+          <div class="stat-label">LinkedIn</div>
         </div>
       </div>
 
-      <!-- Plan card -->
+      <!-- Generador -->
       <div class="card">
+        <div class="card-header"><span class="card-title">Nueva publicación</span></div>
+        <div style="display:flex;gap:.75rem;align-items:flex-start">
+          <input type="url" id="gen-url" placeholder="https://..." style="flex:1;margin-bottom:0"/>
+          <button class="btn btn-primary" onclick="generatePost()" id="gen-btn" style="flex-shrink:0;white-space:nowrap">
+            <span id="gen-spinner" class="spinner" style="display:none"></span>
+            Generar post
+          </button>
+        </div>
+        <p style="font-size:.78rem;color:var(--gray-400);margin-top:.5rem">
+          Funciona con artículos, X/Twitter, Medium, Substack, noticias y más.
+        </p>
+      </div>
+
+      <!-- Resultado -->
+      <div class="card hidden" id="gen-result">
         <div class="card-header">
-          <span class="card-title">Suscripción</span>
-          <div id="plan-badges"></div>
-        </div>
-        <div class="plan-info">
-          <div class="plan-details">
-            <h3 id="plan-name">—</h3>
-            <p id="plan-desc">—</p>
-            <div class="progress-bar" id="progress-wrap" style="display:none">
-              <div class="progress-fill" id="progress-fill"></div>
-            </div>
+          <span class="card-title" id="gen-result-source">Post generado</span>
+          <div style="display:flex;gap:.5rem">
+            <button class="btn btn-sm btn-secondary" onclick="copyPost()">Copiar</button>
+            <button class="btn btn-sm btn-primary" onclick="publishCurrentPost()" id="publish-btn">
+              Publicar en LinkedIn
+            </button>
           </div>
-          <div id="plan-actions"></div>
         </div>
+        <div style="display:flex;gap:1.25rem;flex-wrap:wrap">
+          <div style="flex:1;min-width:260px">
+            <textarea id="gen-post-text" rows="10" style="font-size:.88rem;line-height:1.65;resize:vertical"></textarea>
+          </div>
+          <div id="gen-image-wrap" class="hidden" style="flex-shrink:0">
+            <img id="gen-image" src="" alt="Imagen generada" style="width:200px;border-radius:10px;object-fit:cover"/>
+          </div>
+        </div>
+        <p id="posts-remaining-msg" style="font-size:.78rem;color:var(--gray-400);margin-top:.75rem"></p>
       </div>
 
       <!-- Recent posts preview -->
@@ -446,8 +462,8 @@
         <div id="recent-posts-content">
           <div class="empty-state">
             <div class="empty-icon">📭</div>
-            <h3>Sin actividad aún</h3>
-            <p>Configura tus cuentas y activa la automatización.</p>
+            <h3>Sin posts aún</h3>
+            <p>Pega una URL arriba para generar tu primer post.</p>
           </div>
         </div>
       </div>
@@ -456,15 +472,15 @@
     <!-- PAGE: Posts -->
     <div id="page-posts" class="page hidden">
       <div class="page-header">
-        <h1>Posts</h1>
-        <p>Historial completo de publicaciones generadas y métricas de LinkedIn</p>
+        <h1>Historial</h1>
+        <p>Todos los posts generados — haz clic en uno para publicarlo en LinkedIn</p>
       </div>
       <div class="card">
         <div id="posts-content">
           <div class="empty-state">
             <div class="empty-icon">📭</div>
             <h3>Sin posts aún</h3>
-            <p>La automatización generará posts aquí cuando encuentre tweets nuevos.</p>
+            <p>Ve a Inicio y genera tu primer post pegando una URL.</p>
           </div>
         </div>
       </div>
@@ -474,87 +490,55 @@
     <div id="page-config" class="page hidden">
       <div class="page-header">
         <h1>Configuración</h1>
-        <p>Conecta tus cuentas y ajusta la automatización</p>
+        <p>Conecta tu cuenta de LinkedIn para publicar directamente</p>
       </div>
 
-      <!-- Cuentas -->
+      <!-- LinkedIn OAuth -->
       <div class="card">
         <div class="card-header">
-          <span class="card-title">Cuentas</span>
+          <span class="card-title">LinkedIn</span>
+          <span id="li-status-badge"></span>
         </div>
-        <form onsubmit="saveCredentials(event)">
-          <div class="config-grid">
-            <div class="field-group">
-              <label>Username de X (sin @)</label>
-              <input type="text" id="x-username" placeholder="ej: elonmusk"/>
-              <p class="field-hint">La cuenta pública de X que queremos monitorear.</p>
-            </div>
-            <div class="field-group">
-              <label>LinkedIn Person ID</label>
-              <input type="text" id="linkedin-person-id" placeholder="urn:li:person:..."/>
-              <p class="field-hint">Encuentra el tuyo en tu perfil de LinkedIn → ver código fuente.</p>
-            </div>
-            <div class="field-group span-2">
-              <label>LinkedIn Access Token</label>
-              <input type="text" id="linkedin-token" placeholder="Pega tu token aquí (se guarda cifrado)"/>
-              <p class="field-hint" id="linkedin-token-hint">Obtén el token desde LinkedIn Developer Portal con scope w_member_social.</p>
+
+        <!-- Estado: desconectado -->
+        <div id="li-disconnected">
+          <p style="font-size:.9rem;color:var(--gray-500);margin-bottom:1.25rem;line-height:1.6">
+            Conecta tu cuenta de LinkedIn para publicar posts directamente desde Linkr,
+            sin necesidad de copiar y pegar.
+          </p>
+          <button class="btn btn-primary" onclick="connectLinkedIn()" id="li-connect-btn">
+            <svg width="16" height="16" viewBox="0 0 32 32" style="margin-right:6px"><rect width="32" height="32" rx="6" fill="white" fill-opacity=".2"/><path d="M8 12h4v12H8zM10 10.5a2 2 0 1 0 0-4 2 2 0 0 0 0 4zM14 12h4v1.6c.6-1 1.8-1.8 3.4-1.8 3.2 0 4.6 2 4.6 5.4V24h-4v-6c0-1.6-.6-2.8-2-2.8s-2.2 1.2-2.2 2.8v6h-3.8V12z" fill="white"/></svg>
+            Conectar LinkedIn
+          </button>
+        </div>
+
+        <!-- Estado: conectado -->
+        <div id="li-connected" class="hidden">
+          <div style="display:flex;align-items:center;gap:1rem;padding:.75rem 1rem;background:var(--green-light);border-radius:10px;margin-bottom:1rem">
+            <div style="font-size:1.4rem">✅</div>
+            <div>
+              <div style="font-weight:700;font-size:.9rem;color:#065F46" id="li-person-name">LinkedIn conectado</div>
+              <div style="font-size:.8rem;color:#047857" id="li-person-email"></div>
             </div>
           </div>
-          <button type="submit" class="btn btn-primary">Guardar cuentas</button>
-        </form>
+          <button class="btn btn-danger btn-sm" onclick="disconnectLinkedIn()">Desconectar LinkedIn</button>
+        </div>
       </div>
 
-      <!-- Automatización -->
+      <!-- Prompt personalizado -->
       <div class="card">
-        <div class="card-header">
-          <span class="card-title">Automatización</span>
-        </div>
-        <div class="toggle-row">
-          <div>
-            <div class="toggle-label">Activar automatización</div>
-            <div class="toggle-desc">El sistema revisará X cada cierto tiempo y publicará en LinkedIn.</div>
-          </div>
-          <label class="switch">
-            <input type="checkbox" id="automation-enabled" onchange="saveAutomation()"/>
-            <span class="slider"></span>
-          </label>
-        </div>
-        <div class="toggle-row">
-          <div>
-            <div class="toggle-label">Frecuencia de revisión</div>
-            <div class="toggle-desc">Cada cuántas horas revisar la cuenta de X.</div>
-          </div>
-          <select id="post-frequency" onchange="saveAutomation()" style="width:auto;margin:0">
-            <option value="6">Cada 6 horas</option>
-            <option value="12">Cada 12 horas</option>
-            <option value="24" selected>Cada 24 horas</option>
-            <option value="48">Cada 48 horas</option>
-          </select>
-        </div>
-      </div>
-
-      <!-- Prompt personalizado (solo Pro) -->
-      <div class="card" id="prompt-card">
         <div class="card-header">
           <span class="card-title">Prompt de IA</span>
-          <span id="prompt-plan-badge"></span>
         </div>
-        <div id="prompt-content">
-          <p style="font-size:.9rem;color:var(--gray-500);margin-bottom:1rem">
-            Personaliza cómo Claude AI adapta tus tweets para LinkedIn.
-          </p>
-          <label>Prompt personalizado <span style="color:var(--gray-400);font-weight:400">(dejar vacío = usar el default)</span></label>
-          <textarea id="custom-prompt" rows="5" placeholder="Ej: Adapta el tweet al estilo corporativo, en inglés, con hashtags relevantes..."></textarea>
-          <div style="display:flex;gap:.75rem;align-items:center">
-            <button onclick="savePrompt()" class="btn btn-primary">Guardar prompt</button>
-            <button onclick="resetPrompt()" class="btn btn-secondary btn-sm">Restaurar default</button>
-          </div>
-        </div>
-        <div id="prompt-upgrade-msg" class="hidden">
-          <div class="alert alert-warning" style="margin:0">
-            El prompt personalizado es exclusivo del plan Pro.
-            <button onclick="showPage('billing')" class="btn btn-pro btn-sm" style="margin-left:.75rem">Upgrade $10/mes</button>
-          </div>
+        <p style="font-size:.9rem;color:var(--gray-500);margin-bottom:1rem;line-height:1.6">
+          Personaliza cómo Claude AI transforma el contenido para LinkedIn.
+          Deja vacío para usar el prompt por defecto.
+        </p>
+        <label>Instrucciones personalizadas</label>
+        <textarea id="custom-prompt" rows="5" placeholder="Ej: Usa un tono más formal, incluye siempre una pregunta al final, evita emojis..."></textarea>
+        <div style="display:flex;gap:.75rem;align-items:center">
+          <button onclick="savePrompt()" class="btn btn-primary">Guardar</button>
+          <button onclick="resetPrompt()" class="btn btn-secondary btn-sm">Restaurar default</button>
         </div>
       </div>
     </div>
@@ -783,16 +767,28 @@ function logout() {
 }
 
 // ---- Dashboard ----
+let billingData = null;
+let liStatus = null;
+let currentLogId = null;
+
 async function loadDashboard() {
   document.getElementById('loading-screen').classList.remove('hidden');
   document.getElementById('auth-screen').classList.add('hidden');
   document.getElementById('app-screen').classList.add('hidden');
 
-  dashData = await apiFetch('/dashboard');
+  const [user, billing, liSt] = await Promise.all([
+    apiFetch('/auth/me'),
+    apiFetch('/billing/status'),
+    apiFetch('/linkedin/status').catch(() => ({ connected: false })),
+  ]);
+
+  dashData = { user };
+  billingData = billing;
+  liStatus = liSt;
 
   renderSidebar();
   renderOverview();
-  await renderPosts(dashData.recent_logs);
+  await renderPosts(null);
   renderConfig();
   renderBilling();
 
@@ -800,11 +796,24 @@ async function loadDashboard() {
   document.getElementById('app-screen').classList.remove('hidden');
   document.getElementById('app-footer').style.display = 'flex';
 
-  // Cargar prompts también
+  // Cargar prompt personalizado
   try {
-    const settings = await apiFetch('/dashboard/settings');
-    document.getElementById('custom-prompt').value = settings.custom_prompt || '';
+    const s = await apiFetch('/dashboard/settings');
+    document.getElementById('custom-prompt').value = s.custom_prompt || '';
   } catch {}
+
+  // Banner de LinkedIn conectado/error si viene del callback
+  const params = new URLSearchParams(window.location.search);
+  if (params.get('linkedin') === 'connected') {
+    showToast('LinkedIn conectado correctamente', 'success');
+    history.replaceState({}, '', '/app/');
+    liStatus = await apiFetch('/linkedin/status').catch(() => ({ connected: false }));
+    renderConfig();
+    renderOverview();
+  } else if (params.get('linkedin') === 'error') {
+    showToast('Error al conectar LinkedIn. Intenta de nuevo.', 'error');
+    history.replaceState({}, '', '/app/');
+  }
 }
 
 function renderSidebar() {
@@ -812,91 +821,35 @@ function renderSidebar() {
   const name = u.display_name;
   document.getElementById('sidebar-name').textContent = name;
   document.getElementById('user-avatar').textContent = name.charAt(0).toUpperCase();
-
-  const sub = dashData.subscription;
-  const isPro = sub && sub.plan === 'pro';
-  document.getElementById('sidebar-plan').textContent = isPro ? 'Plan Pro' : 'Plan Free';
+  const planLabels = { freemium: 'Free', influencer: 'Influencer', top_voice: 'Top Voice' };
+  document.getElementById('sidebar-plan').textContent = planLabels[billingData?.plan] || 'Free';
 }
 
 function renderOverview() {
-  const sub = dashData.subscription;
-  const creds = dashData.credentials;
-
-  // Stats
-  document.getElementById('stat-total').textContent = dashData.total_posts_published;
-  document.getElementById('stat-month').textContent = sub
-    ? (sub.plan === 'pro' ? `${sub.posts_used_this_month}` : `${sub.posts_used_this_month}/${sub.free_posts_limit}`)
-    : '0';
-  document.getElementById('stat-plan').textContent = sub && sub.plan === 'pro' ? 'Pro' : 'Free';
-  document.getElementById('stat-automation').textContent = creds && creds.automation_enabled ? 'Activa' : 'Inactiva';
-
-  // Plan card
-  if (sub) {
-    const isPro = sub.plan === 'pro';
-    document.getElementById('plan-badges').innerHTML =
-      `<span class="badge badge-${sub.plan}">${isPro ? 'Pro' : 'Free'}</span>
-       <span class="badge badge-${sub.status}" style="margin-left:.4rem">${sub.status}</span>`;
-
-    document.getElementById('plan-name').textContent = isPro ? 'Plan Pro — $10/mes' : 'Plan Free';
-
-    if (isPro) {
-      const exp = sub.current_period_end
-        ? `Próxima renovación: ${new Date(sub.current_period_end).toLocaleDateString('es')}`
-        : 'Posts ilimitados';
-      document.getElementById('plan-desc').textContent =
-        sub.status === 'past_due' ? '⚠️ Pago pendiente — actualiza tu tarjeta' : exp;
-      document.getElementById('progress-wrap').style.display = 'none';
-      document.getElementById('plan-actions').innerHTML =
-        `<button class="btn btn-outline" onclick="manageSubscription()">Gestionar suscripción</button>`;
-    } else {
-      const pct = Math.round((sub.posts_used_this_month / sub.free_posts_limit) * 100);
-      document.getElementById('plan-desc').textContent =
-        `${sub.posts_used_this_month} de ${sub.free_posts_limit} posts usados este mes`;
-      document.getElementById('progress-wrap').style.display = 'block';
-      const fill = document.getElementById('progress-fill');
-      fill.style.width = `${Math.min(pct, 100)}%`;
-      fill.className = 'progress-fill' + (pct >= 100 ? ' danger' : pct >= 70 ? ' warning' : '');
-      document.getElementById('plan-actions').innerHTML =
-        `<button class="btn btn-pro" onclick="upgrade()">Upgrade a Pro — $10/mes</button>`;
-    }
+  const b = billingData;
+  if (b) {
+    document.getElementById('stat-remaining').textContent = b.posts_remaining ?? '—';
+    const planLabels = { freemium: 'Free', influencer: 'Influencer', top_voice: 'Top Voice' };
+    document.getElementById('stat-plan').textContent = planLabels[b.plan] || b.plan;
   }
-
-  // Recent posts preview (last 5)
-  const logs = dashData.recent_logs.slice(0, 5);
-  if (logs.length === 0) {
-    document.getElementById('recent-posts-content').innerHTML = `
-      <div class="empty-state">
-        <div class="empty-icon">📭</div>
-        <h3>Sin actividad aún</h3>
-        <p>Configura tus cuentas y activa la automatización.</p>
-        <button class="btn btn-primary" style="margin-top:1rem" onclick="showPage('config')">Configurar ahora</button>
-      </div>`;
-  } else {
-    document.getElementById('recent-posts-content').innerHTML = renderPostsTable(logs);
-  }
+  document.getElementById('stat-li-status').textContent = liStatus?.connected ? '✅ Conectado' : '—';
 }
 
 async function renderPosts(logs) {
   if (!logs) {
-    try {
-      const allLogs = await apiFetch('/dashboard/logs?limit=50');
-      logs = allLogs;
-    } catch {
-      logs = [];
-    }
+    try { logs = await apiFetch('/posts/history'); }
+    catch { logs = []; }
   }
 
   if (logs.length === 0) {
-    document.getElementById('posts-content').innerHTML = `
-      <div class="empty-state">
-        <div class="empty-icon">📭</div>
-        <h3>Sin posts aún</h3>
-        <p>Los posts generados por la automatización aparecerán aquí.</p>
-      </div>`;
+    const emptyHtml = `<div class="empty-state"><div class="empty-icon">📭</div><h3>Sin posts aún</h3><p>Pega una URL en Inicio para generar tu primer post.</p></div>`;
+    document.getElementById('posts-content').innerHTML = emptyHtml;
+    document.getElementById('recent-posts-content').innerHTML = emptyHtml;
     return;
   }
 
   document.getElementById('posts-content').innerHTML = `<div class="table-wrap">${renderPostsTable(logs)}</div>`;
+  document.getElementById('recent-posts-content').innerHTML = `<div class="table-wrap">${renderPostsTable(logs.slice(0, 5))}</div>`;
 }
 
 function renderPostsTable(logs) {
@@ -904,36 +857,27 @@ function renderPostsTable(logs) {
     <thead>
       <tr>
         <th>Fecha</th>
-        <th>Tweet</th>
+        <th>Fuente</th>
         <th>Estado</th>
-        <th>Métricas</th>
+        <th></th>
       </tr>
     </thead>
     <tbody>
       ${logs.map(log => `
         <tr>
-          <td style="white-space:nowrap;color:var(--gray-500);font-size:.82rem">${new Date(log.created_at).toLocaleDateString('es', {day:'2-digit',month:'short',year:'2-digit'})}</td>
+          <td style="white-space:nowrap;color:var(--gray-500);font-size:.82rem">
+            ${new Date(log.created_at).toLocaleDateString('es', {day:'2-digit',month:'short',year:'2-digit'})}
+          </td>
           <td class="tweet-snippet">
-            ${log.tweet_url
-              ? `<a href="${log.tweet_url}" target="_blank">${(log.tweet_text || log.tweet_url).slice(0, 70)}${(log.tweet_text||'').length > 70 ? '…' : ''}</a>`
-              : (log.tweet_text || '—').slice(0, 70)
-            }
+            ${log.source_url
+              ? `<a href="${log.source_url}" target="_blank" rel="noopener">${(log.source_title || log.source_url).slice(0,65)}…</a>`
+              : '—'}
           </td>
           <td><span class="badge badge-${log.status}">${log.status}</span></td>
           <td>
-            <div class="metrics-cell">
-              ${log.status === 'published' ? `
-                <span class="metric">
-                  <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
-                  ${log.li_likes ?? '—'}
-                </span>
-                <span class="metric">
-                  <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-                  ${log.li_comments ?? '—'}
-                </span>
-                <button class="refresh-btn" onclick="refreshMetrics(${log.id})">↻</button>
-              ` : log.error_message ? `<span style="font-size:.78rem;color:var(--red)">${log.error_message.slice(0,60)}</span>` : '—'}
-            </div>
+            ${log.status !== 'published'
+              ? `<button class="btn btn-sm btn-outline" onclick="publishPost(${log.id}, this)">Publicar en LinkedIn</button>`
+              : '<span style="font-size:.78rem;color:var(--green)">✓ Publicado</span>'}
           </td>
         </tr>
       `).join('')}
@@ -942,44 +886,41 @@ function renderPostsTable(logs) {
 }
 
 function renderConfig() {
-  const creds = dashData.credentials;
-  if (creds) {
-    document.getElementById('x-username').value = creds.x_username || '';
-    document.getElementById('linkedin-person-id').value = creds.linkedin_person_id || '';
-    document.getElementById('automation-enabled').checked = creds.automation_enabled;
-    document.getElementById('post-frequency').value = creds.post_frequency_hours || 24;
-    if (creds.has_linkedin_token) {
-      document.getElementById('linkedin-token-hint').textContent = '✓ Token guardado — pega uno nuevo solo si quieres reemplazarlo.';
-    }
-  }
-
-  // Prompt: solo Pro
-  const isPro = dashData.subscription && dashData.subscription.plan === 'pro';
-  if (isPro) {
-    document.getElementById('prompt-plan-badge').innerHTML = '<span class="badge badge-pro">Pro</span>';
-    document.getElementById('prompt-content').classList.remove('hidden');
-    document.getElementById('prompt-upgrade-msg').classList.add('hidden');
-    document.getElementById('custom-prompt').disabled = false;
-  } else {
-    document.getElementById('prompt-plan-badge').innerHTML = '<span class="badge badge-free">Solo Pro</span>';
-    document.getElementById('prompt-content').classList.add('hidden');
-    document.getElementById('prompt-upgrade-msg').classList.remove('hidden');
+  const connected = liStatus?.connected;
+  document.getElementById('li-disconnected').classList.toggle('hidden', !!connected);
+  document.getElementById('li-connected').classList.toggle('hidden', !connected);
+  if (connected) {
+    document.getElementById('li-person-name').textContent = liStatus.person_name || 'LinkedIn conectado';
+    document.getElementById('li-person-email').textContent = liStatus.person_email || '';
   }
 }
 
 function renderBilling() {
-  const sub = dashData.subscription;
+  const sub = billingData;
   if (!sub) return;
 
-  const isPro = sub.plan === 'pro';
-  document.getElementById('billing-plan-name').textContent = isPro ? 'Plan Pro' : 'Plan Free';
-  document.getElementById('billing-plan-desc').textContent = isPro
-    ? (sub.current_period_end ? `Próxima renovación: ${new Date(sub.current_period_end).toLocaleDateString('es')}` : 'Posts ilimitados')
-    : `${sub.posts_used_this_month} / ${sub.free_posts_limit} posts usados este mes`;
+  const planLabels = { freemium: 'Free', influencer: 'Influencer', top_voice: 'Top Voice' };
+  const planName = planLabels[sub.plan] || sub.plan;
+  document.getElementById('billing-plan-name').textContent = `Plan ${planName}`;
 
-  document.getElementById('billing-actions').innerHTML = isPro
-    ? `<button class="btn btn-outline" onclick="manageSubscription()">Gestionar suscripción</button>`
-    : `<button class="btn btn-pro" onclick="upgrade()">Upgrade a Pro — $10/mes</button>`;
+  if (sub.plan === 'freemium') {
+    document.getElementById('billing-plan-desc').textContent = `${sub.freemium_posts_used} de 5 posts de por vida usados`;
+  } else {
+    const exp = sub.current_period_end
+      ? `Próxima renovación: ${new Date(sub.current_period_end).toLocaleDateString('es')}`
+      : '';
+    document.getElementById('billing-plan-desc').textContent =
+      `${sub.posts_used_this_month} / ${sub.monthly_limit} posts este mes. ${exp}`;
+  }
+
+  const actionsEl = document.getElementById('billing-actions');
+  if (sub.plan === 'freemium') {
+    actionsEl.innerHTML = `
+      <button class="btn btn-primary btn-sm" onclick="checkout('influencer')">Influencer — $6/mes</button>
+      <button class="btn btn-outline btn-sm" onclick="checkout('top_voice')" style="margin-left:.5rem">Top Voice — $9/mes</button>`;
+  } else {
+    actionsEl.innerHTML = `<button class="btn btn-outline" onclick="manageSubscription()">Gestionar suscripción</button>`;
+  }
 }
 
 // ---- Navigation ----
@@ -989,47 +930,131 @@ function showPage(page) {
   document.getElementById(`page-${page}`).classList.remove('hidden');
   document.querySelector(`[data-page="${page}"]`).classList.add('active');
 
-  // Reload posts when switching to posts page
-  if (page === 'posts') {
-    renderPosts(null);
-  }
+  if (page === 'posts') renderPosts(null);
 }
 
-// ---- Actions ----
-async function saveCredentials(e) {
-  e.preventDefault();
+// ---- Post generation ----
+async function generatePost() {
+  const url = document.getElementById('gen-url').value.trim();
+  if (!url) { showToast('Ingresa una URL', 'error'); return; }
+
+  const btn = document.getElementById('gen-btn');
+  const spinner = document.getElementById('gen-spinner');
+  btn.disabled = true;
+  spinner.style.display = 'inline-block';
+
   try {
-    const token = document.getElementById('linkedin-token').value;
-    await apiFetch('/dashboard/credentials', {
-      method: 'PUT',
-      body: JSON.stringify({
-        x_username: document.getElementById('x-username').value || null,
-        linkedin_access_token: token || null,
-        linkedin_person_id: document.getElementById('linkedin-person-id').value || null,
-      }),
+    const data = await apiFetch('/posts/generate', {
+      method: 'POST',
+      body: JSON.stringify({ url }),
     });
-    showToast('Configuración guardada', 'success');
-    if (token) {
-      document.getElementById('linkedin-token').value = '';
-      document.getElementById('linkedin-token-hint').textContent = '✓ Token guardado — pega uno nuevo solo si quieres reemplazarlo.';
+
+    currentLogId = data.log_id;
+
+    document.getElementById('gen-result-source').textContent =
+      data.source_title ? `Post — ${data.source_title.slice(0, 50)}` : 'Post generado';
+    document.getElementById('gen-post-text').value = data.post_text;
+    document.getElementById('posts-remaining-msg').textContent =
+      `Posts restantes: ${data.posts_remaining}`;
+
+    const imgWrap = document.getElementById('gen-image-wrap');
+    if (data.image_data) {
+      document.getElementById('gen-image').src = data.image_data;
+      imgWrap.classList.remove('hidden');
+    } else {
+      imgWrap.classList.add('hidden');
     }
+
+    document.getElementById('gen-result').classList.remove('hidden');
+    document.getElementById('gen-result').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+
+    // Refresh stats
+    billingData = await apiFetch('/billing/status');
+    renderOverview();
+    renderBilling();
+    await renderPosts(null);
+  } catch (err) {
+    showToast(err.message, 'error');
+  } finally {
+    btn.disabled = false;
+    spinner.style.display = 'none';
+  }
+}
+
+function copyPost() {
+  const text = document.getElementById('gen-post-text').value;
+  navigator.clipboard.writeText(text).then(
+    () => showToast('Post copiado al portapapeles'),
+    () => showToast('No se pudo copiar. Selecciona el texto manualmente.', 'error'),
+  );
+}
+
+async function publishCurrentPost() {
+  if (!currentLogId) return;
+  await publishPost(currentLogId, document.getElementById('publish-btn'));
+}
+
+async function publishPost(logId, btn) {
+  if (!liStatus?.connected) {
+    showToast('Conecta tu LinkedIn primero en Configuración', 'error');
+    return;
+  }
+  const orig = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = 'Publicando…';
+  try {
+    await apiFetch(`/posts/${logId}/publish`, { method: 'POST' });
+    showToast('¡Post publicado en LinkedIn!', 'success');
+    btn.textContent = '✓ Publicado';
+    await renderPosts(null);
+  } catch (err) {
+    showToast(err.message, 'error');
+    btn.disabled = false;
+    btn.textContent = orig;
+  }
+}
+
+// ---- LinkedIn OAuth ----
+async function connectLinkedIn() {
+  try {
+    const { url } = await apiFetch('/linkedin/connect');
+    window.location.href = url;
   } catch (err) {
     showToast('Error: ' + err.message, 'error');
   }
 }
 
-async function saveAutomation() {
+async function disconnectLinkedIn() {
   try {
-    await apiFetch('/dashboard/credentials', {
-      method: 'PUT',
-      body: JSON.stringify({
-        automation_enabled: document.getElementById('automation-enabled').checked,
-        post_frequency_hours: parseInt(document.getElementById('post-frequency').value),
-      }),
-    });
-    showToast('Automatización actualizada', 'success');
+    await apiFetch('/linkedin/disconnect', { method: 'DELETE' });
+    liStatus = { connected: false };
+    renderConfig();
+    renderOverview();
+    showToast('LinkedIn desconectado', 'success');
   } catch (err) {
     showToast('Error: ' + err.message, 'error');
+  }
+}
+
+// ---- Billing & Prompt ----
+async function checkout(plan) {
+  try {
+    const { url } = await apiFetch('/billing/checkout', {
+      method: 'POST',
+      body: JSON.stringify({ plan }),
+    });
+    window.location.href = url;
+  } catch (err) {
+    showToast('Error al iniciar el pago: ' + err.message, 'error');
+  }
+}
+
+async function manageSubscription() {
+  try {
+    const { url } = await apiFetch('/billing/portal');
+    window.location.href = url;
+  } catch (err) {
+    showToast('Error al abrir el portal: ' + err.message, 'error');
   }
 }
 
@@ -1049,35 +1074,6 @@ async function savePrompt() {
 async function resetPrompt() {
   document.getElementById('custom-prompt').value = '';
   await savePrompt();
-}
-
-async function upgrade() {
-  try {
-    const { url } = await apiFetch('/billing/checkout', { method: 'POST' });
-    window.location.href = url;
-  } catch (err) {
-    showToast('Error al iniciar el pago: ' + err.message, 'error');
-  }
-}
-
-async function manageSubscription() {
-  try {
-    const { url } = await apiFetch('/billing/portal');
-    window.location.href = url;
-  } catch (err) {
-    showToast('Error al abrir el portal: ' + err.message, 'error');
-  }
-}
-
-async function refreshMetrics(logId) {
-  try {
-    await apiFetch(`/dashboard/logs/${logId}/refresh-metrics`, { method: 'POST' });
-    showToast('Métricas actualizadas', 'success');
-    // Reload posts
-    renderPosts(null);
-  } catch (err) {
-    showToast('Error: ' + err.message, 'error');
-  }
 }
 
 // ---- Toasts ----
@@ -1109,7 +1105,7 @@ init();
   #auth-screen ~ .app-footer { display: none; }
 </style>
 <footer class="app-footer" id="app-footer" style="display:none;">
-  <span>© 2025 PostLinked</span>
+  <span>© 2025 Linkr</span>
   <a href="/terms.html" target="_blank">Términos</a>
   <a href="/privacy.html" target="_blank">Privacidad</a>
 </footer>

@@ -24,7 +24,11 @@ class Settings(BaseSettings):
 
     # Email (Resend)
     resend_api_key: str = ""
-    from_email: str = "PostLinked <noreply@postlinked.com>"
+    from_email: str = "Linkr <noreply@linkr.app>"
+
+    # LinkedIn OAuth
+    linkedin_client_id: str = ""
+    linkedin_client_secret: str = ""
 
     # App
     app_url: str = "http://localhost:8001"
