@@ -5,6 +5,7 @@ sobre IA e IA en educación.
 """
 import asyncio
 import os
+import re
 import tempfile
 import urllib.parse
 import httpx
@@ -19,7 +20,7 @@ logger = logging.getLogger(__name__)
 settings = get_settings()
 
 SYSTEM_PROMPT_ES = """Eres un experto en comunicación digital especializado en Inteligencia Artificial e IA en educación.
-Tu tarea es transformar contenido de X (Twitter) en publicaciones atractivas para LinkedIn.
+Tu tarea es transformar contenido en publicaciones atractivas para LinkedIn.
 
 REGLAS:
 1. Lenguaje: profesional pero accesible. Usa vocabulario de español de México.
@@ -29,65 +30,83 @@ REGLAS:
    - Evita jerga innecesaria
 
 2. Estructura (máximo 1400 caracteres sin los hashtags):
-   [Primera línea impactante: el gancho que engancha al lector]
+   [PRIMERA LÍNEA: empieza DIRECTO con el dato, hallazgo o idea más importante.
+    Sin preámbulos como "Les comparto...", "Hoy aprendí...", "Acabo de leer...".
+    El gancho ES el contenido, no una introducción al contenido.]
 
-   [2-4 oraciones con el contenido principal y por qué importa]
+   [2-4 oraciones desarrollando el punto central y por qué importa en la práctica]
 
-   [Cierre: varía la forma — puede ser una reflexión directa, una observación provocadora,
-    un dato impactante, una invitación a actuar, o (solo cuando sea natural) una pregunta.
-    NO termines siempre con pregunta.]
+   [Cierre: varía la forma — reflexión directa, observación provocadora, dato de impacto,
+    o (solo cuando sea genuinamente relevante) una pregunta que invite a debate real.
+    NO termines siempre con pregunta. NO pidas opiniones de forma genérica.
+    Si hay algo que naturalmente provoque discusión, déjalo ahí sin forzarlo.]
 
    [Si hay imagen o diagrama disponible, mencionarlo de forma natural]
 
-3. Cierra con 3-5 hashtags relevantes separados por espacios.
-   Ejemplos: #InteligenciaArtificial #IAEducacion #EdTech #AprendizajeAutomatico #Innovacion
+3. Cierra con 2-3 hashtags relevantes separados por espacios. Menos es más.
+   Elige los más específicos y útiles para el tema, no los más genéricos.
+   Ejemplos: #IAEducacion #EdTech #AprendizajeAutomatico
 
-4. Si el tweet menciona un paper o investigación, destaca:
-   - El hallazgo más relevante
+4. Si el contenido menciona un paper o investigación, destaca:
+   - El hallazgo más relevante en términos concretos
    - Por qué importa en la práctica
    - A quién beneficia
 
-5. NO copies el tweet textualmente. Transforma y eleva el contenido.
+5. NO copies el texto fuente textualmente. Transforma y eleva el contenido.
 6. NO uses mayúsculas innecesarias ni signos de exclamación repetidos.
+
+SOBRE ARROBADOS (@menciones):
+- Si el contenido proviene de una empresa, investigador o institución reconocida, menciona
+  su nombre en el texto para que el autor pueda etiquetar manualmente (ej: "según OpenAI",
+  "el equipo de Google DeepMind").
+- NO inventes menciones de personas que no aparecen en el contenido fuente.
 
 SOBRE CITAR AL AUTOR:
 - Solo menciona a quien escribió el tweet si es una persona o institución reconocida
   cuya voz añade valor al mensaje (investigador destacado, empresa líder, organismo oficial, etc.).
-- Si es un usuario sin relevancia pública para el tema, NO lo menciones. El contenido habla por sí solo.
+- Si es un usuario sin relevancia pública para el tema, NO lo menciones.
 - Cuando sí cites, hazlo de forma natural dentro del texto, no como nota al pie.
 
 TONO: Divulgador de tecnología educativa hablando con colegas inteligentes, no especialistas.
 
 CASO ESPECIAL — CONTENIDO NO PUBLICABLE:
-Si el tweet no tiene sustancia suficiente para un post profesional de LinkedIn
+Si el contenido no tiene sustancia suficiente para un post profesional de LinkedIn
 (meme sin contexto, respuesta suelta sin información, contenido personal sin valor
 profesional, spam, o texto vacío/ilegible), responde ÚNICAMENTE con:
 [NO_PUBLICAR]: <explicación breve de por qué no es publicable>"""
 
 SYSTEM_PROMPT_EN = """You are a digital communication expert specializing in Artificial Intelligence and AI in education.
-Your task is to transform X (Twitter) content into attractive LinkedIn posts.
+Your task is to transform content into attractive LinkedIn posts.
 
 STRICT RULES:
 1. Language: professional but accessible. Not overly technical, not too casual.
 
 2. Post structure (max 1400 characters without hashtags):
-   [Impactful first line - the hook that draws the reader in]
+   [FIRST LINE: start DIRECTLY with the key insight, finding, or idea.
+    No preambles like "I just read...", "Today I learned...", "Sharing this...".
+    The hook IS the content, not an intro to the content.]
 
-   [2-3 sentences with main content and why it matters]
+   [2-3 sentences developing the main point and why it matters in practice]
 
-   [Brief conclusion or reflection]
+   [Closing: vary the form — direct reflection, provocative observation, impactful stat,
+    or (only when genuinely relevant) a question that invites real debate.
+    Do NOT always end with a question. Do NOT generically ask for opinions.
+    If the content naturally sparks discussion, let it do so organically.]
 
    [If image/diagram available, mention it naturally]
 
-3. Close with 3-5 relevant hashtags:
-   #ArtificialIntelligence #AIEducation #EdTech #MachineLearning #Innovation
+3. Close with 2-3 relevant hashtags. Less is more. Choose specific, useful ones.
+   Examples: #AIEducation #EdTech #MachineLearning
 
-4. If tweet mentions a paper, highlight the key finding and practical relevance.
-5. Do NOT copy the tweet verbatim. Transform and elevate the content.
-6. Generate conversation: end with a thought-provoking question or reflection.
+4. If content mentions a paper, highlight the key finding and practical relevance.
+5. Do NOT copy the source text verbatim. Transform and elevate the content.
+
+ABOUT MENTIONS:
+- If the content comes from a recognizable company or researcher, name them in the text
+  so the author can manually tag them (e.g., "according to OpenAI", "Google DeepMind's team").
 
 SPECIAL CASE — NON-PUBLISHABLE CONTENT:
-If the tweet lacks enough substance for a professional LinkedIn post (e.g. a meme with no
+If the content lacks enough substance for a professional LinkedIn post (e.g. a meme with no
 context, a loose reply with no information, personal content with no professional value,
 spam, or empty/unreadable text), respond ONLY with this line and nothing else:
 [NO_PUBLICAR]: <brief reason why it cannot be published>"""
@@ -348,17 +367,22 @@ async def _generate_imagen3(prompt: str, api_key: str) -> Optional[bytes]:
 async def _generate_gemini_image(prompt: str, api_key: str) -> Optional[bytes]:
     """
     Genera imagen con Gemini (imagen nativa).
-    Intenta gemini-2.0-flash y gemini-2.0-flash-exp.
+    Intenta varios modelos en orden de preferencia.
     """
     import base64
+    # Modelos en orden de preferencia (más nuevos primero)
     models = [
         "gemini-2.0-flash-preview-image-generation",
+        "gemini-2.0-flash-exp-image-generation",
         "gemini-2.0-flash-exp",
-        "gemini-2.0-flash",
     ]
+    # Payload estándar para generación de imagen
     payload = {
         "contents": [{"parts": [{"text": prompt}]}],
-        "generationConfig": {"responseModalities": ["IMAGE", "TEXT"]},
+        "generationConfig": {
+            "responseModalities": ["IMAGE", "TEXT"],
+            "temperature": 1.0,
+        },
     }
     for model in models:
         url = (
@@ -366,40 +390,61 @@ async def _generate_gemini_image(prompt: str, api_key: str) -> Optional[bytes]:
             f"/models/{model}:generateContent?key={api_key}"
         )
         try:
-            async with httpx.AsyncClient(timeout=60) as client:
+            async with httpx.AsyncClient(timeout=90) as client:
                 r = await client.post(url, json=payload)
                 if r.status_code == 200:
-                    for candidate in r.json().get("candidates", []):
+                    data = r.json()
+                    for candidate in data.get("candidates", []):
                         for part in candidate.get("content", {}).get("parts", []):
                             if "inlineData" in part:
-                                logger.info(f"Imagen generada con {model}")
-                                return base64.b64decode(part["inlineData"]["data"])
-                logger.warning(f"Gemini {model} devolvió {r.status_code}: {r.text[:200]}")
+                                mime = part["inlineData"].get("mimeType", "image/png")
+                                img_bytes = base64.b64decode(part["inlineData"]["data"])
+                                if len(img_bytes) > 1000:  # imagen real, no vacía
+                                    logger.info(f"Gemini imagen OK con {model} ({len(img_bytes) // 1024} KB)")
+                                    return img_bytes
+                    logger.warning(f"Gemini {model}: respuesta 200 pero sin imagen en candidates")
+                else:
+                    logger.warning(f"Gemini {model} devolvió {r.status_code}: {r.text[:300]}")
+        except httpx.TimeoutException:
+            logger.warning(f"Gemini {model}: timeout")
         except Exception as e:
             logger.warning(f"Error con Gemini {model}: {e}")
     return None
 
 
 async def _generate_pollinations(prompt: str) -> Optional[bytes]:
-    """Fallback gratuito: Pollinations.ai. Reintenta hasta 3 veces."""
+    """Fallback gratuito: Pollinations.ai. Intenta múltiples seeds y URLs."""
+    import random
     encoded = urllib.parse.quote(prompt[:300])
-    url = (
-        f"https://image.pollinations.ai/prompt/{encoded}"
-        f"?width=1024&height=1024&nologo=true&model=flux"
-    )
-    for attempt in range(3):
+    seed = random.randint(1, 99999)
+
+    # Intentar con distintos parámetros en cada intento
+    url_variants = [
+        f"https://image.pollinations.ai/prompt/{encoded}?width=1024&height=1024&nologo=true&nofeed=true&model=flux&seed={seed}",
+        f"https://image.pollinations.ai/prompt/{encoded}?width=1024&height=1024&nologo=true&nofeed=true&seed={seed}",
+        f"https://image.pollinations.ai/prompt/{encoded}?width=1024&height=1024&nologo=true&nofeed=true",
+    ]
+
+    for attempt, url in enumerate(url_variants):
         try:
-            async with httpx.AsyncClient(timeout=90, follow_redirects=True) as client:
+            async with httpx.AsyncClient(timeout=120, follow_redirects=True) as client:
                 r = await client.get(url)
                 ct = r.headers.get("content-type", "")
-                if r.status_code == 200 and ct.startswith("image/"):
+                if r.status_code == 200 and ct.startswith("image/") and len(r.content) > 5000:
+                    logger.info(f"Pollinations: imagen OK en intento {attempt + 1} ({len(r.content) // 1024} KB)")
                     return r.content
-                logger.warning(f"Pollinations intento {attempt + 1}: status {r.status_code}, content-type '{ct}'")
+                logger.warning(
+                    f"Pollinations intento {attempt + 1}: status={r.status_code}, "
+                    f"ct='{ct}', size={len(r.content)}"
+                )
+        except httpx.TimeoutException:
+            logger.warning(f"Pollinations intento {attempt + 1}: timeout")
         except Exception as e:
             logger.warning(f"Pollinations intento {attempt + 1} error: {e}")
-        if attempt < 2:
-            await asyncio.sleep(5)
-    logger.error("Pollinations.ai falló después de 3 intentos")
+        if attempt < len(url_variants) - 1:
+            await asyncio.sleep(3)
+
+    logger.error("Pollinations.ai falló en todos los intentos")
     return None
 
 
@@ -546,6 +591,195 @@ async def download_tweet_video(tweet_url: str) -> Optional[bytes]:
         except Exception as e:
             logger.error(f"Error descargando video con yt-dlp: {e}")
     return None
+
+
+async def generate_linkedin_post_from_topic(
+    topic: str,
+    notes: str = "",
+    language: str = "es",
+    custom_prompt: Optional[str] = None,
+) -> str:
+    """
+    Genera un post de LinkedIn a partir de un tema libre, usando web search
+    para enriquecer el contenido con información actual.
+    Retorna el texto del post generado.
+    """
+    client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
+
+    if custom_prompt:
+        system_prompt = custom_prompt
+    else:
+        system_prompt = SYSTEM_PROMPT_ES if language == "es" else SYSTEM_PROMPT_EN
+
+    # Construir el mensaje al usuario
+    parts = [
+        f"Genera un post profesional de LinkedIn sobre el siguiente tema:",
+        f"\n**Tema:** {topic}",
+    ]
+    if notes.strip():
+        parts.append(f"\n**Datos o contexto adicional:** {notes.strip()}")
+
+    if language == "es":
+        parts.append(
+            "\n\nBusca en internet información actual, estadísticas recientes o ejemplos "
+            "concretos sobre este tema para enriquecer el post. Si encuentras un dato "
+            "relevante de 2024 o 2025, inclúyelo de forma natural."
+        )
+    else:
+        parts.append(
+            "\n\nSearch the web for current information, recent stats, or concrete examples "
+            "about this topic to enrich the post. If you find relevant 2024/2025 data, "
+            "include it naturally."
+        )
+
+    user_message = "".join(parts)
+    messages = [{"role": "user", "content": user_message}]
+
+    # Intentar con web search tool
+    try:
+        generated = await _generate_with_web_search(client, system_prompt, messages)
+        if generated:
+            return generated
+    except Exception as e:
+        logger.warning(f"Web search generation falló ({type(e).__name__}: {e}), usando knowledge base")
+
+    # Fallback: sin web search, solo knowledge base de Claude
+    response = await client.messages.create(
+        model="claude-opus-4-6",
+        max_tokens=1024,
+        system=system_prompt,
+        messages=messages,
+        timeout=90.0,
+    )
+    return response.content[0].text.strip()
+
+
+async def _generate_with_web_search(
+    client: anthropic.AsyncAnthropic,
+    system_prompt: str,
+    messages: list,
+    max_iterations: int = 6,
+) -> Optional[str]:
+    """
+    Ejecuta el loop de tool_use para web_search y retorna el texto final.
+    Usa claude-sonnet-4-6 para menor costo en búsquedas.
+    """
+    tools = [{"type": "web_search_20250305", "name": "web_search"}]
+
+    for i in range(max_iterations):
+        response = await client.messages.create(
+            model="claude-sonnet-4-6",
+            max_tokens=2048,
+            system=system_prompt,
+            tools=tools,
+            messages=messages,
+            timeout=120.0,
+        )
+
+        if response.stop_reason == "end_turn":
+            texts = [
+                block.text
+                for block in response.content
+                if hasattr(block, "text") and block.text
+            ]
+            result = "\n".join(texts).strip()
+            if result:
+                logger.info(f"Web search generation completada en {i + 1} iteraciones")
+                return result
+            return None
+
+        if response.stop_reason == "tool_use":
+            messages = list(messages)  # copia local
+            messages.append({"role": "assistant", "content": response.content})
+
+            # Construir tool_results — para server tools (web_search) la API
+            # ya ejecutó la búsqueda; sólo necesitamos confirmar cada tool_use
+            tool_results = []
+            for block in response.content:
+                if getattr(block, "type", "") == "tool_use":
+                    tool_results.append({
+                        "type": "tool_result",
+                        "tool_use_id": block.id,
+                        "content": "",
+                    })
+
+            if tool_results:
+                messages.append({"role": "user", "content": tool_results})
+            else:
+                # Sin tool_use blocks, algo inesperado
+                break
+        else:
+            logger.warning(f"Web search: stop_reason inesperado '{response.stop_reason}'")
+            break
+
+    return None
+
+
+async def suggest_linkedin_topics(language: str = "es") -> list[str]:
+    """
+    Sugiere 6 temas tendencia en IA y EdTech para crear posts de LinkedIn.
+    Retorna lista de strings con títulos de temas.
+    """
+    client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
+
+    if language == "es":
+        user_msg = (
+            "Sugiere exactamente 6 temas de tendencia en Inteligencia Artificial y tecnología educativa "
+            "(EdTech) que serían interesantes para publicar en LinkedIn hoy. "
+            "El público objetivo son profesionales de educación, tecnología y negocios en México y Latinoamérica.\n\n"
+            "Formato de respuesta: una lista numerada, un tema por línea, máximo 12 palabras por tema. "
+            "Solo la lista, sin explicaciones adicionales. Incluye el ángulo específico, no solo el tema genérico.\n\n"
+            "Ejemplo de formato:\n"
+            "1. Cómo los agentes de IA están reemplazando tareas de analistas en finanzas\n"
+            "2. Por qué el 70% de los estudiantes prefieren tutores de IA sobre humanos\n"
+            "..."
+        )
+    else:
+        user_msg = (
+            "Suggest exactly 6 trending topics in Artificial Intelligence and EdTech "
+            "that would be interesting to post on LinkedIn today. "
+            "Target audience: education, tech, and business professionals.\n\n"
+            "Response format: numbered list, one topic per line, max 12 words each. "
+            "Just the list, no additional explanations. Include a specific angle, not just a generic topic.\n\n"
+            "Example format:\n"
+            "1. How AI agents are replacing analyst tasks in finance\n"
+            "2. Why 70% of students prefer AI tutors over human ones\n"
+            "..."
+        )
+
+    tools = [{"type": "web_search_20250305", "name": "web_search"}]
+    messages = [{"role": "user", "content": user_msg}]
+
+    try:
+        result_text = await _generate_with_web_search(
+            client,
+            "Eres un experto en tendencias de IA y tecnología educativa. Respondes con listas concisas.",
+            messages,
+        )
+    except Exception:
+        result_text = None
+
+    if not result_text:
+        # Fallback sin web search
+        response = await client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=512,
+            messages=messages,
+            timeout=30.0,
+        )
+        result_text = response.content[0].text.strip()
+
+    # Parsear la lista
+    topics = []
+    for line in result_text.strip().splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        # Quitar numeración: "1. ", "1) ", "• ", "- ", etc.
+        cleaned = re.sub(r"^[\d]+[.)]\s*|^[-•*]\s*", "", line).strip()
+        if cleaned and len(cleaned) > 5:
+            topics.append(cleaned)
+    return topics[:8]  # máximo 8
 
 
 async def download_pdf(url: str) -> Optional[bytes]:

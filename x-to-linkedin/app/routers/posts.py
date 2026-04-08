@@ -35,6 +35,8 @@ from ..services.post_generator import (
     generate_nano_banana_image,
     download_tweet_video,
     download_pdf,
+    generate_linkedin_post_from_topic,
+    suggest_linkedin_topics,
     SYSTEM_PROMPT_ES,
 )
 from ..services.linkedin_client import LinkedInClient
@@ -748,3 +750,78 @@ async def repack_schedule_endpoint():
     from ..services.x_likes_monitor import repack_schedule
     result = await repack_schedule()
     return result
+
+
+# ── Generación desde tema libre ───────────────────────────────────────────────
+
+@router.post("/generate-from-topic")
+async def generate_post_from_topic(
+    request: dict,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Genera un post de LinkedIn a partir de un tema libre.
+    Claude busca en internet para enriquecer el contenido.
+    Body: { "topic": str, "notes": str (opcional), "language": str (opcional) }
+    """
+    if not settings.anthropic_api_key:
+        raise HTTPException(status_code=500, detail="ANTHROPIC_API_KEY no está configurada.")
+
+    topic = (request.get("topic") or "").strip()
+    if not topic:
+        raise HTTPException(status_code=422, detail="El campo 'topic' es requerido.")
+
+    notes = (request.get("notes") or "").strip()
+    language = request.get("language") or settings.post_language or "es"
+
+    cfg_result = await db.execute(select(AppSettings).where(AppSettings.id == 1))
+    cfg = cfg_result.scalar_one_or_none()
+    custom_prompt = cfg.custom_prompt if cfg else None
+
+    try:
+        linkedin_text = await generate_linkedin_post_from_topic(
+            topic=topic,
+            notes=notes,
+            language=language,
+            custom_prompt=custom_prompt,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error generando el post: {e}")
+
+    # Construir respuesta compatible con el flujo existente
+    tweet_schema = TweetDataSchema(
+        text=topic,
+        author_name="",
+        author_handle="",
+        images=[],
+        links=[],
+        tweet_url="",
+        paper_info=None,
+        has_video=False,
+        pdf_url=None,
+    )
+
+    return GenerateResponse(
+        tweet=tweet_schema,
+        linkedin_text=linkedin_text,
+        suggested_images=[],
+        media_type="generate",
+    )
+
+
+@router.get("/suggest-topics")
+async def get_topic_suggestions(
+    language: str = Query(default="es"),
+):
+    """
+    Sugiere temas de tendencia en IA y EdTech para crear posts de LinkedIn.
+    """
+    if not settings.anthropic_api_key:
+        raise HTTPException(status_code=500, detail="ANTHROPIC_API_KEY no está configurada.")
+
+    try:
+        topics = await suggest_linkedin_topics(language=language)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error generando sugerencias: {e}")
+
+    return {"topics": topics}

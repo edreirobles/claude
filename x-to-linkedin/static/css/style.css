@@ -1775,3 +1775,60 @@ body {
   overflow-y: auto;
   font-family: 'Courier New', monospace;
 }
+
+/* ── SECCIÓN TOPIC ─────────────────────────────── */
+.topic-input-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.topic-notes {
+  background: var(--surface-2);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 14px;
+  padding: 0.65rem 1rem;
+  resize: vertical;
+  min-height: 60px;
+  transition: border-color var(--transition);
+}
+
+.topic-notes:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.topic-notes::placeholder { color: var(--text-faint); }
+
+.topics-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  padding: 0.5rem 0;
+}
+
+.topic-chip {
+  background: var(--surface-2);
+  border: 1px solid var(--border-light);
+  border-radius: 20px;
+  color: var(--text);
+  cursor: pointer;
+  font-size: 13px;
+  padding: 0.35rem 0.9rem;
+  transition: background var(--transition), border-color var(--transition);
+}
+
+.topic-chip:hover {
+  background: var(--accent-light);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.topic-chip.loading {
+  opacity: 0.5;
+  cursor: default;
+  animation: pulse 1.2s ease-in-out infinite;
+}

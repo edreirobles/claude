@@ -124,7 +124,7 @@ async def scrape_url(url: str) -> UrlContent:
 
     try:
         async with httpx.AsyncClient(
-            timeout=20,
+            timeout=httpx.Timeout(connect=10, read=45, write=10, pool=10),
             follow_redirects=True,
             headers=HEADERS,
         ) as client:
@@ -133,7 +133,21 @@ async def scrape_url(url: str) -> UrlContent:
             html = response.text
 
     except httpx.HTTPStatusError as e:
-        raise ValueError(f"No se pudo acceder a la URL (código {e.response.status_code})")
+        sc = e.response.status_code
+        if sc == 403:
+            raise ValueError(
+                f"El sitio bloqueó el acceso (403). Prueba copiar el texto del artículo "
+                f"y enviarlo directamente."
+            )
+        elif sc == 429:
+            raise ValueError(f"Demasiadas peticiones al sitio (429). Intenta en unos minutos.")
+        else:
+            raise ValueError(f"No se pudo acceder a la URL (código {sc})")
+    except httpx.TimeoutException:
+        raise ValueError(
+            "El sitio tardó demasiado en responder. Puede estar lento o bloquear bots. "
+            "Prueba abrir la URL en tu navegador y copiar el texto."
+        )
     except httpx.RequestError as e:
         raise ValueError(f"No se pudo conectar a la URL: {e}")
 

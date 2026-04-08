@@ -97,6 +97,46 @@
     <div id="generate-error" class="error-msg hidden"></div>
   </section>
 
+  <!-- SECCIÓN: Generar desde tema -->
+  <section class="card" id="section-topic">
+    <div class="card-header">
+      <span class="step-badge" style="background:var(--accent-purple)">💡</span>
+      <h2>O genera desde un tema</h2>
+      <button class="btn btn-secondary btn-sm" onclick="suggestTopics()" id="btn-suggest" style="margin-left:auto">
+        🔍 Sugerir temas
+      </button>
+    </div>
+
+    <!-- Sugerencias de temas -->
+    <div id="topics-suggestions" class="hidden" style="margin-bottom:1rem">
+      <div id="topics-list" class="topics-list"></div>
+    </div>
+
+    <div class="topic-input-group">
+      <input
+        type="text"
+        id="topic-input"
+        class="url-input"
+        placeholder="Ej: IA en evaluación educativa en México"
+        autocomplete="off"
+        onkeydown="if(event.key==='Enter') generateFromTopic()"
+      />
+      <textarea
+        id="topic-notes"
+        class="topic-notes"
+        placeholder="Datos adicionales opcionales (estadísticas, contexto, ángulo específico)…"
+        rows="2"
+      ></textarea>
+      <div class="input-controls">
+        <button id="btn-generate-topic" class="btn btn-primary" onclick="generateFromTopic()">
+          <span class="btn-icon">✨</span>
+          Generar desde tema
+        </button>
+      </div>
+    </div>
+    <div id="topic-error" class="error-msg hidden"></div>
+  </section>
+
   <!-- STEP 2: Preview (oculto hasta generar) -->
   <section class="card hidden" id="section-preview">
     <div class="card-header">

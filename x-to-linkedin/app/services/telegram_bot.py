@@ -45,6 +45,10 @@ _awaiting_edit_preview: dict[int, int] = {}
 _awaiting_reschedule: dict[int, int] = {}
 # Modo consulta por día: users esperando escribir una fecha
 _awaiting_dia: set[int] = set()
+# Modo edición del prompt base: user_id esperando el nuevo prompt
+_awaiting_prompt: set[int] = set()
+# Modo generación desde tema: user_id → tema parcial esperando notas opcionales
+_awaiting_tema: dict[int, str] = {}
 
 # Regex para detectar URLs de X / Twitter
 _TWEET_RE = re.compile(
@@ -124,15 +128,20 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "📖 *Cómo usar el bot*\n\n"
         "1\\. Envía un URL de tweet \\(x\\.com\\) *o cualquier artículo web*\n"
         "2\\. El bot extrae el contenido y genera el post de LinkedIn con IA\n"
-        "3\\. Si no hay imagen, se genera automáticamente con IA \\(Nano Banana Pro\\)\n"
+        "3\\. Si no hay imagen, se genera automáticamente con IA\n"
         "4\\. Elige: *Programar* / *Publicar ahora* / *Regenerar* / *Descartar*\n\n"
-        "*Comandos:*\n"
+        "*Comandos de contenido:*\n"
+        "/tema \\[tema\\] — genera post desde un tema libre con búsqueda web\n"
+        "/temas — sugiere 6 temas tendencia en IA y EdTech\n\n"
+        "*Comandos de gestión:*\n"
         "/hoy — posts de hoy con botones de edición\n"
         "/dia \\[DD/MM\\] — posts de cualquier día\n"
-        "/pendientes — todos los posts en cola \\(con opción a cancelar\\)\n"
-        "/articulos — busca artículos largos de X entre tus likes pendientes\n"
-        "/status — estado del sistema de un vistazo\n"
-        "/start — bienvenida",
+        "/pendientes — todos los posts en cola\n"
+        "/articulos — artículos largos de X en tus likes\n"
+        "/status — estado del sistema\n\n"
+        "*Configuración:*\n"
+        "/prompt — ver y cambiar el prompt base de generación\n"
+        "/prompt reset — restaurar prompt predeterminado",
         parse_mode="MarkdownV2",
     )
 
@@ -388,6 +397,193 @@ async def cmd_articulos(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 
+async def cmd_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    /prompt — Ver y cambiar el prompt base de generación de posts.
+    - /prompt        → muestra el prompt actual
+    - /prompt reset  → restaura el prompt por defecto
+    """
+    if not _authorized(update):
+        await _deny(update)
+        return
+
+    from sqlalchemy import select
+    from ..database import AsyncSessionLocal
+    from ..models import AppSettings
+    from ..services.post_generator import SYSTEM_PROMPT_ES
+
+    args = context.args
+
+    # /prompt reset
+    if args and args[0].lower() == "reset":
+        async with AsyncSessionLocal() as db:
+            result = await db.execute(select(AppSettings).where(AppSettings.id == 1))
+            cfg = result.scalar_one_or_none()
+            if cfg:
+                cfg.custom_prompt = None
+                await db.commit()
+        await update.message.reply_text(
+            "✅ Prompt restaurado al valor por defecto.",
+            parse_mode="Markdown",
+        )
+        return
+
+    # Leer prompt actual
+    async with AsyncSessionLocal() as db:
+        result = await db.execute(select(AppSettings).where(AppSettings.id == 1))
+        cfg = result.scalar_one_or_none()
+        current = cfg.custom_prompt if cfg and cfg.custom_prompt else None
+
+    prompt_label = "personalizado" if current else "por defecto"
+    prompt_text = current if current else SYSTEM_PROMPT_ES
+
+    header = (
+        f"📝 *Prompt actual ({prompt_label}):*\n\n"
+        f"Para cambiarlo, envía el nuevo prompt como tu próximo mensaje.\n"
+        f"Para restaurar el predeterminado: `/prompt reset`\n\n"
+        f"───────────────────\n\n"
+    )
+
+    _awaiting_prompt.add(update.effective_user.id)
+
+    # Enviar en chunks si es muy largo
+    full = header + prompt_text
+    if len(full) <= 4096:
+        await update.message.reply_text(full, parse_mode="Markdown")
+    else:
+        await update.message.reply_text(header, parse_mode="Markdown")
+        for i in range(0, len(prompt_text), 4000):
+            await update.message.reply_text(f"`{prompt_text[i:i+4000]}`", parse_mode="Markdown")
+
+
+async def cmd_tema(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    /tema [tema] — Genera un post de LinkedIn desde un tema libre con búsqueda web.
+    Si no se dan args, pide el tema.
+    """
+    if not _authorized(update):
+        await _deny(update)
+        return
+
+    args_text = " ".join(context.args).strip() if context.args else ""
+
+    if args_text:
+        await _process_topic(update, args_text)
+    else:
+        _awaiting_tema[update.effective_user.id] = ""
+        await update.message.reply_text(
+            "💡 *Generar post desde tema*\n\n"
+            "Envía el tema sobre el que quieres generar el post.\n"
+            "Puedes incluir datos adicionales separados por una línea, por ejemplo:\n\n"
+            "`IA en evaluación educativa`\n\n"
+            "O con contexto:\n\n"
+            "`IA en evaluación educativa\n"
+            "Contexto: UNESCO publicó estudio en 2025 sobre impacto en México`",
+            parse_mode="Markdown",
+        )
+
+
+async def cmd_temas(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    /temas — Sugiere temas de tendencia para publicar en LinkedIn.
+    """
+    if not _authorized(update):
+        await _deny(update)
+        return
+
+    from ..services.post_generator import suggest_linkedin_topics
+
+    wait_msg = await update.message.reply_text(
+        "🔍 Buscando temas tendencia en IA y EdTech…"
+    )
+
+    try:
+        topics = await suggest_linkedin_topics(language=settings.post_language or "es")
+    except Exception as e:
+        await wait_msg.edit_text(f"❌ Error generando sugerencias:\n`{e}`", parse_mode="Markdown")
+        return
+
+    if not topics:
+        await wait_msg.edit_text("⚠️ No se pudieron obtener sugerencias. Intenta de nuevo.")
+        return
+
+    lines = ["💡 *Temas sugeridos para LinkedIn:*\n"]
+    for i, topic in enumerate(topics, 1):
+        lines.append(f"*{i}.* {topic}")
+    lines.append("\nToca un número para generar el post:")
+
+    await wait_msg.edit_text("\n".join(lines), parse_mode="Markdown")
+
+    # Botones inline para seleccionar el tema
+    buttons = [
+        [InlineKeyboardButton(f"{i}. {t[:50]}", callback_data=f"gen_topic:{i-1}")]
+        for i, t in enumerate(topics[:6], 1)
+    ]
+    keyboard = InlineKeyboardMarkup(buttons)
+    suggestion_msg = await update.message.reply_text(
+        "Selecciona un tema:",
+        reply_markup=keyboard,
+    )
+    # Guardar temas en memoria para recuperarlos al hacer click
+    _pending[suggestion_msg.message_id] = {"_topics": topics, "_type": "topics_list"}
+
+
+async def _process_topic(update: Update, topic_input: str):
+    """Procesa un tema libre (con notas opcionales) y genera un post de LinkedIn."""
+    from sqlalchemy import select
+    from ..database import AsyncSessionLocal
+    from ..models import AppSettings
+    from ..services.post_generator import generate_linkedin_post_from_topic
+
+    # Separar tema y notas (si hay una línea en blanco o "\n" entre ellos)
+    parts = topic_input.strip().split("\n", 1)
+    topic = parts[0].strip()
+    notes = parts[1].strip() if len(parts) > 1 else ""
+
+    wait_msg = await update.message.reply_text(
+        f"🔍 Buscando información sobre: *{topic}*…\n"
+        f"_Esto puede tomar hasta 30 segundos._",
+        parse_mode="Markdown",
+    )
+
+    async with AsyncSessionLocal() as db:
+        cfg_result = await db.execute(select(AppSettings).where(AppSettings.id == 1))
+        cfg = cfg_result.scalar_one_or_none()
+        custom_prompt = cfg.custom_prompt if cfg else None
+
+    try:
+        linkedin_text = await generate_linkedin_post_from_topic(
+            topic=topic,
+            notes=notes,
+            language=settings.post_language or "es",
+            custom_prompt=custom_prompt,
+        )
+    except Exception as e:
+        await wait_msg.edit_text(f"❌ Error generando el post:\n`{e}`", parse_mode="Markdown")
+        return
+
+    if linkedin_text.startswith("[NO_PUBLICAR]"):
+        reason = linkedin_text.split(":", 1)[-1].strip()
+        await wait_msg.edit_text(f"⚠️ Contenido no publicable:\n_{reason}_", parse_mode="Markdown")
+        return
+
+    post_data = {
+        "tweet_url": "",
+        "tweet_text": topic,
+        "tweet_author": "",
+        "linkedin_text": linkedin_text,
+        "media_type": "generate",
+        "image_urls": [],
+        "use_first_image": False,
+        "pdf_url": None,
+        "document_title": "Documento",
+        "is_article": False,
+        "_topic": topic,
+    }
+
+    await _show_preview(wait_msg, post_data, edit=True)
+
+
 # ── Mensajes de texto (detección de URL de tweet o modo edición) ──────────
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -419,6 +615,18 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await _show_day_posts(update.message, text.strip())
         return
 
+    # Modo edición de prompt base
+    if user_id in _awaiting_prompt:
+        _awaiting_prompt.discard(user_id)
+        await _handle_prompt_text(update, text)
+        return
+
+    # Modo generación desde tema (esperando texto del tema)
+    if user_id in _awaiting_tema:
+        _awaiting_tema.pop(user_id, None)
+        await _process_topic(update, text.strip())
+        return
+
     tweet_match = _TWEET_RE.search(text)
     if tweet_match:
         await _process_tweet_url(update, context, tweet_match.group(0))
@@ -429,12 +637,51 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await _process_generic_url(update, context, url_match.group(0))
         return
 
+    # Texto sin URL — puede ser un tema para generar post
+    if len(text.strip()) > 10 and not text.startswith("/"):
+        await update.message.reply_text(
+            "¿Quieres generar un post sobre ese tema?\n\n"
+            "Envía /tema para generarlo, o usa:\n"
+            "• Una URL de tweet (x.com)\n"
+            "• Una URL de artículo web\n"
+            "• /pendientes para ver los posts en cola"
+        )
+    else:
+        await update.message.reply_text(
+            "Envíame un URL de tweet o artículo, o usa /tema para generar desde un tema libre.\n\n"
+            "Comandos útiles:\n"
+            "• /temas — sugerencias de temas\n"
+            "• /hoy — posts de hoy\n"
+            "• /pendientes — cola de posts"
+        )
+
+
+async def _handle_prompt_text(update: Update, new_prompt: str):
+    """Guarda el nuevo prompt base enviado por el usuario."""
+    from datetime import datetime
+    from sqlalchemy import select
+    from ..database import AsyncSessionLocal
+    from ..models import AppSettings
+
+    if not new_prompt.strip():
+        await update.message.reply_text("⚠️ El prompt está vacío. Operación cancelada.")
+        return
+
+    async with AsyncSessionLocal() as db:
+        result = await db.execute(select(AppSettings).where(AppSettings.id == 1))
+        cfg = result.scalar_one_or_none()
+        if cfg:
+            cfg.custom_prompt = new_prompt.strip()
+            cfg.updated_at = datetime.utcnow()
+        else:
+            db.add(AppSettings(id=1, custom_prompt=new_prompt.strip()))
+        await db.commit()
+
     await update.message.reply_text(
-        "Envíame un URL de tweet o cualquier artículo/noticia web para generar un post de LinkedIn.\n\n"
-        "Ejemplos:\n"
-        "• https://x.com/usuario/status/12345\n"
-        "• https://techcrunch.com/articulo\n\n"
-        "O usa /pendientes para ver los posts en cola."
+        f"✅ *Prompt actualizado* ({len(new_prompt.strip())} chars).\n\n"
+        f"Todos los nuevos posts usarán este prompt. "
+        f"Usa `/prompt reset` para restaurar el predeterminado.",
+        parse_mode="Markdown",
     )
 
 
@@ -1021,6 +1268,78 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await _do_reschedule_start(query, int(data.split(":")[1]))
     elif data.startswith("proc_liked:"):
         await _do_process_liked(query, int(data.split(":")[1]))
+    elif data.startswith("gen_topic:"):
+        await _do_generate_from_topic_selection(query, int(data.split(":")[1]))
+
+
+async def _do_generate_from_topic_selection(query, topic_idx: int):
+    """Genera un post desde un tema sugerido seleccionado con botón inline."""
+    msg_id = query.message.message_id
+    data = _pending.get(msg_id)
+
+    if not data or data.get("_type") != "topics_list":
+        await query.message.reply_text("⚠️ Las sugerencias ya no están disponibles. Usa /temas de nuevo.")
+        return
+
+    topics = data.get("_topics", [])
+    if topic_idx < 0 or topic_idx >= len(topics):
+        await query.message.reply_text("⚠️ Tema no encontrado.")
+        return
+
+    selected_topic = topics[topic_idx]
+    await query.edit_message_reply_markup(None)
+    await query.edit_message_text(f"💡 Tema seleccionado: *{selected_topic}*", parse_mode="Markdown")
+
+    # Crear un Update fake para reutilizar _process_topic
+    # En realidad enviamos un mensaje de procesamiento
+    from sqlalchemy import select
+    from ..database import AsyncSessionLocal
+    from ..models import AppSettings
+    from ..services.post_generator import generate_linkedin_post_from_topic
+
+    wait_msg = await query.message.reply_text(
+        f"🔍 Buscando información sobre: *{selected_topic}*…\n"
+        f"_Esto puede tomar hasta 30 segundos._",
+        parse_mode="Markdown",
+    )
+
+    async with AsyncSessionLocal() as db:
+        cfg_result = await db.execute(select(AppSettings).where(AppSettings.id == 1))
+        cfg = cfg_result.scalar_one_or_none()
+        custom_prompt = cfg.custom_prompt if cfg else None
+
+    try:
+        linkedin_text = await generate_linkedin_post_from_topic(
+            topic=selected_topic,
+            notes="",
+            language=settings.post_language or "es",
+            custom_prompt=custom_prompt,
+        )
+    except Exception as e:
+        await wait_msg.edit_text(f"❌ Error generando el post:\n`{e}`", parse_mode="Markdown")
+        return
+
+    if linkedin_text.startswith("[NO_PUBLICAR]"):
+        reason = linkedin_text.split(":", 1)[-1].strip()
+        await wait_msg.edit_text(f"⚠️ Contenido no publicable:\n_{reason}_", parse_mode="Markdown")
+        return
+
+    post_data = {
+        "tweet_url": "",
+        "tweet_text": selected_topic,
+        "tweet_author": "",
+        "linkedin_text": linkedin_text,
+        "media_type": "generate",
+        "image_urls": [],
+        "use_first_image": False,
+        "pdf_url": None,
+        "document_title": "Documento",
+        "is_article": False,
+        "_topic": selected_topic,
+    }
+
+    await _show_preview(wait_msg, post_data, edit=True)
+    _pending.pop(msg_id, None)  # limpiar lista de sugerencias
 
 
 async def _do_process_liked(query, liked_id: int):
@@ -1264,10 +1583,15 @@ async def _do_regenerate(query, mid: int):
 
     if linkedin_text.startswith("[NO_PUBLICAR]"):
         reason = linkedin_text.split(":", 1)[-1].strip()
-        await query.edit_message_text(
-            f"⚠️ Este contenido no es publicable:\n_{reason}_",
-            parse_mode="Markdown",
-        )
+        try:
+            await query.edit_message_text(
+                f"⚠️ Este contenido no es publicable:\n_{reason}_",
+                parse_mode="Markdown",
+            )
+        except Exception:
+            await query.edit_message_text(
+                f"⚠️ Este contenido no es publicable:\n{reason}"
+            )
         _pending.pop(mid, None)
         return
 
@@ -1289,14 +1613,28 @@ async def _do_regenerate(query, mid: int):
         if len(linkedin_text) > _TG_BODY_LIMIT else ""
     )
 
-    await query.edit_message_text(
+    text = (
         f"{media_icon} *Preview del post (regenerado):*\n\n"
         f"{preview}\n\n"
         f"_{char_bar} caracteres_\n\n"
-        f"{media_summary}",
-        reply_markup=_preview_keyboard(mid),
-        parse_mode="Markdown",
+        f"{media_summary}"
     )
+    from telegram.error import BadRequest as TgBadRequest
+    try:
+        await query.edit_message_text(
+            text,
+            reply_markup=_preview_keyboard(mid),
+            parse_mode="Markdown",
+        )
+    except TgBadRequest:
+        # Caracteres especiales en el post rompen el Markdown parser
+        plain = (
+            f"{media_icon} Preview del post (regenerado):\n\n"
+            f"{linkedin_text[:_TG_BODY_LIMIT]}\n\n"
+            f"{char_bar} caracteres\n\n"
+            f"{media_summary.replace('*', '').replace('_', '')}"
+        )
+        await query.edit_message_text(plain, reply_markup=_preview_keyboard(mid))
 
 
 async def _do_schedule(query, msg_id: int):
@@ -1645,6 +1983,9 @@ async def start_bot():
     _application.add_handler(CommandHandler("pendientes", cmd_pendientes))
     _application.add_handler(CommandHandler("status", cmd_status))
     _application.add_handler(CommandHandler("articulos", cmd_articulos))
+    _application.add_handler(CommandHandler("prompt", cmd_prompt))
+    _application.add_handler(CommandHandler("tema", cmd_tema))
+    _application.add_handler(CommandHandler("temas", cmd_temas))
     _application.add_handler(
         MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message)
     )

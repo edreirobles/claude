@@ -1406,3 +1406,114 @@ async function debugMetrics(postId) {
     alert(`Error de diagnóstico: ${e.message}`);
   }
 }
+
+
+// ── Generar desde tema ─────────────────────────────────
+
+async function generateFromTopic() {
+  const topicInput = document.getElementById('topic-input');
+  const notesInput = document.getElementById('topic-notes');
+  const topic = topicInput.value.trim();
+  const notes = notesInput ? notesInput.value.trim() : '';
+
+  if (!topic) {
+    showError('topic-error', 'Por favor ingresa un tema.');
+    topicInput.focus();
+    return;
+  }
+
+  const btn = document.getElementById('btn-generate-topic');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="btn-icon">⏳</span> Buscando y generando…';
+  hideError('topic-error');
+
+  const lang = document.getElementById('post-language')?.value || 'es';
+
+  try {
+    const res = await fetch('/api/generate-from-topic', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ topic, notes, language: lang }),
+    });
+    const data = await res.json();
+
+    if (!res.ok) {
+      showError('topic-error', data.detail || 'Error generando el post.');
+      return;
+    }
+
+    // Reutilizar el flujo de renderizado de generatePost
+    state.tweetData = data.tweet;
+    state.generatedText = data.linkedin_text;
+    state.suggestedImages = data.suggested_images || [];
+    state.selectedImageIndex = 0;
+    state.mediaType = data.media_type || 'generate';
+    state.pdfUrl = null;
+    state.documentTitle = 'Documento';
+
+    renderTweetPreview(data.tweet);
+    renderLinkedInPreview(data.linkedin_text);
+    renderMediaBadge(data.media_type);
+    renderImageSelector([]);
+
+    show('section-preview');
+    show('section-publish');
+    document.getElementById('section-preview').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    showToast('Post generado desde el tema.', 'success');
+  } catch (e) {
+    showError('topic-error', `Error: ${e.message}`);
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '<span class="btn-icon">✨</span> Generar desde tema';
+  }
+}
+
+async function suggestTopics() {
+  const btn = document.getElementById('btn-suggest');
+  const container = document.getElementById('topics-suggestions');
+  const list = document.getElementById('topics-list');
+
+  btn.disabled = true;
+  btn.textContent = '⏳ Buscando…';
+  container.classList.remove('hidden');
+  list.innerHTML = '<span class="topic-chip loading">Cargando sugerencias…</span>';
+
+  const lang = document.getElementById('post-language')?.value || 'es';
+
+  try {
+    const res = await fetch(`/api/suggest-topics?language=${lang}`);
+    const data = await res.json();
+
+    if (!res.ok) {
+      list.innerHTML = `<span style="color:var(--error)">Error: ${escHtml(data.detail || 'No se pudieron obtener sugerencias.')}</span>`;
+      return;
+    }
+
+    const topics = data.topics || [];
+    if (!topics.length) {
+      list.innerHTML = '<span style="color:var(--text-muted)">No se generaron sugerencias. Intenta de nuevo.</span>';
+      return;
+    }
+
+    list.innerHTML = topics.map(t => `
+      <button class="topic-chip" onclick="selectTopic(${JSON.stringify(escHtml(t))})">
+        ${escHtml(t)}
+      </button>
+    `).join('');
+  } catch (e) {
+    list.innerHTML = `<span style="color:var(--error)">Error: ${e.message}</span>`;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '🔍 Sugerir temas';
+  }
+}
+
+function selectTopic(topic) {
+  const topicInput = document.getElementById('topic-input');
+  if (topicInput) {
+    // Eliminar HTML entities que vengan de escHtml
+    const decoded = topic.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#039;/g, "'");
+    topicInput.value = decoded;
+    topicInput.focus();
+  }
+}
