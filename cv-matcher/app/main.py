@@ -55,10 +55,14 @@ if not AUTH_ENABLED:
 
 
 @app.on_event("startup")
-def startup():
+async def startup():
     if not AUTH_ENABLED:
         from app.database import init_db
         init_db()
+    if os.environ.get("TELEGRAM_BOT_TOKEN"):
+        import asyncio
+        from app.telegram_bot import run_bot
+        asyncio.create_task(run_bot())
 
 
 # ── Pages ──────────────────────────────────────────────────
