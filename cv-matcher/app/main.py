@@ -12,7 +12,7 @@ from fastapi.templating import Jinja2Templates
 
 load_dotenv()
 
-from app.auth import get_current_user, AUTH_ENABLED
+from app.auth import get_current_user, get_current_user_optional, AUTH_ENABLED
 from app.cv_generator import generate_adapted_cv
 from app.cv_parser import parse_cv
 from app.job_scraper import scrape_job_url
@@ -142,7 +142,7 @@ async def generate(
     job_text: str = Form(""),
     job_url: str = Form(""),
     output_language: str = Form("auto"),
-    user=Depends(get_current_user),
+    user=Depends(get_current_user_optional),
 ):
     if not job_text and not job_url:
         raise HTTPException(400, "Provide a job URL or paste the job description")
@@ -151,13 +151,15 @@ async def generate(
     if ext not in {".pdf", ".docx", ".doc"}:
         raise HTTPException(400, f"Unsupported file type: {ext}. Use PDF or DOCX.")
 
-    # ── Check usage limits (only when auth is enabled) ──
-    if AUTH_ENABLED:
-        from app.supabase_db import get_or_create_profile, can_generate, consume_credit
+    anonymous = AUTH_ENABLED and user is None
+
+    # ── Check usage limits (only for authenticated users) ──
+    if AUTH_ENABLED and not anonymous:
+        from app.supabase_db import get_or_create_profile, can_generate
         profile = get_or_create_profile(user.id, user.email)
         allowed, reason = can_generate(profile)
         if not allowed:
-            raise HTTPException(402, detail=reason)  # 402 = Payment Required
+            raise HTTPException(402, detail=reason)
 
     # ── Save uploaded CV ──
     cv_path = UPLOADS_DIR / f"{uuid.uuid4().hex}{ext}"
@@ -182,7 +184,12 @@ async def generate(
         raise HTTPException(422, "Your CV appears to be empty or unreadable.")
 
     # ── Create DB record ──
-    if AUTH_ENABLED:
+    claim_token = None
+    if anonymous:
+        from app.supabase_db import create_anonymous_generation as _create, update_generation as _update
+        claim_token = uuid.uuid4().hex
+        gen_id = _create("Processing...", "Processing...", scraped_url or "", final_job_text, claim_token)
+    elif AUTH_ENABLED:
         from app.supabase_db import create_generation as _create, update_generation as _update
         gen_id = _create(user.id, "Processing...", "Processing...", scraped_url or "", final_job_text, cv_file.filename)
     else:
@@ -201,7 +208,8 @@ async def generate(
     # ── Store PDF ──
     if AUTH_ENABLED:
         from app.storage import save_pdf
-        pdf_ref = save_pdf(local_pdf, user.id)
+        storage_user = "anonymous" if anonymous else user.id
+        pdf_ref = save_pdf(local_pdf, storage_user if not anonymous else f"anonymous/{claim_token}")
     else:
         pdf_ref = local_pdf
 
@@ -209,14 +217,41 @@ async def generate(
     company = cv_data.get("company_applied", "Unknown Company")
     _update(gen_id, pdf_ref, job_title=job_title, company=company, status="completed")
 
-    # ── Deduct credit ──
-    if AUTH_ENABLED:
+    # ── Deduct credit (authenticated users only) ──
+    if AUTH_ENABLED and not anonymous:
         from app.supabase_db import get_profile, consume_credit
         profile = get_profile(user.id)
         if profile:
             consume_credit(user.id, profile)
 
+    if anonymous:
+        return {"claim_token": claim_token, "job_title": job_title, "company": company}
     return {"id": gen_id, "job_title": job_title, "company": company, "download_url": f"/api/download/{gen_id}"}
+
+
+@app.post("/api/claim")
+async def claim_cv(
+    claim_token: str = Form(...),
+    user=Depends(get_current_user),
+):
+    """Claim an anonymously generated CV after the user logs in."""
+    if not AUTH_ENABLED:
+        raise HTTPException(503, "Auth not enabled")
+
+    from app.supabase_db import get_or_create_profile, can_generate, consume_credit, claim_generation
+
+    profile = get_or_create_profile(user.id, user.email)
+    allowed, reason = can_generate(profile)
+    if not allowed:
+        raise HTTPException(402, detail=reason)
+
+    gen = claim_generation(claim_token, user.id)
+    if not gen:
+        raise HTTPException(404, "CV not found or already claimed")
+
+    consume_credit(user.id, profile)
+
+    return {"id": gen["id"], "download_url": f"/api/download/{gen['id']}"}
 
 
 @app.get("/api/download/{gen_id}")

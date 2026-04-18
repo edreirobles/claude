@@ -21,13 +21,33 @@
   <script src="/static/js/auth.js"></script>
   <script>
     document.addEventListener("DOMContentLoaded", async () => {
-      // Supabase JS automatically reads the URL hash and establishes the session
       const sb = initSupabase();
       if (!sb) { window.location.href = "/"; return; }
-      // Wait briefly for the SDK to process the token from the URL hash
       await new Promise(r => setTimeout(r, 800));
       const { data: { session } } = await sb.auth.getSession();
-      window.location.href = session ? "/" : "/login";
+      if (!session) { window.location.href = "/login"; return; }
+
+      // If user just generated anonymously, claim it now
+      const claimToken = localStorage.getItem("cv_claim_token");
+      if (claimToken) {
+        localStorage.removeItem("cv_claim_token");
+        try {
+          const form = new FormData();
+          form.append("claim_token", claimToken);
+          const resp = await fetch("/api/claim", {
+            method: "POST",
+            headers: { "Authorization": "Bearer " + session.access_token },
+            body: form,
+          });
+          if (resp.ok) {
+            const { id } = await resp.json();
+            window.location.href = `/?download=${id}`;
+            return;
+          }
+        } catch (e) { /* fall through to home */ }
+      }
+
+      window.location.href = "/";
     });
   </script>
 </body>

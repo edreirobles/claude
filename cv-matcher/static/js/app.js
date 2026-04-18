@@ -95,6 +95,11 @@ const T = {
     price_extra_f3:"Download as PDF",
     price_extra_btn:"Buy extra CV",
     paywall_close:"Maybe later",
+    // Claim state (anonymous → sign in to download)
+    claim_title:"Your CV is ready!",
+    claim_subtitle:"Sign in with Google to download it free — no credit card needed.",
+    claim_btn:"Sign in to download free",
+    claim_note:"One free CV per Google account.",
     // Login
     login_title:"Sign in to CV Matcher",
     login_subtitle:"Create tailored CVs for every job application.",
@@ -203,6 +208,11 @@ const T = {
     price_extra_f3:"Descarga en PDF",
     price_extra_btn:"Comprar CV extra",
     paywall_close:"Quizás más tarde",
+    // Claim state
+    claim_title:"¡Tu CV está listo!",
+    claim_subtitle:"Inicia sesión con Google para descargarlo gratis — sin tarjeta de crédito.",
+    claim_btn:"Iniciar sesión para descargar gratis",
+    claim_note:"Un CV gratis por cuenta de Google.",
     login_title:"Inicia sesión en CV Matcher",
     login_subtitle:"Crea CVs adaptados para cada solicitud de empleo.",
     login_email_label:"Tu correo electrónico",
@@ -265,6 +275,27 @@ document.addEventListener("DOMContentLoaded", async () => {
   // Free plan description uses FREE_LIMIT variable
   const freeF1 = document.getElementById("free-f1");
   if (freeF1) freeF1.textContent = t("plan_free_f1", { n: window.FREE_LIMIT || 3 });
+
+  // Auto-download after claim: /?download=<genId>
+  const params = new URLSearchParams(window.location.search);
+  const genId = params.get("download");
+  if (genId && window.AUTH_ENABLED) {
+    history.replaceState({}, "", "/");
+    try {
+      const headers = await getAuthHeaders();
+      const resp = await fetch(`/api/download/${genId}`, { headers });
+      if (resp.ok) {
+        const blob = await resp.blob();
+        const cd = resp.headers.get("content-disposition") || "";
+        const fnMatch = cd.match(/filename="?([^"]+)"?/);
+        const filename = fnMatch ? fnMatch[1] : "CV.pdf";
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url; a.download = filename; a.click();
+        URL.revokeObjectURL(url);
+      }
+    } catch (e) { /* ignore */ }
+  }
 });
 
 /* ── TOGGLES (lang + dark) ─────────────────────────────── */
@@ -439,6 +470,12 @@ function initUI() {
   document.getElementById("try-again")?.addEventListener("click", () => goToStep(2));
   document.getElementById("start-over")?.addEventListener("click", resetAll);
 
+  // Claim sign-in button
+  document.getElementById("claim-btn")?.addEventListener("click", () => {
+    if (window.signInWithGoogle) signInWithGoogle();
+    else window.location.href = "/login";
+  });
+
   // Paywall
   document.getElementById("paywall-close")?.addEventListener("click", () => {
     document.getElementById("paywall-modal")?.classList.add("hidden");
@@ -496,8 +533,8 @@ function resetAll() {
 async function handleGenerate() {
   if (!selectedFile) return;
 
-  // Check if user can generate (auth mode)
-  if (window.AUTH_ENABLED && userInfo && !userInfo.can_generate) {
+  // Only block authenticated users who've exhausted credits
+  if (window.AUTH_ENABLED && userInfo && userInfo.can_generate === false) {
     showPaywall();
     return;
   }
@@ -517,7 +554,6 @@ async function handleGenerate() {
     const data = await resp.json();
 
     if (resp.status === 402) {
-      // Payment required
       goToStep(2);
       showPaywall();
       return;
@@ -525,18 +561,24 @@ async function handleGenerate() {
     if (!resp.ok) throw new Error(data.detail || "Generation failed");
 
     document.querySelectorAll(".step").forEach(el => { el.classList.remove("active"); el.classList.add("done"); });
-
-    const subtitle = t("success_for").replace("{title}", data.job_title || "").replace("{company}", data.company || "");
-    document.getElementById("success-subtitle").textContent = subtitle;
-    document.getElementById("download-btn").href = data.download_url;
     document.getElementById("loading-state")?.classList.add("hidden");
-    document.getElementById("success-state")?.classList.remove("hidden");
 
-    // Refresh usage badge
-    if (window.AUTH_ENABLED) {
-      const authH = await getAuthHeaders();
-      const ur = await fetch("/api/user", { headers: authH });
-      if (ur.ok) { userInfo = await ur.json(); updateUsageBadge(userInfo); }
+    if (data.claim_token) {
+      // Anonymous generation — gate download behind sign-in
+      showClaimState(data.claim_token, data.job_title, data.company);
+    } else {
+      // Authenticated generation — show download button
+      const subtitle = t("success_for").replace("{title}", data.job_title || "").replace("{company}", data.company || "");
+      document.getElementById("success-subtitle").textContent = subtitle;
+      document.getElementById("download-btn").href = data.download_url;
+      document.getElementById("success-state")?.classList.remove("hidden");
+
+      // Refresh usage badge
+      if (window.AUTH_ENABLED) {
+        const authH = await getAuthHeaders();
+        const ur = await fetch("/api/user", { headers: authH });
+        if (ur.ok) { userInfo = await ur.json(); updateUsageBadge(userInfo); }
+      }
     }
 
   } catch (err) {
@@ -544,6 +586,18 @@ async function handleGenerate() {
     document.getElementById("error-message").textContent = err.message;
     document.getElementById("error-state")?.classList.remove("hidden");
   }
+}
+
+/* ── CLAIM STATE ───────────────────────────────────────── */
+function showClaimState(claimToken, jobTitle, company) {
+  localStorage.setItem("cv_claim_token", claimToken);
+  const subtitle = t("success_for").replace("{title}", jobTitle || "").replace("{company}", company || "");
+  document.getElementById("claim-subtitle").textContent = subtitle;
+  document.getElementById("claim-title-el").textContent = t("claim_title");
+  document.getElementById("claim-cta").textContent = t("claim_subtitle");
+  document.getElementById("claim-btn-label").textContent = t("claim_btn");
+  document.getElementById("claim-note").textContent = t("claim_note");
+  document.getElementById("claim-state")?.classList.remove("hidden");
 }
 
 /* ── PAYWALL ───────────────────────────────────────────── */

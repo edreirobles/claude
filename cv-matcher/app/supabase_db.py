@@ -96,6 +96,33 @@ def get_generation(gen_id: str) -> dict | None:
     return r.data[0] if r.data else None
 
 
+def create_anonymous_generation(job_title: str, company: str, job_url: str, job_text: str, claim_token: str) -> str:
+    r = _sb().table("generations").insert({
+        "job_title": job_title,
+        "company": company,
+        "job_url": job_url,
+        "job_text": job_text[:2000],
+        "status": "processing",
+        "claim_token": claim_token,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }).execute()
+    return r.data[0]["id"]
+
+
+def get_generation_by_claim_token(claim_token: str) -> dict | None:
+    r = _sb().table("generations").select("*").eq("claim_token", claim_token).execute()
+    return r.data[0] if r.data else None
+
+
+def claim_generation(claim_token: str, user_id: str) -> dict | None:
+    """Assign anonymous generation to user. Returns generation dict or None if not claimable."""
+    gen = get_generation_by_claim_token(claim_token)
+    if not gen or gen.get("user_id") or gen.get("status") != "completed":
+        return None
+    _sb().table("generations").update({"user_id": user_id, "claim_token": None}).eq("id", gen["id"]).execute()
+    return gen
+
+
 def get_user_generations(user_id: str) -> list:
     r = _sb().table("generations").select("*").eq("user_id", user_id).order("created_at", desc=True).execute()
     return r.data

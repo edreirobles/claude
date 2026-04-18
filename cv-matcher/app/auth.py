@@ -35,3 +35,17 @@ async def get_current_user(authorization: str = Header(None)):
         raise
     except Exception:
         raise HTTPException(status_code=401, detail="Invalid or expired session")
+
+
+async def get_current_user_optional(authorization: str = Header(None)):
+    """Like get_current_user but returns None instead of raising 401."""
+    if not AUTH_ENABLED:
+        return _DEV_USER
+    if not authorization or not authorization.startswith("Bearer "):
+        return None
+    token = authorization.split(" ", 1)[1]
+    try:
+        resp = _supabase().auth.get_user(token)
+        return resp.user or None
+    except Exception:
+        return None
