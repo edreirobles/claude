@@ -177,7 +177,7 @@
           <!-- Free -->
           <div class="pricing-card-home">
             <div class="pricing-label" data-i18n="plan_free_label"></div>
-            <div class="pricing-amount-home">$0</div>
+            <div class="pricing-amount-home">$0 <span style="font-size:0.9rem;font-weight:500;color:var(--text-faint)">USD</span></div>
             <ul class="pricing-features">
               <li id="free-f1"></li>
               <li data-i18n="plan_free_f2"></li>
@@ -188,7 +188,7 @@
           <!-- Single -->
           <div class="pricing-card-home">
             <div class="pricing-label" data-i18n="plan_single_label"></div>
-            <div class="pricing-amount-home">{{ price_single_display }}</div>
+            <div class="pricing-amount-home">{{ price_single_display }} <span style="font-size:0.9rem;font-weight:500;color:var(--text-faint)">USD</span></div>
             <ul class="pricing-features">
               <li data-i18n="plan_single_f1"></li>
               <li data-i18n="plan_single_f2"></li>
@@ -200,7 +200,7 @@
           <div class="pricing-card-home featured">
             <div class="pricing-badge" data-i18n="plan_monthly_badge"></div>
             <div class="pricing-label" data-i18n="plan_monthly_label"></div>
-            <div class="pricing-amount-home">{{ price_monthly_display }}</div>
+            <div class="pricing-amount-home">{{ price_monthly_display }} <span style="font-size:0.9rem;font-weight:500;color:var(--text-faint)">USD</span></div>
             <ul class="pricing-features">
               <li data-i18n="plan_monthly_f1"></li>
               <li data-i18n="plan_monthly_f2"></li>
@@ -209,7 +209,7 @@
             <a href="/login" class="btn-primary" style="width:100%;justify-content:center;text-align:center" data-i18n="plan_monthly_btn"></a>
           </div>
         </div>
-        <p style="text-align:center;font-size:0.78rem;color:var(--text-faint);margin-top:16px">All prices in USD · Taxes may apply</p>
+        <p style="text-align:center;font-size:0.78rem;color:var(--text-faint);margin-top:16px">Taxes may apply</p>
       </div>
       {% endif %}
     </div>
