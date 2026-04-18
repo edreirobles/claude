@@ -279,22 +279,12 @@ document.addEventListener("DOMContentLoaded", async () => {
   // Auto-download after claim: /?download=<genId>
   const params = new URLSearchParams(window.location.search);
   const genId = params.get("download");
-  if (genId && window.AUTH_ENABLED) {
+  if (genId) {
     history.replaceState({}, "", "/");
-    try {
-      const headers = await getAuthHeaders();
-      const resp = await fetch(`/api/download/${genId}`, { headers });
-      if (resp.ok) {
-        const blob = await resp.blob();
-        const cd = resp.headers.get("content-disposition") || "";
-        const fnMatch = cd.match(/filename="?([^"]+)"?/);
-        const filename = fnMatch ? fnMatch[1] : "CV.pdf";
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url; a.download = filename; a.click();
-        URL.revokeObjectURL(url);
-      }
-    } catch (e) { /* ignore */ }
+    const a = document.createElement("a");
+    a.href = `/api/download/${genId}`;
+    a.download = "CV.pdf";
+    a.click();
   }
 });
 
@@ -469,29 +459,7 @@ function initUI() {
   document.getElementById("generate-btn")?.addEventListener("click", handleGenerate);
   document.getElementById("try-again")?.addEventListener("click", () => goToStep(2));
   document.getElementById("start-over")?.addEventListener("click", resetAll);
-
-  // Download button: fetch with auth headers → blob → trigger download
-  document.getElementById("download-btn")?.addEventListener("click", async (e) => {
-    e.preventDefault();
-    const url = document.getElementById("download-btn")?.getAttribute("href");
-    if (!url || url === "#") return;
-    try {
-      const headers = await getAuthHeaders();
-      const resp = await fetch(url, { headers });
-      if (!resp.ok) throw new Error();
-      const blob = await resp.blob();
-      const cd = resp.headers.get("content-disposition") || "";
-      const m = cd.match(/filename="?([^"]+)"?/);
-      const fname = m ? m[1] : "CV.pdf";
-      const a = document.createElement("a");
-      a.href = URL.createObjectURL(blob);
-      a.download = fname;
-      a.click();
-      URL.revokeObjectURL(a.href);
-    } catch {
-      alert("Download failed. Please try again.");
-    }
-  });
+  document.getElementById("start-over-claim")?.addEventListener("click", resetAll);
 
   // Claim sign-in button
   document.getElementById("claim-btn")?.addEventListener("click", () => {

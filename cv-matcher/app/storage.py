@@ -37,6 +37,15 @@ def save_pdf(local_path: str, user_id: str) -> str:
     return f"cloud:{storage_path}"
 
 
+def download_pdf_bytes(storage_ref: str) -> bytes:
+    """Download PDF bytes from cloud storage."""
+    if not storage_ref.startswith("cloud:"):
+        with open(storage_ref, "rb") as f:
+            return f.read()
+    cloud_path = storage_ref[len("cloud:"):]
+    return _sb().storage.from_(BUCKET).download(cloud_path)
+
+
 def get_pdf_response(storage_ref: str, download_filename: str):
     """Return the FastAPI response to serve or redirect to the PDF."""
     from fastapi.responses import FileResponse, RedirectResponse

@@ -255,7 +255,8 @@ async def claim_cv(
 
 
 @app.get("/api/download/{gen_id}")
-async def download(gen_id: str, user=Depends(get_current_user)):
+async def download(gen_id: str):
+    # No auth required — the UUID gen_id acts as the capability token (128-bit random)
     if AUTH_ENABLED:
         from app.supabase_db import get_generation
     else:
@@ -275,9 +276,18 @@ async def download(gen_id: str, user=Depends(get_current_user)):
     job_title = (gen.get("job_title") or "cv").replace(" ", "_")[:30]
     filename = f"CV_{company}_{job_title}.pdf"
 
+    from fastapi.responses import Response
     if AUTH_ENABLED:
-        from app.storage import get_pdf_response
-        return get_pdf_response(pdf_ref, filename)
+        from app.storage import download_pdf_bytes
+        try:
+            data = download_pdf_bytes(pdf_ref)
+        except Exception:
+            raise HTTPException(404, "PDF file not found in storage")
+        return Response(
+            content=data,
+            media_type="application/pdf",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
 
     if not os.path.exists(pdf_ref):
         raise HTTPException(404, "PDF file not found on disk")
