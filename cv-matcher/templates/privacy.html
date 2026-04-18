@@ -5,11 +5,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Privacy Policy — CV Matcher</title>
   <link rel="stylesheet" href="/static/css/style.css" />
-  <script>
-    window.SUPABASE_URL      = "{{ supabase_url }}";
-    window.SUPABASE_ANON_KEY = "{{ supabase_anon_key }}";
-    window.AUTH_ENABLED      = {{ 'true' if auth_enabled else 'false' }};
-  </script>
 </head>
 <body>
   <header class="header">
@@ -19,6 +14,7 @@
         <span>CV Matcher</span>
       </a>
       <div class="header-controls">
+        <button class="btn-icon" id="lang-toggle"><span id="lang-label"></span></button>
         <button class="btn-icon" id="dark-toggle">
           <svg id="icon-sun" width="18" height="18" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="4" stroke="currentColor" stroke-width="2"/><path d="M12 2v2M12 20v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M2 12h2M20 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
           <svg id="icon-moon" class="hidden" width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
@@ -29,77 +25,233 @@
 
   <main class="main">
     <div class="container" style="max-width:680px">
-      <div style="margin-bottom:40px">
-        <a href="/" style="font-size:0.88rem;color:var(--blue);">← Back to CV Matcher</a>
+      <div style="margin-bottom:32px;display:flex;gap:16px">
+        <a href="/" style="font-size:0.88rem;color:var(--blue);">← Home</a>
+        <a href="/terms" style="font-size:0.88rem;color:var(--text-faint);">Terms & Conditions</a>
       </div>
 
-      <h1 style="font-size:2rem;font-weight:800;color:var(--text-primary);margin-bottom:8px;letter-spacing:-0.3px">Privacy Policy</h1>
-      <p style="color:var(--text-faint);font-size:0.88rem;margin-bottom:40px">Last updated: April 2025</p>
+      <!-- ── ENGLISH ── -->
+      <div data-lang="en">
+        <h1 class="legal-title">Privacy Policy</h1>
+        <p class="legal-date">Last updated: April 18, 2025 · Effective date: April 18, 2025</p>
 
-      <div class="privacy-body">
+        <div class="legal-body">
+          <section>
+            <h2>1. Data Controller</h2>
+            <p>CV Matcher ("we", "us", "our") is the data controller responsible for your personal data. For any privacy-related inquiries, contact us at <a href="mailto:privacy@cvmatcher.app">privacy@cvmatcher.app</a>.</p>
+          </section>
 
-        <section>
-          <h2>1. What we collect</h2>
-          <p>When you use CV Matcher, we collect the following information:</p>
-          <ul>
-            <li><strong>Account data:</strong> your email address, used to authenticate you via magic link or Google Sign-In.</li>
-            <li><strong>CV content:</strong> the CV file you upload (PDF or Word). We use it only to generate your adapted CV and delete the original file after processing.</li>
-            <li><strong>Job descriptions:</strong> the job posting URL or text you provide. We store a preview (up to 2,000 characters) in your history.</li>
-            <li><strong>Generated CVs:</strong> the adapted PDF we produce is stored so you can download it later.</li>
-            <li><strong>Payment data:</strong> we do not store card numbers. Payments are processed entirely by Stripe.</li>
-          </ul>
-        </section>
+          <section>
+            <h2>2. Data We Collect</h2>
+            <ul>
+              <li><strong>Account data:</strong> your email address, collected when you register via magic link or Google Sign-In.</li>
+              <li><strong>CV content:</strong> the CV file you upload (PDF or Word). It is processed to generate your adapted CV and deleted from our servers immediately after processing.</li>
+              <li><strong>Job descriptions:</strong> the job posting URL or text you provide. We store a preview (up to 2,000 characters) in your generation history.</li>
+              <li><strong>Generated CVs:</strong> the adapted PDF is stored so you can download it later from your history.</li>
+              <li><strong>Payment data:</strong> billing information (name, country, last 4 digits of card) retained by Stripe. We never store full card numbers.</li>
+              <li><strong>Usage data:</strong> number of CVs generated, plan type, credits remaining. No behavioral tracking or advertising data is collected.</li>
+            </ul>
+          </section>
 
-        <section>
-          <h2>2. How we use your data</h2>
-          <ul>
-            <li>To generate your tailored CV using Claude AI (Anthropic).</li>
-            <li>To display your generation history inside the app.</li>
-            <li>To manage your subscription and credits via Stripe.</li>
-            <li>We do <strong>not</strong> sell your data, use it for advertising, or train AI models with it.</li>
-          </ul>
-        </section>
+          <section>
+            <h2>3. Legal Basis for Processing (GDPR)</h2>
+            <ul>
+              <li><strong>Contract performance (Art. 6(1)(b)):</strong> processing your CV and job description to deliver the service you requested.</li>
+              <li><strong>Legitimate interest (Art. 6(1)(f)):</strong> maintaining service security and preventing fraud.</li>
+              <li><strong>Consent (Art. 6(1)(a)):</strong> sending transactional emails (magic links). You may withdraw consent at any time by deleting your account.</li>
+              <li><strong>Legal obligation (Art. 6(1)(c)):</strong> retaining payment records as required by applicable tax and financial regulations.</li>
+            </ul>
+          </section>
 
-        <section>
-          <h2>3. Third-party services</h2>
-          <p>CV Matcher uses the following third parties to operate:</p>
-          <ul>
-            <li><strong>Anthropic (Claude AI)</strong> — processes your CV and job description to generate the adapted output. Data is sent to Anthropic's API and is subject to <a href="https://www.anthropic.com/privacy" target="_blank" rel="noopener">Anthropic's Privacy Policy</a>.</li>
-            <li><strong>Supabase</strong> — stores your account, generation history, and generated PDFs. Data is hosted on Supabase infrastructure. See <a href="https://supabase.com/privacy" target="_blank" rel="noopener">Supabase's Privacy Policy</a>.</li>
-            <li><strong>Stripe</strong> — handles all payment processing. We never see or store your card details. See <a href="https://stripe.com/privacy" target="_blank" rel="noopener">Stripe's Privacy Policy</a>.</li>
-          </ul>
-        </section>
+          <section>
+            <h2>4. How We Use Your Data</h2>
+            <ul>
+              <li>To generate your tailored CV using Claude AI (Anthropic).</li>
+              <li>To display your generation history within the application.</li>
+              <li>To manage your subscription, credits, and billing via Stripe.</li>
+              <li>To send authentication emails (magic links) via Supabase Auth.</li>
+              <li>We do <strong>not</strong> sell your data, use it for advertising, or train AI models with your content.</li>
+            </ul>
+          </section>
 
-        <section>
-          <h2>4. Data retention</h2>
-          <ul>
-            <li>Your uploaded CV file is deleted from our servers immediately after the adapted CV is generated.</li>
-            <li>Generated PDFs and generation history are kept as long as your account is active.</li>
-            <li>You can request deletion of all your data at any time (see section 6).</li>
-          </ul>
-        </section>
+          <section>
+            <h2>5. Third-Party Service Providers</h2>
+            <p>We share data with the following sub-processors solely to operate the service:</p>
+            <ul>
+              <li><strong>Anthropic (Claude AI)</strong> — your CV text and job description are sent to Anthropic's API for processing. Subject to <a href="https://www.anthropic.com/privacy" target="_blank" rel="noopener">Anthropic's Privacy Policy</a>.</li>
+              <li><strong>Supabase</strong> — hosts your account, generation history, and generated PDFs. Data is stored in the EU region (AWS eu-central-1 by default). Subject to <a href="https://supabase.com/privacy" target="_blank" rel="noopener">Supabase's Privacy Policy</a>.</li>
+              <li><strong>Stripe</strong> — processes all payments. Stripe is PCI-DSS Level 1 certified. Subject to <a href="https://stripe.com/privacy" target="_blank" rel="noopener">Stripe's Privacy Policy</a>.</li>
+            </ul>
+          </section>
 
-        <section>
-          <h2>5. Cookies</h2>
-          <p>We use only essential cookies required for authentication (session tokens managed by Supabase). We do not use tracking or advertising cookies.</p>
-        </section>
+          <section>
+            <h2>6. International Data Transfers</h2>
+            <p>Some of our service providers (Anthropic, Stripe) are based in the United States. Where data is transferred outside the European Economic Area (EEA), we rely on Standard Contractual Clauses (SCCs) approved by the European Commission or other appropriate safeguards.</p>
+          </section>
 
-        <section>
-          <h2>6. Your rights</h2>
-          <p>You have the right to:</p>
-          <ul>
-            <li>Access the data we hold about you.</li>
-            <li>Request deletion of your account and all associated data.</li>
-            <li>Export your generation history.</li>
-          </ul>
-          <p>To exercise any of these rights, contact us at the email below.</p>
-        </section>
+          <section>
+            <h2>7. Data Retention</h2>
+            <ul>
+              <li>Uploaded CV files are deleted immediately after your adapted CV is generated.</li>
+              <li>Generated PDFs and generation history are retained while your account is active.</li>
+              <li>Upon account deletion, all personal data is permanently erased within 30 days, except where retention is required by law (e.g., payment records retained for 7 years for tax compliance).</li>
+            </ul>
+          </section>
 
-        <section>
-          <h2>7. Contact</h2>
-          <p>For privacy-related questions or data deletion requests, contact us at: <a href="mailto:privacy@cvmatcher.app">privacy@cvmatcher.app</a></p>
-        </section>
+          <section>
+            <h2>8. Cookies and Tracking</h2>
+            <p>We use only strictly necessary cookies for authentication (session tokens managed by Supabase). We do not use advertising, analytics, or tracking cookies. No third-party trackers are embedded on our pages.</p>
+          </section>
 
+          <section>
+            <h2>9. Your Rights</h2>
+            <p>Under GDPR (EU/EEA users) and applicable privacy laws, you have the right to:</p>
+            <ul>
+              <li><strong>Access:</strong> request a copy of your personal data.</li>
+              <li><strong>Rectification:</strong> correct inaccurate or incomplete data.</li>
+              <li><strong>Erasure ("right to be forgotten"):</strong> request deletion of your account and all associated data.</li>
+              <li><strong>Portability:</strong> receive your data in a structured, machine-readable format.</li>
+              <li><strong>Restriction:</strong> request that we limit processing of your data.</li>
+              <li><strong>Objection:</strong> object to processing based on legitimate interest.</li>
+              <li><strong>Withdraw consent:</strong> at any time, without affecting prior processing.</li>
+            </ul>
+            <p>California residents (CCPA): you have the right to know, delete, and opt out of the sale of personal information. We do not sell personal information.</p>
+            <p>To exercise any right, email <a href="mailto:privacy@cvmatcher.app">privacy@cvmatcher.app</a>. We will respond within 30 days.</p>
+          </section>
+
+          <section>
+            <h2>10. Security</h2>
+            <p>We implement appropriate technical and organizational measures including TLS encryption in transit, row-level security policies in our database, and access controls limiting who can access personal data. However, no system is 100% secure and we cannot guarantee absolute security.</p>
+          </section>
+
+          <section>
+            <h2>11. Children's Privacy</h2>
+            <p>CV Matcher is not directed at individuals under 16 years of age. We do not knowingly collect personal data from children. If you believe a child has provided us with personal data, contact us immediately.</p>
+          </section>
+
+          <section>
+            <h2>12. Changes to This Policy</h2>
+            <p>We may update this Privacy Policy from time to time. We will notify you of material changes by updating the "Last updated" date at the top and, where required, by sending an email notification. Continued use of the service after changes constitutes acceptance of the updated policy.</p>
+          </section>
+
+          <section>
+            <h2>13. Contact & Complaints</h2>
+            <p>For privacy questions or data requests: <a href="mailto:privacy@cvmatcher.app">privacy@cvmatcher.app</a></p>
+            <p>If you are in the EU/EEA and believe your rights have been violated, you have the right to lodge a complaint with your local supervisory authority.</p>
+          </section>
+        </div>
+      </div>
+
+      <!-- ── ESPAÑOL ── -->
+      <div data-lang="es">
+        <h1 class="legal-title">Política de Privacidad</h1>
+        <p class="legal-date">Última actualización: 18 de abril de 2025 · Fecha de vigencia: 18 de abril de 2025</p>
+
+        <div class="legal-body">
+          <section>
+            <h2>1. Responsable del Tratamiento</h2>
+            <p>CV Matcher ("nosotros", "nuestro") es el responsable del tratamiento de tus datos personales. Para cualquier consulta relacionada con privacidad, escríbenos a <a href="mailto:privacy@cvmatcher.app">privacy@cvmatcher.app</a>.</p>
+          </section>
+
+          <section>
+            <h2>2. Datos que Recopilamos</h2>
+            <ul>
+              <li><strong>Datos de cuenta:</strong> tu dirección de correo electrónico, recopilada cuando te registras mediante enlace mágico o Google.</li>
+              <li><strong>Contenido del CV:</strong> el archivo de CV que subes (PDF o Word). Se procesa para generar tu CV adaptado y se elimina de nuestros servidores inmediatamente después del procesamiento.</li>
+              <li><strong>Descripciones de vacantes:</strong> la URL o el texto de la oferta de empleo que proporcionas. Guardamos una vista previa (máximo 2.000 caracteres) en tu historial.</li>
+              <li><strong>CVs generados:</strong> el PDF adaptado se almacena para que puedas descargarlo desde tu historial.</li>
+              <li><strong>Datos de pago:</strong> información de facturación (nombre, país, últimos 4 dígitos de la tarjeta) conservada por Stripe. Nunca almacenamos números de tarjeta completos.</li>
+              <li><strong>Datos de uso:</strong> número de CVs generados, tipo de plan, créditos restantes. No realizamos seguimiento de comportamiento ni recopilamos datos publicitarios.</li>
+            </ul>
+          </section>
+
+          <section>
+            <h2>3. Base Legal del Tratamiento (RGPD)</h2>
+            <ul>
+              <li><strong>Ejecución del contrato (Art. 6(1)(b)):</strong> procesamiento de tu CV y descripción de vacante para prestar el servicio solicitado.</li>
+              <li><strong>Interés legítimo (Art. 6(1)(f)):</strong> mantenimiento de la seguridad del servicio y prevención del fraude.</li>
+              <li><strong>Consentimiento (Art. 6(1)(a)):</strong> envío de correos transaccionales (enlaces mágicos). Puedes retirar tu consentimiento en cualquier momento eliminando tu cuenta.</li>
+              <li><strong>Obligación legal (Art. 6(1)(c)):</strong> conservación de registros de pago según la normativa fiscal y financiera aplicable.</li>
+            </ul>
+          </section>
+
+          <section>
+            <h2>4. Cómo Usamos tus Datos</h2>
+            <ul>
+              <li>Para generar tu CV adaptado usando Claude AI (Anthropic).</li>
+              <li>Para mostrar tu historial de generaciones dentro de la aplicación.</li>
+              <li>Para gestionar tu suscripción, créditos y facturación a través de Stripe.</li>
+              <li>Para enviarte correos de autenticación (enlaces mágicos) vía Supabase Auth.</li>
+              <li><strong>No</strong> vendemos tus datos, los usamos con fines publicitarios, ni entrenamos modelos de IA con tu contenido.</li>
+            </ul>
+          </section>
+
+          <section>
+            <h2>5. Proveedores de Servicios Externos</h2>
+            <p>Compartimos datos con los siguientes subencargados exclusivamente para operar el servicio:</p>
+            <ul>
+              <li><strong>Anthropic (Claude AI)</strong> — el texto de tu CV y la descripción de la vacante se envían a la API de Anthropic. Sujeto a la <a href="https://www.anthropic.com/privacy" target="_blank" rel="noopener">Política de Privacidad de Anthropic</a>.</li>
+              <li><strong>Supabase</strong> — aloja tu cuenta, historial de generaciones y PDFs generados. Datos almacenados en región EU (AWS eu-central-1 por defecto). Sujeto a la <a href="https://supabase.com/privacy" target="_blank" rel="noopener">Política de Privacidad de Supabase</a>.</li>
+              <li><strong>Stripe</strong> — procesa todos los pagos. Stripe tiene certificación PCI-DSS Nivel 1. Sujeto a la <a href="https://stripe.com/privacy" target="_blank" rel="noopener">Política de Privacidad de Stripe</a>.</li>
+            </ul>
+          </section>
+
+          <section>
+            <h2>6. Transferencias Internacionales de Datos</h2>
+            <p>Algunos de nuestros proveedores (Anthropic, Stripe) están ubicados en Estados Unidos. Cuando los datos se transfieren fuera del Espacio Económico Europeo (EEE), nos basamos en las Cláusulas Contractuales Estándar (CCE) aprobadas por la Comisión Europea u otras garantías adecuadas.</p>
+          </section>
+
+          <section>
+            <h2>7. Conservación de Datos</h2>
+            <ul>
+              <li>Los archivos de CV subidos se eliminan inmediatamente después de generar tu CV adaptado.</li>
+              <li>Los PDFs generados y el historial se conservan mientras tu cuenta esté activa.</li>
+              <li>Al eliminar tu cuenta, todos los datos personales se borran permanentemente en un plazo de 30 días, excepto cuando la ley lo exija (p. ej., registros de pago conservados 7 años por obligaciones fiscales).</li>
+            </ul>
+          </section>
+
+          <section>
+            <h2>8. Cookies y Rastreo</h2>
+            <p>Usamos únicamente cookies estrictamente necesarias para la autenticación (tokens de sesión gestionados por Supabase). No utilizamos cookies de publicidad, analítica ni rastreo. No integramos rastreadores de terceros en nuestras páginas.</p>
+          </section>
+
+          <section>
+            <h2>9. Tus Derechos</h2>
+            <p>En virtud del RGPD (usuarios de la UE/EEE) y la legislación de privacidad aplicable, tienes derecho a:</p>
+            <ul>
+              <li><strong>Acceso:</strong> solicitar una copia de tus datos personales.</li>
+              <li><strong>Rectificación:</strong> corregir datos inexactos o incompletos.</li>
+              <li><strong>Supresión ("derecho al olvido"):</strong> solicitar la eliminación de tu cuenta y todos los datos asociados.</li>
+              <li><strong>Portabilidad:</strong> recibir tus datos en formato estructurado y legible por máquina.</li>
+              <li><strong>Limitación:</strong> solicitar que limitemos el tratamiento de tus datos.</li>
+              <li><strong>Oposición:</strong> oponerte al tratamiento basado en interés legítimo.</li>
+              <li><strong>Retirar el consentimiento:</strong> en cualquier momento, sin afectar el tratamiento previo.</li>
+            </ul>
+            <p>Residentes de California (CCPA): tienes derecho a conocer, eliminar y optar por no participar en la venta de información personal. No vendemos información personal.</p>
+            <p>Para ejercer cualquier derecho, escribe a <a href="mailto:privacy@cvmatcher.app">privacy@cvmatcher.app</a>. Responderemos en un plazo de 30 días.</p>
+          </section>
+
+          <section>
+            <h2>10. Seguridad</h2>
+            <p>Implementamos medidas técnicas y organizativas adecuadas, incluyendo cifrado TLS en tránsito, políticas de seguridad a nivel de fila en nuestra base de datos y controles de acceso. Sin embargo, ningún sistema es 100% seguro y no podemos garantizar seguridad absoluta.</p>
+          </section>
+
+          <section>
+            <h2>11. Privacidad de Menores</h2>
+            <p>CV Matcher no está dirigido a personas menores de 16 años. No recopilamos datos personales de menores de forma intencionada. Si crees que un menor nos ha proporcionado datos personales, contáctanos de inmediato.</p>
+          </section>
+
+          <section>
+            <h2>12. Cambios en Esta Política</h2>
+            <p>Podemos actualizar esta Política de Privacidad ocasionalmente. Notificaremos los cambios sustanciales actualizando la fecha de "Última actualización" y, cuando corresponda, mediante notificación por correo electrónico. El uso continuado del servicio tras los cambios implica la aceptación de la política actualizada.</p>
+          </section>
+
+          <section>
+            <h2>13. Contacto y Reclamaciones</h2>
+            <p>Para consultas sobre privacidad o solicitudes de datos: <a href="mailto:privacy@cvmatcher.app">privacy@cvmatcher.app</a></p>
+            <p>Si estás en la UE/EEE y consideras que se han vulnerado tus derechos, puedes presentar una reclamación ante la autoridad de control de tu país.</p>
+          </section>
+        </div>
       </div>
     </div>
   </main>
@@ -108,38 +260,43 @@
     <div class="container footer-inner">
       <span>© 2025 CV Matcher</span>
       <div class="footer-links">
-        <a href="/privacy">Privacy Policy</a>
+        <a href="/privacy" id="footer-privacy"></a>
+        <a href="/terms" id="footer-terms"></a>
       </div>
     </div>
   </footer>
 
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script src="/static/js/auth.js"></script>
+  <script src="/static/js/legal.js"></script>
   <script>
-    // Dark mode
-    const dark = localStorage.getItem("cv_dark") === "true";
-    document.body.classList.toggle("dark", dark);
-    document.getElementById("icon-sun")?.classList.toggle("hidden", dark);
-    document.getElementById("icon-moon")?.classList.toggle("hidden", !dark);
-    document.getElementById("dark-toggle")?.addEventListener("click", () => {
-      const d = !document.body.classList.contains("dark");
-      document.body.classList.toggle("dark", d);
-      localStorage.setItem("cv_dark", d);
-      document.getElementById("icon-sun")?.classList.toggle("hidden", d);
-      document.getElementById("icon-moon")?.classList.toggle("hidden", !d);
+    document.addEventListener("DOMContentLoaded", () => {
+      const lang = localStorage.getItem("cv_ui_lang") || "en";
+      const fp = document.getElementById("footer-privacy");
+      const ft = document.getElementById("footer-terms");
+      const labels = {
+        en: { privacy: "Privacy Policy", terms: "Terms & Conditions" },
+        es: { privacy: "Política de Privacidad", terms: "Términos y Condiciones" }
+      };
+      function setFooter(l) {
+        if (fp) fp.textContent = labels[l].privacy;
+        if (ft) ft.textContent = labels[l].terms;
+      }
+      setFooter(lang);
+      document.getElementById("lang-toggle")?.addEventListener("click", () => {
+        const next = (localStorage.getItem("cv_ui_lang") || "en") === "en" ? "es" : "en";
+        setFooter(next);
+      });
     });
   </script>
 
   <style>
-    .privacy-body { display: flex; flex-direction: column; gap: 36px; }
-    .privacy-body section h2 {
-      font-size: 1.1rem; font-weight: 700; color: var(--text-primary);
-      margin-bottom: 12px; padding-bottom: 8px; border-bottom: 1px solid var(--border);
-    }
-    .privacy-body p { color: var(--text-secondary); line-height: 1.7; margin-bottom: 10px; font-size: 0.93rem; }
-    .privacy-body ul { padding-left: 20px; display: flex; flex-direction: column; gap: 8px; }
-    .privacy-body li { color: var(--text-secondary); line-height: 1.6; font-size: 0.93rem; }
-    .privacy-body a { color: var(--blue); text-decoration: underline; }
+    .legal-title { font-size:2rem; font-weight:800; color:var(--text-primary); margin-bottom:8px; letter-spacing:-0.3px; }
+    .legal-date  { color:var(--text-faint); font-size:0.85rem; margin-bottom:40px; }
+    .legal-body  { display:flex; flex-direction:column; gap:36px; }
+    .legal-body section h2 { font-size:1.05rem; font-weight:700; color:var(--text-primary); margin-bottom:12px; padding-bottom:8px; border-bottom:1px solid var(--border); }
+    .legal-body p  { color:var(--text-secondary); line-height:1.7; margin-bottom:10px; font-size:0.93rem; }
+    .legal-body ul { padding-left:20px; display:flex; flex-direction:column; gap:8px; }
+    .legal-body li { color:var(--text-secondary); line-height:1.6; font-size:0.93rem; }
+    .legal-body a  { color:var(--blue); text-decoration:underline; }
   </style>
 </body>
 </html>

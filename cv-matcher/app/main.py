@@ -104,6 +104,11 @@ async def privacy(request: Request):
     return templates.TemplateResponse("privacy.html", ctx(request))
 
 
+@app.get("/terms", response_class=HTMLResponse)
+async def terms(request: Request):
+    return templates.TemplateResponse("terms.html", ctx(request))
+
+
 # ── API ────────────────────────────────────────────────────
 
 @app.get("/api/user")
