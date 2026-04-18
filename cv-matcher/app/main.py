@@ -209,7 +209,7 @@ async def generate(
 
 
 @app.get("/api/download/{gen_id}")
-async def download(gen_id: int, user=Depends(get_current_user)):
+async def download(gen_id: str, user=Depends(get_current_user)):
     if AUTH_ENABLED:
         from app.supabase_db import get_generation
     else:

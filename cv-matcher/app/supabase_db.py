@@ -70,21 +70,20 @@ def consume_credit(user_id: str, profile: dict):
 
 # ── Generations ────────────────────────────────────────────
 
-def create_generation(user_id: str, job_title: str, company: str, job_url: str, job_text: str, cv_filename: str) -> int:
+def create_generation(user_id: str, job_title: str, company: str, job_url: str, job_text: str, cv_filename: str) -> str:
     r = _sb().table("generations").insert({
         "user_id": user_id,
         "job_title": job_title,
         "company": company,
         "job_url": job_url,
         "job_text": job_text[:2000],
-        "original_cv_filename": cv_filename,
         "status": "processing",
         "created_at": datetime.now(timezone.utc).isoformat(),
     }).execute()
     return r.data[0]["id"]
 
 
-def update_generation(gen_id: int, pdf_ref: str, job_title: str, company: str, status: str = "completed"):
+def update_generation(gen_id: str, pdf_ref: str, job_title: str = "", company: str = "", status: str = "completed"):
     _sb().table("generations").update({
         "pdf_storage_path": pdf_ref,
         "job_title": job_title,
@@ -93,7 +92,7 @@ def update_generation(gen_id: int, pdf_ref: str, job_title: str, company: str, s
     }).eq("id", gen_id).execute()
 
 
-def get_generation(gen_id: int) -> dict | None:
+def get_generation(gen_id: str) -> dict | None:
     r = _sb().table("generations").select("*").eq("id", gen_id).execute()
     return r.data[0] if r.data else None
 
