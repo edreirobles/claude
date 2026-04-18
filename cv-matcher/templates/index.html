@@ -165,8 +165,63 @@
         <div class="feature"><div class="feature-icon">⌘</div><h3 data-i18n="f2_title"></h3><p data-i18n="f2_desc"></p></div>
         <div class="feature"><div class="feature-icon">↓</div><h3 data-i18n="f3_title"></h3><p data-i18n="f3_desc"></p></div>
       </div>
+
+      {% if payments_enabled %}
+      <!-- ── PRICING SECTION ── -->
+      <div class="pricing-section" id="pricing">
+        <div class="pricing-section-header">
+          <h2 data-i18n="pricing_title"></h2>
+          <p data-i18n="pricing_subtitle"></p>
+        </div>
+        <div class="pricing-cards-home">
+          <!-- Free -->
+          <div class="pricing-card-home">
+            <div class="pricing-label" data-i18n="plan_free_label"></div>
+            <div class="pricing-amount-home">$0</div>
+            <ul class="pricing-features">
+              <li id="free-f1"></li>
+              <li data-i18n="plan_free_f2"></li>
+              <li data-i18n="plan_free_f3"></li>
+            </ul>
+            <a href="/login" class="btn-ghost" style="width:100%;justify-content:center;text-align:center" data-i18n="plan_free_btn"></a>
+          </div>
+          <!-- Single -->
+          <div class="pricing-card-home">
+            <div class="pricing-label" data-i18n="plan_single_label"></div>
+            <div class="pricing-amount-home">{{ price_single_display }}</div>
+            <ul class="pricing-features">
+              <li data-i18n="plan_single_f1"></li>
+              <li data-i18n="plan_single_f2"></li>
+              <li data-i18n="plan_single_f3"></li>
+            </ul>
+            <a href="/login" class="btn-ghost" style="width:100%;justify-content:center;text-align:center" data-i18n="plan_single_btn"></a>
+          </div>
+          <!-- Monthly -->
+          <div class="pricing-card-home featured">
+            <div class="pricing-badge" data-i18n="plan_monthly_badge"></div>
+            <div class="pricing-label" data-i18n="plan_monthly_label"></div>
+            <div class="pricing-amount-home">{{ price_monthly_display }}</div>
+            <ul class="pricing-features">
+              <li data-i18n="plan_monthly_f1"></li>
+              <li data-i18n="plan_monthly_f2"></li>
+              <li data-i18n="plan_monthly_f3"></li>
+            </ul>
+            <a href="/login" class="btn-primary" style="width:100%;justify-content:center;text-align:center" data-i18n="plan_monthly_btn"></a>
+          </div>
+        </div>
+      </div>
+      {% endif %}
     </div>
   </main>
+
+  <footer class="footer">
+    <div class="container footer-inner">
+      <span>© 2025 CV Matcher</span>
+      <div class="footer-links">
+        <a href="/privacy">Privacy Policy</a>
+      </div>
+    </div>
+  </footer>
 
   <!-- ── PAYWALL MODAL ──────────────────────────────────── -->
   <div class="modal-overlay hidden" id="paywall-modal">

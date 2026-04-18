@@ -694,5 +694,75 @@ body.dark .usage-badge.badge-pro     { background: #431407; color: #fdba74; bord
 /* ── HISTORY LOADING ─────────────────────────────────────── */
 .history-loading { display: flex; justify-content: center; padding: 60px 0; }
 
+/* ── PRICING SECTION (home) ──────────────────────────────── */
+.pricing-section {
+  margin-top: 56px;
+  padding-top: 48px;
+  border-top: 1px solid var(--border);
+}
+
+.pricing-section-header {
+  text-align: center;
+  margin-bottom: 32px;
+}
+.pricing-section-header h2 {
+  font-size: 1.6rem;
+  font-weight: 800;
+  color: var(--text-primary);
+  letter-spacing: -0.3px;
+  margin-bottom: 8px;
+}
+.pricing-section-header p {
+  color: var(--text-muted);
+  font-size: 0.95rem;
+}
+
+.pricing-cards-home {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 20px;
+}
+@media (max-width: 640px) { .pricing-cards-home { grid-template-columns: 1fr; } }
+
+.pricing-card-home {
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 28px 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  background: var(--bg-card);
+  position: relative;
+}
+.pricing-card-home.featured {
+  border-color: var(--blue);
+  box-shadow: 0 0 0 2px var(--blue);
+}
+
+.pricing-amount-home {
+  font-size: 2rem;
+  font-weight: 800;
+  color: var(--text-primary);
+  line-height: 1.1;
+}
+
+/* ── FOOTER ──────────────────────────────────────────────── */
+.footer {
+  border-top: 1px solid var(--border);
+  background: var(--bg-card);
+  padding: 20px 0;
+  margin-top: 60px;
+}
+.footer-inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 0.82rem;
+  color: var(--text-faint);
+}
+.footer-links { display: flex; gap: 20px; }
+.footer-links a { color: var(--text-faint); transition: color .15s; }
+.footer-links a:hover { color: var(--text-muted); }
+
 /* ── UTILS ───────────────────────────────────────────────── */
 .hidden { display: none !important; }

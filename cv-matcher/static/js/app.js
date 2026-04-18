@@ -36,6 +36,26 @@ const T = {
     f2_desc:"Irrelevant content is removed. Only what strengthens your application stays.",
     f3_title:"Professional PDF",
     f3_desc:"Clean, classic layout ready to impress recruiters and pass ATS filters.",
+    // Pricing section
+    pricing_title:"Simple, transparent pricing",
+    pricing_subtitle:"Start free, pay only when you need more.",
+    plan_free_label:"Free",
+    plan_free_price:"$0",
+    plan_free_f1:"{n} free CVs to try",
+    plan_free_f2:"All features included",
+    plan_free_f3:"No credit card needed",
+    plan_free_btn:"Get started",
+    plan_single_label:"Single CV",
+    plan_single_f1:"1 tailored CV",
+    plan_single_f2:"Never expires",
+    plan_single_f3:"Instant PDF download",
+    plan_single_btn:"Buy now",
+    plan_monthly_label:"Monthly",
+    plan_monthly_badge:"Best value",
+    plan_monthly_f1:"30 CVs per month",
+    plan_monthly_f2:"Extra CVs at $0.99 each",
+    plan_monthly_f3:"Cancel anytime",
+    plan_monthly_btn:"Subscribe",
     hist_title:"Generation history",
     hist_view_posting:"View posting ↗", hist_preview:"Job description preview",
     hist_download:"Download PDF", hist_failed:"Failed", hist_processing:"Processing",
@@ -123,6 +143,25 @@ const T = {
     f2_desc:"El contenido irrelevante se elimina. Solo queda lo que fortalece tu solicitud.",
     f3_title:"PDF profesional",
     f3_desc:"Diseño limpio y clásico listo para impresionar reclutadores y pasar filtros ATS.",
+    pricing_title:"Precios simples y transparentes",
+    pricing_subtitle:"Empieza gratis, paga solo cuando necesites más.",
+    plan_free_label:"Gratis",
+    plan_free_price:"$0",
+    plan_free_f1:"{n} CVs gratis para probar",
+    plan_free_f2:"Todas las funciones incluidas",
+    plan_free_f3:"Sin tarjeta de crédito",
+    plan_free_btn:"Empezar gratis",
+    plan_single_label:"CV único",
+    plan_single_f1:"1 CV adaptado",
+    plan_single_f2:"Sin caducidad",
+    plan_single_f3:"PDF instantáneo",
+    plan_single_btn:"Comprar",
+    plan_monthly_label:"Mensual",
+    plan_monthly_badge:"Mejor valor",
+    plan_monthly_f1:"30 CVs por mes",
+    plan_monthly_f2:"CVs extra a $0.99 cada uno",
+    plan_monthly_f3:"Cancela en cualquier momento",
+    plan_monthly_btn:"Suscribirse",
     hist_title:"Historial de generaciones",
     hist_view_posting:"Ver vacante ↗", hist_preview:"Vista previa de la vacante",
     hist_download:"Descargar PDF", hist_failed:"Fallido", hist_processing:"Procesando",
@@ -217,6 +256,9 @@ document.addEventListener("DOMContentLoaded", async () => {
   applyLang();
   initUI();
   await initAuth();
+  // Free plan description uses FREE_LIMIT variable
+  const freeF1 = document.getElementById("free-f1");
+  if (freeF1) freeF1.textContent = t("plan_free_f1", { n: window.FREE_LIMIT || 3 });
 });
 
 /* ── TOGGLES (lang + dark) ─────────────────────────────── */

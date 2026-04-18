@@ -99,6 +99,11 @@ async def payment_success(request: Request):
     return templates.TemplateResponse("payment_success.html", ctx(request))
 
 
+@app.get("/privacy", response_class=HTMLResponse)
+async def privacy(request: Request):
+    return templates.TemplateResponse("privacy.html", ctx(request))
+
+
 # ── API ────────────────────────────────────────────────────
 
 @app.get("/api/user")
