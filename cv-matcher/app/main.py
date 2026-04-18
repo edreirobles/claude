@@ -41,8 +41,9 @@ def ctx(request: Request, **extra):
         "auth_enabled": AUTH_ENABLED,
         "payments_enabled": PAYMENTS_ENABLED,
         "free_limit": FREE_LIMIT,
-        "price_credits_display": os.environ.get("PRICE_CREDITS_DISPLAY", "$9.99 for 5 CVs"),
-        "price_monthly_display": os.environ.get("PRICE_MONTHLY_DISPLAY", "$19.99/month"),
+        "price_single_display": os.environ.get("PRICE_SINGLE_DISPLAY", "$1.99"),
+        "price_monthly_display": os.environ.get("PRICE_MONTHLY_DISPLAY", "$9.99/mo"),
+        "price_extra_display": os.environ.get("PRICE_EXTRA_DISPLAY", "$0.99"),
         **extra,
     }
 
@@ -252,7 +253,7 @@ async def api_history(user=Depends(get_current_user)):
 
 @app.post("/api/create-checkout")
 async def create_checkout(
-    product: str = Form(...),  # "credits" or "monthly"
+    product: str = Form(...),  # "single" | "monthly" | "extra"
     user=Depends(get_current_user),
 ):
     if not PAYMENTS_ENABLED:
@@ -260,20 +261,20 @@ async def create_checkout(
     if not AUTH_ENABLED:
         raise HTTPException(503, "Auth not configured")
 
-    from app.supabase_db import get_or_create_stripe_customer
+    from app.supabase_db import get_or_create_stripe_customer, get_profile
     from app.payments import create_checkout as _checkout
 
     customer_id = get_or_create_stripe_customer(user.id, user.email)
     base_url = os.environ.get("APP_URL", "http://localhost:8001")
 
-    if product == "credits":
+    if product == "single":
         url = _checkout(
             customer_id=customer_id,
-            price_id=os.environ["STRIPE_PRICE_CREDITS"],
+            price_id=os.environ["STRIPE_PRICE_SINGLE"],
             mode="payment",
-            success_url=f"{base_url}/payment/success?product=credits",
+            success_url=f"{base_url}/payment/success?product=single",
             cancel_url=f"{base_url}/",
-            metadata={"user_id": user.id, "product": "credits"},
+            metadata={"user_id": user.id, "product": "single"},
         )
     elif product == "monthly":
         url = _checkout(
@@ -282,6 +283,19 @@ async def create_checkout(
             mode="subscription",
             success_url=f"{base_url}/payment/success?product=monthly",
             cancel_url=f"{base_url}/",
+            metadata={"user_id": user.id, "product": "monthly"},
+        )
+    elif product == "extra":
+        profile = get_profile(user.id)
+        if not profile or profile.get("plan") != "monthly":
+            raise HTTPException(403, "Extra credits are only available for active subscribers")
+        url = _checkout(
+            customer_id=customer_id,
+            price_id=os.environ["STRIPE_PRICE_EXTRA"],
+            mode="payment",
+            success_url=f"{base_url}/payment/success?product=extra",
+            cancel_url=f"{base_url}/",
+            metadata={"user_id": user.id, "product": "extra"},
         )
     else:
         raise HTTPException(400, "Invalid product")
@@ -320,28 +334,17 @@ async def stripe_webhook(request: Request):
 
     if etype == "checkout.session.completed":
         customer_id = data.get("customer")
-        meta = data.get("metadata", {})
         mode = data.get("mode")
-
         if mode == "payment":
-            # One-time credits purchase
-            credits_qty = int(os.environ.get("CREDITS_PER_PACK", "5"))
-            add_credits(customer_id, credits_qty)
-
-        elif mode == "subscription":
-            sub_id = data.get("subscription")
-            # Get subscription details for period end
-            import stripe
-            stripe.api_key = os.environ["STRIPE_SECRET_KEY"]
-            sub = stripe.Subscription.retrieve(sub_id)
-            activate_subscription(customer_id, sub_id, sub["current_period_end"])
+            # single CV ($1.99) or extra CV ($0.99) — always 1 credit
+            add_credits(customer_id, 1)
+        # subscriptions handled by invoice.payment_succeeded to avoid double-crediting
 
     elif etype == "customer.subscription.deleted":
-        customer_id = data.get("customer")
-        cancel_subscription(customer_id)
+        cancel_subscription(data.get("customer"))
 
-    elif etype in ("invoice.payment_succeeded",):
-        # Renew subscription period
+    elif etype == "invoice.payment_succeeded":
+        # Fires on new subscription AND renewals — grants 30 credits each time
         customer_id = data.get("customer")
         sub_id = data.get("subscription")
         if sub_id:

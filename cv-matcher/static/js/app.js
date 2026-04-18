@@ -45,24 +45,32 @@ const T = {
     alert_no_job:"Please enter a job URL or paste the job description text.",
     alert_bad_file:"Please upload a PDF or Word document (.pdf, .doc, .docx)",
     alert_too_large:"File is too large. Maximum 10 MB.",
-    usage_free:"{n} free generation{s} left",
+    usage_free:"{n} free CV{s} left",
     usage_credits:"{n} credit{s} remaining",
-    usage_monthly:"Monthly plan ✓",
+    usage_monthly:"Monthly · {n} CV{s} left",
+    usage_monthly_empty:"Monthly · No CVs left",
     usage_dev:"Dev mode",
     // Paywall
-    paywall_title:"You've used your free generations",
-    paywall_desc:"Choose a plan to continue generating tailored CVs:",
-    price_credits_label:"Pay as you go",
-    price_credits_f1:"5 CV generations",
-    price_credits_f2:"Never expires",
-    price_credits_f3:"Download all as PDF",
-    price_credits_btn:"Buy credits",
+    paywall_title:"You've used your free CVs",
+    paywall_desc:"Choose a plan to continue:",
+    paywall_title_sub:"You've used all your monthly CVs",
+    paywall_desc_sub:"Buy an extra CV or wait for your monthly renewal.",
+    price_single_label:"Single CV",
+    price_single_f1:"1 CV generation",
+    price_single_f2:"Never expires",
+    price_single_f3:"Download as PDF",
+    price_single_btn:"Buy now",
     price_monthly_label:"Monthly",
-    price_monthly_badge:"Most popular",
-    price_monthly_f1:"Unlimited CV generations",
+    price_monthly_badge:"Best value",
+    price_monthly_f1:"30 CVs per month",
     price_monthly_f2:"Cancel anytime",
-    price_monthly_f3:"Priority support",
+    price_monthly_f3:"Extra CVs at $0.99 each",
     price_monthly_btn:"Subscribe",
+    price_extra_label:"Extra CV",
+    price_extra_f1:"1 CV generation",
+    price_extra_f2:"Subscriber exclusive",
+    price_extra_f3:"Download as PDF",
+    price_extra_btn:"Buy extra CV",
     paywall_close:"Maybe later",
     // Login
     login_title:"Sign in to CV Matcher",
@@ -124,23 +132,31 @@ const T = {
     alert_no_job:"Por favor ingresa una URL o pega el texto de la vacante.",
     alert_bad_file:"Por favor sube un PDF o documento Word (.pdf, .doc, .docx)",
     alert_too_large:"El archivo es demasiado grande. Máximo 10 MB.",
-    usage_free:"Te quedan {n} generación{s} gratuita{s}",
+    usage_free:"Te quedan {n} CV{s} gratis",
     usage_credits:"Te quedan {n} crédito{s}",
-    usage_monthly:"Plan mensual activo ✓",
+    usage_monthly:"Mensual · {n} CV{s} restante{s}",
+    usage_monthly_empty:"Mensual · Sin CVs disponibles",
     usage_dev:"Modo desarrollo",
-    paywall_title:"Has usado tus generaciones gratuitas",
-    paywall_desc:"Elige un plan para seguir generando CVs adaptados:",
-    price_credits_label:"Pago por uso",
-    price_credits_f1:"5 generaciones de CV",
-    price_credits_f2:"Sin caducidad",
-    price_credits_f3:"Descarga todos en PDF",
-    price_credits_btn:"Comprar créditos",
+    paywall_title:"Has usado tus CVs gratuitos",
+    paywall_desc:"Elige una opción para continuar:",
+    paywall_title_sub:"Has usado todos tus CVs del mes",
+    paywall_desc_sub:"Compra un CV extra o espera a tu renovación mensual.",
+    price_single_label:"CV único",
+    price_single_f1:"1 generación de CV",
+    price_single_f2:"Sin caducidad",
+    price_single_f3:"Descarga en PDF",
+    price_single_btn:"Comprar",
     price_monthly_label:"Mensual",
-    price_monthly_badge:"Más popular",
-    price_monthly_f1:"Generaciones ilimitadas",
+    price_monthly_badge:"Mejor valor",
+    price_monthly_f1:"30 CVs por mes",
     price_monthly_f2:"Cancela en cualquier momento",
-    price_monthly_f3:"Soporte prioritario",
+    price_monthly_f3:"CVs extra a $0.99 cada uno",
     price_monthly_btn:"Suscribirse",
+    price_extra_label:"CV extra",
+    price_extra_f1:"1 generación de CV",
+    price_extra_f2:"Solo para suscriptores",
+    price_extra_f3:"Descarga en PDF",
+    price_extra_btn:"Comprar CV extra",
     paywall_close:"Quizás más tarde",
     login_title:"Inicia sesión en CV Matcher",
     login_subtitle:"Crea CVs adaptados para cada solicitud de empleo.",
@@ -261,10 +277,12 @@ async function initAuth() {
   } catch (e) { /* ignore */ }
 
   // Pre-populate pricing amounts
-  const creditsAmt = document.getElementById("price-credits-amount");
-  if (creditsAmt) creditsAmt.textContent = window.PRICE_CREDITS_DISPLAY;
+  const singleAmt = document.getElementById("price-single-amount");
+  if (singleAmt) singleAmt.textContent = window.PRICE_SINGLE_DISPLAY;
   const monthlyAmt = document.getElementById("price-monthly-amount");
   if (monthlyAmt) monthlyAmt.textContent = window.PRICE_MONTHLY_DISPLAY;
+  const extraAmt = document.getElementById("price-extra-amount");
+  if (extraAmt) extraAmt.textContent = window.PRICE_EXTRA_DISPLAY;
 }
 
 function updateUsageBadge(info) {
@@ -276,8 +294,14 @@ function updateUsageBadge(info) {
     badge.textContent = t("usage_dev");
     badge.className = "usage-badge badge-dev";
   } else if (plan === "monthly") {
-    badge.textContent = t("usage_monthly");
-    badge.className = "usage-badge badge-pro";
+    const n = info.credits || 0;
+    if (n > 0) {
+      badge.textContent = t("usage_monthly", { n, s: n !== 1 ? "s" : "" });
+      badge.className = "usage-badge badge-pro";
+    } else {
+      badge.textContent = t("usage_monthly_empty");
+      badge.className = "usage-badge badge-empty";
+    }
   } else if (plan === "credits") {
     const n = info.credits || 0;
     badge.textContent = t("usage_credits", { n, s: n !== 1 ? "s" : "" });
@@ -371,8 +395,9 @@ function initUI() {
   document.getElementById("paywall-close")?.addEventListener("click", () => {
     document.getElementById("paywall-modal")?.classList.add("hidden");
   });
-  document.getElementById("buy-credits-btn")?.addEventListener("click", () => startCheckout("credits"));
+  document.getElementById("buy-single-btn")?.addEventListener("click", () => startCheckout("single"));
   document.getElementById("buy-monthly-btn")?.addEventListener("click", () => startCheckout("monthly"));
+  document.getElementById("buy-extra-btn")?.addEventListener("click", () => startCheckout("extra"));
 }
 
 /* ── FILE ──────────────────────────────────────────────── */
@@ -475,12 +500,23 @@ async function handleGenerate() {
 
 /* ── PAYWALL ───────────────────────────────────────────── */
 function showPaywall() {
-  document.getElementById("paywall-modal")?.classList.remove("hidden");
-  applyLang();
-  const creditsAmt = document.getElementById("price-credits-amount");
-  if (creditsAmt) creditsAmt.textContent = window.PRICE_CREDITS_DISPLAY || "";
+  const isSubscriberEmpty = userInfo && userInfo.plan === "monthly" && (userInfo.credits || 0) === 0;
+  document.getElementById("paywall-cards-default")?.classList.toggle("hidden", isSubscriberEmpty);
+  document.getElementById("paywall-cards-extra")?.classList.toggle("hidden", !isSubscriberEmpty);
+
+  const titleEl = document.getElementById("paywall-title-el");
+  const descEl  = document.getElementById("paywall-desc-el");
+  if (titleEl) titleEl.textContent = t(isSubscriberEmpty ? "paywall_title_sub" : "paywall_title");
+  if (descEl)  descEl.textContent  = t(isSubscriberEmpty ? "paywall_desc_sub"  : "paywall_desc");
+
+  const singleAmt = document.getElementById("price-single-amount");
+  if (singleAmt) singleAmt.textContent = window.PRICE_SINGLE_DISPLAY || "";
   const monthlyAmt = document.getElementById("price-monthly-amount");
   if (monthlyAmt) monthlyAmt.textContent = window.PRICE_MONTHLY_DISPLAY || "";
+  const extraAmt = document.getElementById("price-extra-amount");
+  if (extraAmt) extraAmt.textContent = window.PRICE_EXTRA_DISPLAY || "";
+
+  document.getElementById("paywall-modal")?.classList.remove("hidden");
 }
 
 async function startCheckout(product) {

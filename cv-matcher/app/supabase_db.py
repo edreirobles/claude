@@ -45,7 +45,7 @@ def can_generate(profile: dict) -> tuple[bool, str]:
         if end:
             end_dt = datetime.fromisoformat(end.replace("Z", "+00:00"))
             if end_dt > datetime.now(timezone.utc):
-                return True, "subscription"
+                return (True, "subscription") if profile.get("credits", 0) > 0 else (False, "no_credits_subscriber")
         return False, "subscription_expired"
 
     if plan == "credits":
@@ -59,13 +59,12 @@ def can_generate(profile: dict) -> tuple[bool, str]:
 def consume_credit(user_id: str, profile: dict):
     sb = _sb()
     plan = profile.get("plan", "free")
-    if plan == "credits":
+    if plan in ("credits", "monthly"):
         sb.table("profiles").update({"credits": profile["credits"] - 1}).eq("id", user_id).execute()
     elif plan == "free":
         sb.table("profiles").update(
             {"free_generations_used": profile.get("free_generations_used", 0) + 1}
         ).eq("id", user_id).execute()
-    # monthly: no deduction
 
 
 # ── Generations ────────────────────────────────────────────
@@ -120,25 +119,32 @@ def get_or_create_stripe_customer(user_id: str, email: str) -> str:
 def activate_subscription(stripe_customer_id: str, subscription_id: str, period_end_ts: int):
     from datetime import timezone
     end_dt = datetime.fromtimestamp(period_end_ts, tz=timezone.utc)
-    r = _sb().table("profiles").select("id").eq("stripe_customer_id", stripe_customer_id).execute()
+    r = _sb().table("profiles").select("id, plan, credits").eq("stripe_customer_id", stripe_customer_id).execute()
     if not r.data:
         return
+    row = r.data[0]
+    credits_per_month = int(os.environ.get("CREDITS_PER_MONTH", "30"))
+    # Renewal: add to existing. New subscription: start fresh at 30.
+    current = row.get("credits") or 0
+    new_credits = current + credits_per_month if row.get("plan") == "monthly" else credits_per_month
     _sb().table("profiles").update({
         "plan": "monthly",
         "subscription_id": subscription_id,
         "subscription_end": end_dt.isoformat(),
-    }).eq("id", r.data[0]["id"]).execute()
+        "credits": new_credits,
+    }).eq("id", row["id"]).execute()
 
 
 def add_credits(stripe_customer_id: str, qty: int):
-    r = _sb().table("profiles").select("id, credits").eq("stripe_customer_id", stripe_customer_id).execute()
+    r = _sb().table("profiles").select("id, plan, credits").eq("stripe_customer_id", stripe_customer_id).execute()
     if not r.data:
         return
     row = r.data[0]
-    _sb().table("profiles").update({
-        "plan": "credits",
-        "credits": (row.get("credits") or 0) + qty,
-    }).eq("id", row["id"]).execute()
+    update = {"credits": (row.get("credits") or 0) + qty}
+    # Don't downgrade monthly subscribers to credits plan
+    if row.get("plan") != "monthly":
+        update["plan"] = "credits"
+    _sb().table("profiles").update(update).eq("id", row["id"]).execute()
 
 
 def cancel_subscription(stripe_customer_id: str):

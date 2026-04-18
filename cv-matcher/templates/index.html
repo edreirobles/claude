@@ -11,8 +11,9 @@
     window.AUTH_ENABLED       = {{ 'true' if auth_enabled else 'false' }};
     window.PAYMENTS_ENABLED   = {{ 'true' if payments_enabled else 'false' }};
     window.FREE_LIMIT         = {{ free_limit }};
-    window.PRICE_CREDITS_DISPLAY = "{{ price_credits_display }}";
+    window.PRICE_SINGLE_DISPLAY  = "{{ price_single_display }}";
     window.PRICE_MONTHLY_DISPLAY = "{{ price_monthly_display }}";
+    window.PRICE_EXTRA_DISPLAY   = "{{ price_extra_display }}";
   </script>
 </head>
 <body>
@@ -171,19 +172,20 @@
   <div class="modal-overlay hidden" id="paywall-modal">
     <div class="modal">
       <div class="modal-header">
-        <h2 data-i18n="paywall_title"></h2>
-        <p data-i18n="paywall_desc"></p>
+        <h2 id="paywall-title-el" data-i18n="paywall_title"></h2>
+        <p id="paywall-desc-el" data-i18n="paywall_desc"></p>
       </div>
-      <div class="pricing-cards">
+      <!-- Non-subscriber: single + monthly -->
+      <div class="pricing-cards" id="paywall-cards-default">
         <div class="pricing-card">
-          <div class="pricing-label" data-i18n="price_credits_label"></div>
-          <div class="pricing-amount" id="price-credits-amount"></div>
+          <div class="pricing-label" data-i18n="price_single_label"></div>
+          <div class="pricing-amount" id="price-single-amount"></div>
           <ul class="pricing-features">
-            <li data-i18n="price_credits_f1"></li>
-            <li data-i18n="price_credits_f2"></li>
-            <li data-i18n="price_credits_f3"></li>
+            <li data-i18n="price_single_f1"></li>
+            <li data-i18n="price_single_f2"></li>
+            <li data-i18n="price_single_f3"></li>
           </ul>
-          <button class="btn-ghost" id="buy-credits-btn" data-i18n="price_credits_btn"></button>
+          <button class="btn-ghost" id="buy-single-btn" data-i18n="price_single_btn"></button>
         </div>
         <div class="pricing-card featured">
           <div class="pricing-badge" data-i18n="price_monthly_badge"></div>
@@ -195,6 +197,19 @@
             <li data-i18n="price_monthly_f3"></li>
           </ul>
           <button class="btn-primary" id="buy-monthly-btn" data-i18n="price_monthly_btn"></button>
+        </div>
+      </div>
+      <!-- Subscriber with no credits: extra CV -->
+      <div class="pricing-cards hidden" id="paywall-cards-extra">
+        <div class="pricing-card featured">
+          <div class="pricing-label" data-i18n="price_extra_label"></div>
+          <div class="pricing-amount" id="price-extra-amount"></div>
+          <ul class="pricing-features">
+            <li data-i18n="price_extra_f1"></li>
+            <li data-i18n="price_extra_f2"></li>
+            <li data-i18n="price_extra_f3"></li>
+          </ul>
+          <button class="btn-primary" id="buy-extra-btn" data-i18n="price_extra_btn"></button>
         </div>
       </div>
       <button class="modal-close" id="paywall-close" data-i18n="paywall_close"></button>
