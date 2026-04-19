@@ -45,6 +45,12 @@ _awaiting_edit_preview: dict[int, int] = {}
 _awaiting_reschedule: dict[int, int] = {}
 # Modo consulta por día: users esperando escribir una fecha
 _awaiting_dia: set[int] = set()
+# Modo espera de ID de post para actualizar métricas
+_awaiting_metric_id: set[int] = set()
+# Modo espera de ID de post para generar imagen
+_awaiting_imagen_id: set[int] = set()
+# Modo edición del prompt personalizado de Claude
+_awaiting_prompt: set[int] = set()
 
 # Regex para detectar URLs de X / Twitter
 _TWEET_RE = re.compile(
@@ -99,18 +105,37 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     keyboard = InlineKeyboardMarkup([
         [
-            InlineKeyboardButton("📅 Ver hoy", callback_data="cmd:hoy"),
+            InlineKeyboardButton("📅 Hoy", callback_data="cmd:hoy"),
             InlineKeyboardButton("📋 Pendientes", callback_data="cmd:pendientes"),
+            InlineKeyboardButton("📚 Historial", callback_data="cmd:historial"),
         ],
         [
             InlineKeyboardButton("📊 Estado", callback_data="cmd:status"),
-            InlineKeyboardButton("📖 Ayuda", callback_data="cmd:help"),
+            InlineKeyboardButton("📈 Analíticas", callback_data="cmd:analiticas"),
+            InlineKeyboardButton("🔄 Métricas", callback_data="cmd:metricas"),
+        ],
+        [
+            InlineKeyboardButton("🔍 Monitor X", callback_data="cmd:monitor"),
+            InlineKeyboardButton("⚙️ Prompt IA", callback_data="cmd:prompt"),
+            InlineKeyboardButton("📦 Exportar", callback_data="cmd:exportar"),
+        ],
+        [
+            InlineKeyboardButton("📖 Ayuda completa", callback_data="cmd:help"),
         ],
     ])
     await update.message.reply_text(
         "👋 *X → LinkedIn Bot*\n\n"
         "Envíame un URL de tweet *o cualquier artículo/noticia web* y lo convierto en un post de LinkedIn.\n\n"
-        "Si no hay imagen en la fuente, genero una automáticamente con IA.",
+        "*¿Qué puedo hacer?*\n"
+        "🔗 Generar posts desde tweets o artículos\n"
+        "📅 Programar publicaciones (5 AM / 4 PM Monterrey)\n"
+        "🚀 Publicar inmediatamente en LinkedIn\n"
+        "📈 Ver analíticas y métricas de engagement\n"
+        "🎨 Generar imágenes con IA para tus posts\n"
+        "🔍 Monitorear likes de X y auto-publicar\n"
+        "⚙️ Personalizar el prompt de generación\n"
+        "📦 Exportar todo tu historial en CSV\n\n"
+        "Usa los botones o escribe un comando. 👇",
         parse_mode="Markdown",
         reply_markup=keyboard,
     )
@@ -121,19 +146,35 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await _deny(update)
         return
     await update.message.reply_text(
-        "📖 *Cómo usar el bot*\n\n"
-        "1\\. Envía un URL de tweet \\(x\\.com\\) *o cualquier artículo web*\n"
-        "2\\. El bot extrae el contenido y genera el post de LinkedIn con IA\n"
-        "3\\. Si no hay imagen, se genera automáticamente con IA \\(Nano Banana Pro\\)\n"
-        "4\\. Elige: *Programar* / *Publicar ahora* / *Regenerar* / *Descartar*\n\n"
-        "*Comandos:*\n"
+        "📖 *Referencia completa de comandos*\n\n"
+        "*── Generar contenido ──*\n"
+        "Envía cualquier URL (tweet o artículo) → genera post → elige acción\n\n"
+        "*── Ver posts ──*\n"
         "/hoy — posts de hoy con botones de edición\n"
-        "/dia \\[DD/MM\\] — posts de cualquier día\n"
-        "/pendientes — todos los posts en cola \\(con opción a cancelar\\)\n"
-        "/articulos — busca artículos largos de X entre tus likes pendientes\n"
-        "/status — estado del sistema de un vistazo\n"
-        "/start — bienvenida",
-        parse_mode="MarkdownV2",
+        "/dia `[DD/MM]` — posts de cualquier día\n"
+        "/pendientes — todos los posts en cola\n"
+        "/historial `[N]` — últimos N posts publicados (default 5, max 20)\n\n"
+        "*── Publicar y programar ──*\n"
+        "Al generar un post: botones *Programar* / *Publicar ahora*\n"
+        "Los posts se programan en slots: *5 AM* y *4 PM* (Monterrey)\n"
+        "En /hoy o /pendientes: botones editar, cambiar fecha, cancelar\n\n"
+        "*── Imágenes ──*\n"
+        "/imagen `<post_id>` — genera imagen IA para un post programado\n\n"
+        "*── Métricas y analíticas ──*\n"
+        "/analiticas — dashboard completo: KPIs, engagement, top posts\n"
+        "/metricas `[post_id]` — actualiza métricas de un post o de todos\n\n"
+        "*── Monitor de X/Twitter ──*\n"
+        "/monitor — estado del monitor de likes + disparar chequeo\n"
+        "/articulos — likes skipped que podrían ser artículos largos\n\n"
+        "*── Configuración ──*\n"
+        "/prompt — ver/editar el prompt personalizado de Claude\n"
+        "/reordenar — reorganiza la cola sin huecos (5 AM / 4 PM)\n\n"
+        "*── Datos ──*\n"
+        "/exportar — descarga CSV con todo el historial + métricas\n\n"
+        "*── Sistema ──*\n"
+        "/status — estado general (LinkedIn, scheduler, cola)\n"
+        "/start — menú principal",
+        parse_mode="Markdown",
     )
 
 
@@ -388,6 +429,435 @@ async def cmd_articulos(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 
+# ── Nuevos comandos ────────────────────────────────────────────────────────
+
+async def cmd_analiticas(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Dashboard de analíticas: KPIs, engagement, top posts."""
+    if not _authorized(update):
+        await _deny(update)
+        return
+
+    from sqlalchemy import select
+    from ..database import AsyncSessionLocal
+    from ..models import ScheduledPost
+
+    wait_msg = await update.message.reply_text("📈 Calculando analíticas…")
+
+    async with AsyncSessionLocal() as db:
+        result = await db.execute(select(ScheduledPost))
+        posts = result.scalars().all()
+
+    published = [p for p in posts if p.status == "published"]
+    posts_with_metrics = [p for p in published if p.li_likes is not None or p.li_impressions is not None]
+
+    total_published = len(published)
+    total_likes = sum(p.li_likes or 0 for p in published)
+    total_comments = sum(p.li_comments or 0 for p in published)
+    total_impressions = sum(p.li_impressions or 0 for p in published)
+    total_clicks = sum(getattr(p, "li_clicks", None) or 0 for p in published)
+    total_shares = sum(getattr(p, "li_shares", None) or 0 for p in published)
+
+    avg_likes = round(total_likes / len(posts_with_metrics), 1) if posts_with_metrics else 0
+    engagement_numerator = total_likes + total_comments + total_clicks
+    engagement_rate = round(engagement_numerator / total_impressions * 100, 2) if total_impressions > 0 else 0
+
+    media_icons = {"video": "🎥", "document": "📄", "image": "🖼️", "generate": "🎨"}
+    media_counts: dict = {}
+    for p in published:
+        k = p.media_type or "auto"
+        media_counts[k] = media_counts.get(k, 0) + 1
+
+    text = (
+        f"📈 *Analíticas de LinkedIn*\n\n"
+        f"📊 *KPIs Generales:*\n"
+        f"  📝 Posts publicados: *{total_published}*\n"
+        f"  📊 Con métricas: *{len(posts_with_metrics)}*\n"
+        f"  ❤️ Likes totales: *{total_likes:,}*\n"
+        f"  💬 Comentarios: *{total_comments:,}*\n"
+        f"  👁️ Impresiones: *{total_impressions:,}*\n"
+        f"  🖱️ Clicks: *{total_clicks:,}*\n"
+        f"  🔄 Compartidos: *{total_shares:,}*\n"
+        f"  📈 Engagement rate: *{engagement_rate}%*\n"
+        f"  💝 Promedio likes/post: *{avg_likes}*\n\n"
+    )
+
+    if media_counts:
+        text += "🗂️ *Por tipo de media:*\n"
+        for k, v in sorted(media_counts.items(), key=lambda x: -x[1]):
+            icon = media_icons.get(k, "📝")
+            text += f"  {icon} {k}: {v}\n"
+        text += "\n"
+
+    top_posts = sorted(
+        [p for p in published if p.li_likes is not None],
+        key=lambda p: (p.li_likes or 0) + (p.li_comments or 0) + (getattr(p, "li_clicks", None) or 0),
+        reverse=True,
+    )[:5]
+
+    if top_posts:
+        text += "🏆 *Top 5 por engagement:*\n\n"
+        for i, p in enumerate(top_posts, 1):
+            engagement = (p.li_likes or 0) + (p.li_comments or 0) + (getattr(p, "li_clicks", None) or 0)
+            preview = (p.linkedin_text or "")[:60].replace("\n", " ")
+            text += (
+                f"*{i}.* {preview}…\n"
+                f"   ❤️{p.li_likes or 0}  💬{p.li_comments or 0}  "
+                f"👁️{p.li_impressions or 0}  🏅{engagement}\n\n"
+            )
+
+    keyboard = InlineKeyboardMarkup([[
+        InlineKeyboardButton("🔄 Actualizar todas las métricas", callback_data="metrics_all:"),
+    ]])
+
+    try:
+        await wait_msg.edit_text(text, parse_mode="Markdown", reply_markup=keyboard)
+    except Exception:
+        await wait_msg.edit_text(text.replace("*", "").replace("_", ""), reply_markup=keyboard)
+
+
+async def cmd_metricas(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Actualiza métricas de un post concreto o de todos."""
+    if not _authorized(update):
+        await _deny(update)
+        return
+
+    args = context.args
+    if args and args[0].isdigit():
+        await _do_refresh_single_metrics(update.message, int(args[0]))
+        return
+
+    user_id = update.effective_user.id
+    _awaiting_metric_id.add(user_id)
+
+    keyboard = InlineKeyboardMarkup([[
+        InlineKeyboardButton("🔄 Actualizar TODOS los posts", callback_data="metrics_all:"),
+    ]])
+    await update.message.reply_text(
+        "📊 *Actualizar métricas*\n\n"
+        "Envía el *ID del post* para actualizar sus métricas,\n"
+        "o usa el botón para actualizar todos:\n\n"
+        "_Ejemplo: `42`_",
+        parse_mode="Markdown",
+        reply_markup=keyboard,
+    )
+
+
+async def cmd_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Muestra y permite editar el prompt personalizado de Claude."""
+    if not _authorized(update):
+        await _deny(update)
+        return
+
+    from sqlalchemy import select
+    from ..database import AsyncSessionLocal
+    from ..models import AppSettings
+    from ..services.post_generator import SYSTEM_PROMPT_ES
+
+    async with AsyncSessionLocal() as db:
+        result = await db.execute(select(AppSettings).where(AppSettings.id == 1))
+        cfg = result.scalar_one_or_none()
+        custom_prompt = cfg.custom_prompt if cfg else None
+
+    if custom_prompt:
+        prompt_preview = custom_prompt[:500] + ("…" if len(custom_prompt) > 500 else "")
+        status_text = (
+            f"✅ *Prompt personalizado activo*\n\n"
+            f"`{prompt_preview}`\n\n"
+            f"_{len(custom_prompt)} caracteres_"
+        )
+    else:
+        default_preview = SYSTEM_PROMPT_ES[:400] + "…"
+        status_text = (
+            f"📝 *Usando prompt por defecto*\n\n"
+            f"`{default_preview}`"
+        )
+
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("✏️ Editar prompt", callback_data="prompt_edit:")],
+        [InlineKeyboardButton("🔄 Restaurar por defecto", callback_data="prompt_reset:")],
+    ])
+
+    try:
+        await update.message.reply_text(status_text, parse_mode="Markdown", reply_markup=keyboard)
+    except Exception:
+        await update.message.reply_text(
+            status_text.replace("`", "").replace("*", "").replace("_", ""),
+            reply_markup=keyboard,
+        )
+
+
+async def cmd_imagen(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Genera una imagen con IA para un post programado."""
+    if not _authorized(update):
+        await _deny(update)
+        return
+
+    args = context.args
+    if args and args[0].isdigit():
+        await _do_gen_image(update.message, int(args[0]))
+        return
+
+    user_id = update.effective_user.id
+    _awaiting_imagen_id.add(user_id)
+    await update.message.reply_text(
+        "🎨 *Generar imagen con IA*\n\n"
+        "Envía el *ID del post* programado para el que quieres generar una imagen:\n"
+        "_Ejemplo: `42`_\n\n"
+        "Solo funciona con posts en estado *programado*.",
+        parse_mode="Markdown",
+    )
+
+
+async def cmd_reordenar(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Reorganiza la cola de posts en slots 5 AM / 4 PM sin huecos."""
+    if not _authorized(update):
+        await _deny(update)
+        return
+
+    from sqlalchemy import select, func
+    from ..database import AsyncSessionLocal
+    from ..models import ScheduledPost
+
+    async with AsyncSessionLocal() as db:
+        result = await db.execute(
+            select(func.count()).select_from(ScheduledPost).where(ScheduledPost.status == "scheduled")
+        )
+        count = result.scalar()
+
+    keyboard = InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("✅ Confirmar", callback_data="reordenar_confirm:"),
+            InlineKeyboardButton("❌ Cancelar", callback_data="reordenar_cancel:"),
+        ]
+    ])
+    await update.message.reply_text(
+        f"📅 *Reordenar cola de posts*\n\n"
+        f"Hay *{count}* posts programados en cola.\n\n"
+        f"Esto los reorganizará en slots consecutivos de *5 AM* y *4 PM* (Monterrey) "
+        f"sin huecos entre ellos.\n\n"
+        f"¿Confirmar?",
+        parse_mode="Markdown",
+        reply_markup=keyboard,
+    )
+
+
+async def cmd_monitor(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Muestra el estado del monitor de X/Twitter y permite disparar una verificación."""
+    if not _authorized(update):
+        await _deny(update)
+        return
+
+    from sqlalchemy import select, func
+    from ..database import AsyncSessionLocal
+    from ..models import XLikedTweet
+
+    s = settings
+    configured = bool(s.x_auth_token)
+
+    async with AsyncSessionLocal() as db:
+        total_r = await db.execute(select(func.count()).select_from(XLikedTweet))
+        total = total_r.scalar()
+
+        proc_r = await db.execute(
+            select(func.count()).select_from(XLikedTweet).where(XLikedTweet.status == "processed")
+        )
+        processed = proc_r.scalar()
+
+        skip_r = await db.execute(
+            select(func.count()).select_from(XLikedTweet).where(XLikedTweet.status == "skipped")
+        )
+        skipped = skip_r.scalar()
+
+        fail_r = await db.execute(
+            select(func.count()).select_from(XLikedTweet).where(XLikedTweet.status == "failed")
+        )
+        failed = fail_r.scalar()
+
+        rej_r = await db.execute(
+            select(func.count()).select_from(XLikedTweet).where(XLikedTweet.status == "rejected")
+        )
+        rejected = rej_r.scalar()
+
+        from sqlalchemy import desc
+        recent_r = await db.execute(
+            select(XLikedTweet)
+            .where(XLikedTweet.status != "skipped")
+            .order_by(desc(XLikedTweet.id))
+            .limit(5)
+        )
+        recent = recent_r.scalars().all()
+
+    config_status = "✅ Configurado" if configured else "❌ No configurado (X_AUTH_TOKEN)"
+    interval = getattr(s, "x_check_interval_minutes", 15) or 15
+    username = getattr(s, "x_username", "") or "—"
+
+    text = (
+        f"🔍 *Monitor de X/Twitter*\n\n"
+        f"⚙️ Estado: {config_status}\n"
+        f"👤 Usuario: @{username}\n"
+        f"⏱️ Intervalo: cada *{interval}* minutos\n\n"
+        f"📊 *Estadísticas de likes:*\n"
+        f"  📥 Total detectados: *{total}*\n"
+        f"  ✅ Procesados: *{processed}*\n"
+        f"  ❌ Rechazados: *{rejected}*\n"
+        f"  ⏭️ Omitidos (semilla): *{skipped}*\n"
+        f"  💥 Fallidos: *{failed}*\n"
+    )
+
+    if recent:
+        status_icons = {"processed": "✅", "skipped": "⏭️", "failed": "💥", "rejected": "🚫", "processing": "⏳"}
+        text += "\n*Últimos 5 procesados:*\n"
+        for t in recent:
+            icon = status_icons.get(t.status, "❓")
+            author = f"@{t.tweet_author}" if t.tweet_author else "desconocido"
+            text += f"  {icon} {author}\n"
+
+    keyboard = InlineKeyboardMarkup([[
+        InlineKeyboardButton("▶️ Verificar ahora", callback_data="monitor_check:"),
+    ]])
+
+    await update.message.reply_text(text, parse_mode="Markdown", reply_markup=keyboard)
+
+
+async def cmd_historial(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Muestra los últimos N posts publicados con métricas."""
+    if not _authorized(update):
+        await _deny(update)
+        return
+
+    from datetime import datetime, timezone
+    from zoneinfo import ZoneInfo
+    from sqlalchemy import select, desc
+    from ..database import AsyncSessionLocal
+    from ..models import ScheduledPost
+
+    args = context.args
+    n = 5
+    if args and args[0].isdigit():
+        n = min(int(args[0]), 20)
+
+    mty_tz = ZoneInfo("America/Monterrey")
+
+    async with AsyncSessionLocal() as db:
+        result = await db.execute(
+            select(ScheduledPost)
+            .where(ScheduledPost.status == "published")
+            .order_by(desc(ScheduledPost.published_at))
+            .limit(n)
+        )
+        posts = result.scalars().all()
+
+    if not posts:
+        await update.message.reply_text("📭 No hay posts publicados aún.")
+        return
+
+    await update.message.reply_text(
+        f"📚 *Últimos {len(posts)} posts publicados:*",
+        parse_mode="Markdown",
+    )
+
+    for p in posts:
+        pub_str = ""
+        if p.published_at:
+            pub_dt = datetime.fromisoformat(str(p.published_at)).replace(tzinfo=timezone.utc)
+            pub_mty = pub_dt.astimezone(mty_tz)
+            pub_str = pub_mty.strftime("%d/%m/%Y %H:%M")
+
+        preview = (p.linkedin_text or "")[:100].replace("\n", " ")
+        metrics_line = ""
+        if p.li_likes is not None:
+            metrics_line = (
+                f"\n   ❤️ {p.li_likes}  💬 {p.li_comments or 0}  "
+                f"👁️ {p.li_impressions or 0}  🖱️ {getattr(p, 'li_clicks', None) or 0}"
+            )
+
+        keyboard = InlineKeyboardMarkup([[
+            InlineKeyboardButton(f"📊 Métricas #{p.id}", callback_data=f"metrics_post:{p.id}"),
+            InlineKeyboardButton("👁 Ver", callback_data=f"view_post:{p.id}"),
+        ]])
+
+        await update.message.reply_text(
+            f"✅ *{pub_str}* — Post #{p.id}\n{preview}…{metrics_line}",
+            reply_markup=keyboard,
+            parse_mode="Markdown",
+        )
+
+
+async def cmd_exportar(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Genera y envía el historial completo como archivo CSV."""
+    if not _authorized(update):
+        await _deny(update)
+        return
+
+    import csv
+    import io
+    from datetime import datetime
+    from sqlalchemy import select, desc
+    from ..database import AsyncSessionLocal
+    from ..models import ScheduledPost
+
+    wait_msg = await update.message.reply_text("📦 Generando exportación CSV…")
+
+    async with AsyncSessionLocal() as db:
+        result = await db.execute(
+            select(ScheduledPost).order_by(desc(ScheduledPost.created_at))
+        )
+        posts = result.scalars().all()
+
+    if not posts:
+        await wait_msg.edit_text("📭 No hay posts para exportar.")
+        return
+
+    fields = [
+        "id", "created_at", "tweet_url", "tweet_author", "tweet_text",
+        "linkedin_text", "status", "source", "scheduled_at", "published_at",
+        "linkedin_post_id", "media_type", "use_first_image", "pdf_url",
+        "document_title", "error_message", "li_likes", "li_comments",
+        "li_impressions", "li_clicks", "li_shares",
+    ]
+
+    output = io.StringIO()
+    writer = csv.DictWriter(output, fieldnames=fields, extrasaction="ignore")
+    writer.writeheader()
+    for p in posts:
+        writer.writerow({
+            "id": p.id,
+            "created_at": p.created_at,
+            "tweet_url": p.tweet_url or "",
+            "tweet_author": p.tweet_author or "",
+            "tweet_text": (p.tweet_text or "")[:200],
+            "linkedin_text": (p.linkedin_text or "")[:500],
+            "status": p.status,
+            "source": getattr(p, "source", "manual"),
+            "scheduled_at": p.scheduled_at or "",
+            "published_at": p.published_at or "",
+            "linkedin_post_id": p.linkedin_post_id or "",
+            "media_type": p.media_type or "",
+            "use_first_image": p.use_first_image,
+            "pdf_url": p.pdf_url or "",
+            "document_title": p.document_title or "",
+            "error_message": p.error_message or "",
+            "li_likes": p.li_likes if p.li_likes is not None else "",
+            "li_comments": p.li_comments if p.li_comments is not None else "",
+            "li_impressions": p.li_impressions if p.li_impressions is not None else "",
+            "li_clicks": getattr(p, "li_clicks", None) or "",
+            "li_shares": getattr(p, "li_shares", None) or "",
+        })
+
+    output.seek(0)
+    csv_bytes = output.getvalue().encode("utf-8-sig")  # BOM para Excel
+    csv_file = io.BytesIO(csv_bytes)
+    filename = f"publicaciones_{datetime.utcnow().strftime('%Y%m%d')}.csv"
+
+    await wait_msg.delete()
+    await update.message.reply_document(
+        document=csv_file,
+        filename=filename,
+        caption=f"📊 *{len(posts)} posts exportados*\n_{filename}_",
+        parse_mode="Markdown",
+    )
+
+
 # ── Mensajes de texto (detección de URL de tweet o modo edición) ──────────
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -417,6 +887,31 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if user_id in _awaiting_dia:
         _awaiting_dia.discard(user_id)
         await _show_day_posts(update.message, text.strip())
+        return
+
+    # Modo espera de ID de post para métricas
+    if user_id in _awaiting_metric_id:
+        _awaiting_metric_id.discard(user_id)
+        stripped = text.strip()
+        if stripped.isdigit():
+            await _do_refresh_single_metrics(update.message, int(stripped))
+        else:
+            await update.message.reply_text("⚠️ Envía solo el número de ID del post. Ejemplo: `42`", parse_mode="Markdown")
+        return
+
+    # Modo espera de ID de post para generar imagen
+    if user_id in _awaiting_imagen_id:
+        _awaiting_imagen_id.discard(user_id)
+        stripped = text.strip()
+        if stripped.isdigit():
+            await _do_gen_image(update.message, int(stripped))
+        else:
+            await update.message.reply_text("⚠️ Envía solo el número de ID del post. Ejemplo: `42`", parse_mode="Markdown")
+        return
+
+    # Modo edición del prompt de Claude
+    if user_id in _awaiting_prompt:
+        await _handle_prompt_text(update, text)
         return
 
     tweet_match = _TWEET_RE.search(text)
@@ -466,6 +961,225 @@ async def _handle_edit_text(update: Update, new_text: str):
     char_count = len(new_text.strip())
     await update.message.reply_text(
         f"✅ *Post #{post_id} actualizado* ({char_count}/{_LI_CHAR_LIMIT} chars)",
+        parse_mode="Markdown",
+    )
+
+
+async def _handle_prompt_text(update: Update, new_text: str):
+    """Guarda el nuevo prompt personalizado de Claude."""
+    from sqlalchemy import select
+    from ..database import AsyncSessionLocal
+    from ..models import AppSettings
+
+    user_id = update.effective_user.id
+    _awaiting_prompt.discard(user_id)
+
+    if not new_text.strip():
+        await update.message.reply_text("⚠️ El prompt está vacío. Cambio cancelado.")
+        return
+
+    async with AsyncSessionLocal() as db:
+        result = await db.execute(select(AppSettings).where(AppSettings.id == 1))
+        cfg = result.scalar_one_or_none()
+        if cfg:
+            cfg.custom_prompt = new_text.strip()
+        else:
+            cfg = AppSettings(id=1, custom_prompt=new_text.strip())
+            db.add(cfg)
+        await db.commit()
+
+    await update.message.reply_text(
+        f"✅ *Prompt personalizado guardado* ({len(new_text.strip())} chars)\n\n"
+        f"Se usará en las próximas generaciones de posts.",
+        parse_mode="Markdown",
+    )
+
+
+async def _do_refresh_single_metrics(msg, post_id: int):
+    """Actualiza métricas de un post publicado específico."""
+    from datetime import datetime
+    from sqlalchemy import select
+    from ..database import AsyncSessionLocal
+    from ..models import ScheduledPost, LinkedInToken
+    from ..services.linkedin_client import LinkedInClient
+
+    wait = await msg.reply_text(f"📊 Actualizando métricas del post #{post_id}…")
+
+    async with AsyncSessionLocal() as db:
+        result = await db.execute(select(ScheduledPost).where(ScheduledPost.id == post_id))
+        post = result.scalar_one_or_none()
+        if not post:
+            await wait.edit_text(f"⚠️ Post #{post_id} no encontrado.")
+            return
+        if post.status != "published":
+            await wait.edit_text(
+                f"⚠️ El post #{post_id} no está publicado (estado: *{post.status}*).",
+                parse_mode="Markdown",
+            )
+            return
+        if not post.linkedin_post_id:
+            await wait.edit_text(f"⚠️ El post #{post_id} no tiene ID de LinkedIn guardado.")
+            return
+
+        token_result = await db.execute(select(LinkedInToken).limit(1))
+        token = token_result.scalar_one_or_none()
+        if not token:
+            await wait.edit_text("❌ LinkedIn no está conectado.")
+            return
+
+        li_client = LinkedInClient(token.access_token, token.person_urn)
+        try:
+            metrics = await li_client.get_post_metrics(post.linkedin_post_id)
+        except Exception as e:
+            await wait.edit_text(f"❌ Error obteniendo métricas:\n`{e}`", parse_mode="Markdown")
+            return
+
+        if metrics.get("likes") is not None:
+            post.li_likes = metrics["likes"]
+        if metrics.get("comments") is not None:
+            post.li_comments = metrics["comments"]
+        if metrics.get("impressions") is not None:
+            post.li_impressions = metrics["impressions"]
+        if metrics.get("clicks") is not None:
+            post.li_clicks = metrics["clicks"]
+        if metrics.get("shares") is not None:
+            post.li_shares = metrics["shares"]
+        post.metrics_updated_at = datetime.utcnow()
+        await db.commit()
+        await db.refresh(post)
+
+    await wait.edit_text(
+        f"✅ *Métricas actualizadas — Post #{post_id}*\n\n"
+        f"❤️ Likes: *{post.li_likes or 0}*\n"
+        f"💬 Comentarios: *{post.li_comments or 0}*\n"
+        f"👁️ Impresiones: *{post.li_impressions or 0}*\n"
+        f"🖱️ Clicks: *{getattr(post, 'li_clicks', None) or 0}*\n"
+        f"🔄 Compartidos: *{getattr(post, 'li_shares', None) or 0}*",
+        parse_mode="Markdown",
+    )
+
+
+async def _do_refresh_all_metrics(msg):
+    """Actualiza métricas de todos los posts publicados con ID de LinkedIn."""
+    from datetime import datetime
+    from sqlalchemy import select
+    from ..database import AsyncSessionLocal
+    from ..models import ScheduledPost, LinkedInToken
+    from ..services.linkedin_client import LinkedInClient
+
+    wait = await msg.reply_text("🔄 Actualizando métricas de todos los posts publicados…")
+
+    async with AsyncSessionLocal() as db:
+        token_result = await db.execute(select(LinkedInToken).limit(1))
+        token = token_result.scalar_one_or_none()
+        if not token:
+            await wait.edit_text("❌ LinkedIn no está conectado.")
+            return
+
+        result = await db.execute(
+            select(ScheduledPost)
+            .where(ScheduledPost.status == "published")
+            .where(ScheduledPost.linkedin_post_id.isnot(None))
+            .where(ScheduledPost.linkedin_post_id != "")
+        )
+        posts = result.scalars().all()
+
+        if not posts:
+            await wait.edit_text("📭 No hay posts publicados con ID de LinkedIn.")
+            return
+
+        li_client = LinkedInClient(token.access_token, token.person_urn)
+        refreshed = 0
+        failed = 0
+        for post in posts:
+            try:
+                metrics = await li_client.get_post_metrics(post.linkedin_post_id)
+                if metrics.get("likes") is not None:
+                    post.li_likes = metrics["likes"]
+                if metrics.get("comments") is not None:
+                    post.li_comments = metrics["comments"]
+                if metrics.get("impressions") is not None:
+                    post.li_impressions = metrics["impressions"]
+                if metrics.get("clicks") is not None:
+                    post.li_clicks = metrics["clicks"]
+                if metrics.get("shares") is not None:
+                    post.li_shares = metrics["shares"]
+                post.metrics_updated_at = datetime.utcnow()
+                refreshed += 1
+            except Exception as e:
+                logger.warning(f"[Bot RefreshAll] Post {post.id}: {e}")
+                failed += 1
+
+        await db.commit()
+
+    await wait.edit_text(
+        f"✅ *Métricas actualizadas*\n\n"
+        f"📊 Actualizados: *{refreshed}*\n"
+        f"❌ Fallidos: *{failed}*\n"
+        f"📋 Total: *{len(posts)}*",
+        parse_mode="Markdown",
+    )
+
+
+async def _do_gen_image(msg, post_id: int):
+    """Genera una imagen IA para un post programado y la guarda."""
+    import io
+    import os
+    from sqlalchemy import select
+    from ..database import AsyncSessionLocal
+    from ..models import ScheduledPost
+    from ..services.post_generator import generate_nano_banana_image
+
+    wait = await msg.reply_text(
+        f"🎨 Generando imagen para post #{post_id}…\n_(puede tomar 15-30 segundos)_",
+        parse_mode="Markdown",
+    )
+
+    async with AsyncSessionLocal() as db:
+        result = await db.execute(select(ScheduledPost).where(ScheduledPost.id == post_id))
+        post = result.scalar_one_or_none()
+
+        if not post:
+            await wait.edit_text(f"⚠️ Post #{post_id} no encontrado.")
+            return
+        if post.status not in ("scheduled", "pending"):
+            await wait.edit_text(
+                f"⚠️ Solo se puede generar imagen para posts *programados* (estado actual: {post.status}).",
+                parse_mode="Markdown",
+            )
+            return
+
+        linkedin_text = post.linkedin_text or ""
+
+    try:
+        image_bytes = await generate_nano_banana_image(linkedin_text)
+    except Exception as e:
+        await wait.edit_text(f"❌ Error generando imagen:\n`{e}`", parse_mode="Markdown")
+        return
+
+    if not image_bytes:
+        await wait.edit_text("❌ No se pudo generar la imagen. Todos los servicios fallaron.")
+        return
+
+    images_dir = os.path.join("static", "generated_images")
+    os.makedirs(images_dir, exist_ok=True)
+    image_filename = f"{post_id}.jpg"
+    image_path = os.path.join(images_dir, image_filename)
+    with open(image_path, "wb") as f:
+        f.write(image_bytes)
+
+    async with AsyncSessionLocal() as db:
+        result = await db.execute(select(ScheduledPost).where(ScheduledPost.id == post_id))
+        post = result.scalar_one_or_none()
+        if post:
+            post.generated_image_path = f"/static/generated_images/{image_filename}"
+            post.media_type = "generate"
+            await db.commit()
+
+    await wait.delete()
+    await msg.reply_photo(
+        photo=io.BytesIO(image_bytes),
+        caption=f"✅ *Imagen generada para Post #{post_id}*\nSe usará al publicar en LinkedIn.",
         parse_mode="Markdown",
     )
 
@@ -1021,6 +1735,22 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await _do_reschedule_start(query, int(data.split(":")[1]))
     elif data.startswith("proc_liked:"):
         await _do_process_liked(query, int(data.split(":")[1]))
+    # ── Nuevos callbacks ──
+    elif data == "metrics_all:":
+        await _do_refresh_all_metrics(query.message)
+    elif data.startswith("metrics_post:"):
+        await _do_refresh_single_metrics(query.message, int(data.split(":")[1]))
+    elif data == "monitor_check:":
+        await _do_monitor_check(query)
+    elif data == "prompt_edit:":
+        await _do_prompt_edit(query)
+    elif data == "prompt_reset:":
+        await _do_prompt_reset(query)
+    elif data == "reordenar_confirm:":
+        await _do_reordenar_confirm(query)
+    elif data == "reordenar_cancel:":
+        await query.edit_message_reply_markup(None)
+        await query.message.reply_text("❌ Reordenamiento cancelado.")
 
 
 async def _do_process_liked(query, liked_id: int):
@@ -1177,20 +1907,153 @@ async def _do_quick_cmd(query, cmd: str):
 
     elif cmd == "help":
         await fake_update.reply_text(
-            "📖 *Cómo usar el bot*\n\n"
-            "1. Envía un URL de tweet (x.com) *o cualquier artículo web*\n"
-            "2. El bot extrae el contenido y genera el post de LinkedIn con IA\n"
-            "3. Si no hay imagen, se genera automáticamente con IA (Nano Banana Pro)\n"
-            "4. Elige: *Programar* / *Publicar ahora* / *Regenerar* / *Descartar*\n\n"
-            "*Comandos:*\n"
-            "/hoy — posts de hoy con opciones de edición\n"
-            "/dia [DD/MM] — posts de cualquier día\n"
+            "📖 *Referencia completa de comandos*\n\n"
+            "*── Generar contenido ──*\n"
+            "Envía cualquier URL → genera post → elige acción\n\n"
+            "*── Ver posts ──*\n"
+            "/hoy — posts de hoy\n"
+            "/dia `[DD/MM]` — posts de cualquier día\n"
             "/pendientes — todos los posts en cola\n"
-            "/articulos — busca artículos largos de X entre tus likes pendientes\n"
-            "/status — estado del sistema\n"
-            "/start — bienvenida",
+            "/historial `[N]` — últimos N publicados\n\n"
+            "*── Métricas ──*\n"
+            "/analiticas — dashboard completo\n"
+            "/metricas `[post_id]` — actualizar métricas\n\n"
+            "*── Monitor X ──*\n"
+            "/monitor — estado del monitor de likes\n"
+            "/articulos — likes sin procesar\n\n"
+            "*── Configuración ──*\n"
+            "/prompt — ver/editar prompt de Claude\n"
+            "/imagen `<id>` — generar imagen para un post\n"
+            "/reordenar — reorganizar la cola\n\n"
+            "*── Datos ──*\n"
+            "/exportar — descargar CSV completo\n\n"
+            "*── Sistema ──*\n"
+            "/status — estado general",
             parse_mode="Markdown",
         )
+    elif cmd == "analiticas":
+        fake_msg = query.message
+        # Reutilizar la lógica de cmd_analiticas
+        from sqlalchemy import select
+        from ..database import AsyncSessionLocal
+        from ..models import ScheduledPost
+
+        async with AsyncSessionLocal() as db:
+            result = await db.execute(select(ScheduledPost))
+            posts = result.scalars().all()
+
+        published = [p for p in posts if p.status == "published"]
+        posts_with_metrics = [p for p in published if p.li_likes is not None or p.li_impressions is not None]
+        total_published = len(published)
+        total_likes = sum(p.li_likes or 0 for p in published)
+        total_comments = sum(p.li_comments or 0 for p in published)
+        total_impressions = sum(p.li_impressions or 0 for p in published)
+        total_clicks = sum(getattr(p, "li_clicks", None) or 0 for p in published)
+        avg_likes = round(total_likes / len(posts_with_metrics), 1) if posts_with_metrics else 0
+        engagement_numerator = total_likes + total_comments + total_clicks
+        engagement_rate = round(engagement_numerator / total_impressions * 100, 2) if total_impressions > 0 else 0
+
+        text = (
+            f"📈 *Analíticas de LinkedIn*\n\n"
+            f"📝 Posts publicados: *{total_published}*\n"
+            f"❤️ Likes totales: *{total_likes:,}*\n"
+            f"💬 Comentarios: *{total_comments:,}*\n"
+            f"👁️ Impresiones: *{total_impressions:,}*\n"
+            f"📈 Engagement rate: *{engagement_rate}%*\n"
+            f"💝 Promedio likes/post: *{avg_likes}*\n"
+        )
+        kb = InlineKeyboardMarkup([[
+            InlineKeyboardButton("🔄 Actualizar todas las métricas", callback_data="metrics_all:"),
+        ]])
+        await fake_msg.reply_text(text, parse_mode="Markdown", reply_markup=kb)
+
+    elif cmd == "metricas":
+        await _do_refresh_all_metrics(query.message)
+
+    elif cmd == "monitor":
+        fake_update = type("FakeUpdate", (), {"message": query.message, "effective_user": query.from_user})()
+        await cmd_monitor(fake_update, None)
+
+    elif cmd == "prompt":
+        fake_update = type("FakeUpdate", (), {"message": query.message, "effective_user": query.from_user})()
+        await cmd_prompt(fake_update, None)
+
+    elif cmd == "exportar":
+        fake_update = type("FakeUpdate", (), {"message": query.message, "effective_user": query.from_user})()
+        await cmd_exportar(fake_update, None)
+
+    elif cmd == "historial":
+        fake_update = type("FakeUpdate", (), {"message": query.message, "effective_user": query.from_user})()
+        await cmd_historial(fake_update, None)
+
+
+async def _do_monitor_check(query):
+    """Dispara una verificación inmediata de likes en X."""
+    await query.edit_message_reply_markup(None)
+    wait = await query.message.reply_text("🔍 Verificando likes de X ahora…\n_(puede tardar 30-60 segundos)_", parse_mode="Markdown")
+
+    try:
+        from ..services.x_likes_monitor import check_and_process_likes
+        await check_and_process_likes()
+        await wait.edit_text("✅ *Verificación completada.*\nUsa /monitor para ver el estado actualizado.", parse_mode="Markdown")
+    except Exception as e:
+        await wait.edit_text(f"❌ Error durante la verificación:\n`{e}`", parse_mode="Markdown")
+
+
+async def _do_prompt_edit(query):
+    """Entra en modo edición del prompt personalizado de Claude."""
+    user_id = query.from_user.id
+    _awaiting_prompt.add(user_id)
+    await query.edit_message_reply_markup(None)
+    await query.message.reply_text(
+        "✏️ *Editar prompt de Claude*\n\n"
+        "Envía el nuevo prompt en tu próximo mensaje.\n"
+        "Este texto reemplazará al prompt del sistema para generar posts.\n\n"
+        "_Envía cualquier URL para cancelar y volver al modo normal._",
+        parse_mode="Markdown",
+    )
+
+
+async def _do_prompt_reset(query):
+    """Elimina el prompt personalizado y restaura el default."""
+    from sqlalchemy import select
+    from ..database import AsyncSessionLocal
+    from ..models import AppSettings
+
+    async with AsyncSessionLocal() as db:
+        result = await db.execute(select(AppSettings).where(AppSettings.id == 1))
+        cfg = result.scalar_one_or_none()
+        if cfg:
+            cfg.custom_prompt = None
+            await db.commit()
+
+    await query.edit_message_reply_markup(None)
+    await query.message.reply_text(
+        "✅ *Prompt restablecido al default del sistema.*\n\n"
+        "Las próximas generaciones usarán el prompt original.",
+        parse_mode="Markdown",
+    )
+
+
+async def _do_reordenar_confirm(query):
+    """Ejecuta el reordenamiento de la cola de posts."""
+    await query.edit_message_reply_markup(None)
+    wait = await query.message.reply_text("📅 Reordenando la cola de posts…")
+
+    try:
+        from ..services.x_likes_monitor import repack_schedule
+        result = await repack_schedule()
+        moved = result.get("moved", 0)
+        total = result.get("total", 0)
+        await wait.edit_text(
+            f"✅ *Cola reordenada*\n\n"
+            f"📋 Posts en cola: *{total}*\n"
+            f"🔀 Slots ajustados: *{moved}*\n\n"
+            f"Usa /pendientes para ver el nuevo orden.",
+            parse_mode="Markdown",
+        )
+    except Exception as e:
+        await wait.edit_text(f"❌ Error reordenando:\n`{e}`", parse_mode="Markdown")
 
 
 async def _do_discard_confirm(query, mid: int):
@@ -1645,6 +2508,14 @@ async def start_bot():
     _application.add_handler(CommandHandler("pendientes", cmd_pendientes))
     _application.add_handler(CommandHandler("status", cmd_status))
     _application.add_handler(CommandHandler("articulos", cmd_articulos))
+    _application.add_handler(CommandHandler("analiticas", cmd_analiticas))
+    _application.add_handler(CommandHandler("metricas", cmd_metricas))
+    _application.add_handler(CommandHandler("prompt", cmd_prompt))
+    _application.add_handler(CommandHandler("imagen", cmd_imagen))
+    _application.add_handler(CommandHandler("reordenar", cmd_reordenar))
+    _application.add_handler(CommandHandler("monitor", cmd_monitor))
+    _application.add_handler(CommandHandler("historial", cmd_historial))
+    _application.add_handler(CommandHandler("exportar", cmd_exportar))
     _application.add_handler(
         MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message)
     )
