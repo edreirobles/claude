@@ -7,6 +7,7 @@ Rutas principales de la API:
 """
 import csv
 import io
+import re
 from datetime import datetime
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Query
@@ -61,10 +62,16 @@ async def get_linkedin_client(db: AsyncSession) -> LinkedInClient:
     return LinkedInClient(token.access_token, token.person_urn)
 
 
+_TWEET_RE = re.compile(
+    r"https?://(?:www\.)?(?:x\.com|twitter\.com)/\S+/status/\d+",
+    re.IGNORECASE,
+)
+
+
 @router.post("/generate", response_model=GenerateResponse)
 async def generate_post(request: ScrapeRequest, db: AsyncSession = Depends(get_db)):
     """
-    Extrae el contenido del tweet y genera una publicación LinkedIn con IA.
+    Extrae el contenido de un tweet o cualquier URL web y genera una publicación LinkedIn con IA.
     No requiere LinkedIn conectado.
     """
     if not settings.anthropic_api_key:
@@ -73,55 +80,105 @@ async def generate_post(request: ScrapeRequest, db: AsyncSession = Depends(get_d
             detail="ANTHROPIC_API_KEY no está configurada.",
         )
 
-    # Scraping del tweet
-    try:
-        tweet = await scrape_tweet(request.url)
-    except Exception as e:
-        raise HTTPException(status_code=422, detail=f"No se pudo extraer el tweet: {e}")
-
     # Cargar prompt personalizado si existe
     cfg_result = await db.execute(select(AppSettings).where(AppSettings.id == 1))
     cfg = cfg_result.scalar_one_or_none()
     custom_prompt = cfg.custom_prompt if cfg else None
 
-    # Generación con Claude
-    try:
-        linkedin_text = await generate_linkedin_post(
-            tweet=tweet,
-            language=request.language or settings.post_language,
-            custom_prompt=custom_prompt,
+    is_tweet = bool(_TWEET_RE.match(request.url))
+
+    if is_tweet:
+        # ── Tweet de X ──────────────────────────────────────────────────────
+        try:
+            tweet = await scrape_tweet(request.url)
+        except Exception as e:
+            raise HTTPException(status_code=422, detail=f"No se pudo extraer el tweet: {e}")
+
+        try:
+            linkedin_text = await generate_linkedin_post(
+                tweet=tweet,
+                language=request.language or settings.post_language,
+                custom_prompt=custom_prompt,
+            )
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Error generando el post: {e}")
+
+        if tweet.has_video:
+            media_type = "video"
+        elif tweet.pdf_url:
+            media_type = "document"
+        elif tweet.images:
+            media_type = "image"
+        else:
+            media_type = "generate"
+
+        tweet_schema = TweetDataSchema(
+            text=tweet.text,
+            author_name=tweet.author_name,
+            author_handle=tweet.author_handle,
+            images=tweet.images,
+            links=tweet.links,
+            tweet_url=tweet.tweet_url,
+            paper_info=tweet.paper_info,
+            has_video=tweet.has_video,
+            pdf_url=tweet.pdf_url,
         )
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error generando el post: {e}")
 
-    # Determinar tipo de media
-    if tweet.has_video:
-        media_type = "video"
-    elif tweet.pdf_url:
-        media_type = "document"
-    elif tweet.images:
-        media_type = "image"
+        return GenerateResponse(
+            tweet=tweet_schema,
+            linkedin_text=linkedin_text,
+            suggested_images=tweet.images[:4],
+            media_type=media_type,
+        )
+
     else:
-        media_type = "generate"  # Se generará imagen automáticamente al publicar
+        # ── URL genérica: artículo, blog, noticia, etc. ──────────────────────
+        from ..services.url_scraper import scrape_url
+        from ..services.post_generator import generate_linkedin_post_from_url_content
 
-    tweet_schema = TweetDataSchema(
-        text=tweet.text,
-        author_name=tweet.author_name,
-        author_handle=tweet.author_handle,
-        images=tweet.images,
-        links=tweet.links,
-        tweet_url=tweet.tweet_url,
-        paper_info=tweet.paper_info,
-        has_video=tweet.has_video,
-        pdf_url=tweet.pdf_url,
-    )
+        try:
+            url_content = await scrape_url(request.url)
+        except Exception as e:
+            raise HTTPException(status_code=422, detail=f"No se pudo acceder al enlace: {e}")
 
-    return GenerateResponse(
-        tweet=tweet_schema,
-        linkedin_text=linkedin_text,
-        suggested_images=tweet.images[:4],
-        media_type=media_type,
-    )
+        if not url_content.text and not url_content.title:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    "No se pudo extraer contenido útil del enlace. "
+                    "Puede que la página requiera JavaScript, esté detrás de un muro de pago, o bloquee bots."
+                ),
+            )
+
+        try:
+            linkedin_text = await generate_linkedin_post_from_url_content(
+                url_content=url_content,
+                language=request.language or settings.post_language,
+                custom_prompt=custom_prompt,
+            )
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Error generando el post: {e}")
+
+        media_type = "image" if url_content.images else "generate"
+
+        tweet_schema = TweetDataSchema(
+            text=url_content.title or url_content.text[:200],
+            author_name=url_content.author or url_content.source_domain or "",
+            author_handle=url_content.source_domain or "",
+            images=url_content.images,
+            links=[],
+            tweet_url=request.url,
+            paper_info=None,
+            has_video=url_content.has_video,
+            pdf_url=None,
+        )
+
+        return GenerateResponse(
+            tweet=tweet_schema,
+            linkedin_text=linkedin_text,
+            suggested_images=url_content.images[:4],
+            media_type=media_type,
+        )
 
 
 @router.post("/publish")

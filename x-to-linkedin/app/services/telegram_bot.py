@@ -919,6 +919,8 @@ def _build_media_summary(post_data: dict) -> str:
 
 async def _show_preview(msg, post_data: dict, edit: bool = False):
     """Muestra (o edita) el mensaje de preview con botones de acción."""
+    from telegram.error import BadRequest as TgBadRequest
+
     icons = {"video": "🎥", "document": "📄", "image": "🖼️", "generate": "🎨"}
     media_type = post_data["media_type"]
     media_icon = icons.get(media_type, "📝")
@@ -944,30 +946,34 @@ async def _show_preview(msg, post_data: dict, edit: bool = False):
         f"{media_summary}"
     )
 
-    if edit:
-        preview_msg = await msg.edit_text(
-            text,
-            reply_markup=InlineKeyboardMarkup([[
-                InlineKeyboardButton("📅 Programar", callback_data="sched:0"),
-                InlineKeyboardButton("🚀 Publicar ahora", callback_data="pub:0"),
-            ], [
-                InlineKeyboardButton("🔄 Regenerar", callback_data="regen:0"),
-                InlineKeyboardButton("🗑️ Descartar", callback_data="disc:0"),
-            ]]),
-            parse_mode="Markdown",
+    keyboard = InlineKeyboardMarkup([[
+        InlineKeyboardButton("📅 Programar", callback_data="sched:0"),
+        InlineKeyboardButton("🚀 Publicar ahora", callback_data="pub:0"),
+    ], [
+        InlineKeyboardButton("🔄 Regenerar", callback_data="regen:0"),
+        InlineKeyboardButton("🗑️ Descartar", callback_data="disc:0"),
+    ]])
+
+    async def _send(txt: str, parse_md: bool):
+        pm = "Markdown" if parse_md else None
+        if edit:
+            return await msg.edit_text(txt, reply_markup=keyboard, parse_mode=pm)
+        else:
+            return await msg.reply_text(txt, reply_markup=keyboard, parse_mode=pm)
+
+    try:
+        preview_msg = await _send(text, parse_md=True)
+    except TgBadRequest:
+        # El texto del post tiene caracteres especiales que rompen el parser Markdown
+        # de Telegram (p.ej. * o _ no balanceados). Reintentamos sin parse_mode.
+        logger.warning("_show_preview: Markdown parse error, retrying without parse_mode")
+        plain = (
+            f"{media_icon} Preview del post:\n\n"
+            f"{linkedin_text[:_TG_BODY_LIMIT]}\n\n"
+            f"{char_bar} caracteres\n\n"
+            f"{media_summary.replace('*', '').replace('_', '')}"
         )
-    else:
-        preview_msg = await msg.reply_text(
-            text,
-            reply_markup=InlineKeyboardMarkup([[
-                InlineKeyboardButton("📅 Programar", callback_data="sched:0"),
-                InlineKeyboardButton("🚀 Publicar ahora", callback_data="pub:0"),
-            ], [
-                InlineKeyboardButton("🔄 Regenerar", callback_data="regen:0"),
-                InlineKeyboardButton("🗑️ Descartar", callback_data="disc:0"),
-            ]]),
-            parse_mode="Markdown",
-        )
+        preview_msg = await _send(plain, parse_md=False)
 
     mid = preview_msg.message_id
     _pending[mid] = post_data
@@ -1209,7 +1215,7 @@ async def _do_discard_final(query, mid: int):
 
 
 async def _do_regenerate(query, mid: int):
-    """Regenera el post con IA usando el mismo tweet."""
+    """Regenera el post con IA usando la misma fuente (tweet o URL genérica)."""
     post_data = _pending.get(mid)
     if not post_data:
         await query.edit_message_reply_markup(None)
@@ -1221,29 +1227,37 @@ async def _do_regenerate(query, mid: int):
     from sqlalchemy import select
     from ..database import AsyncSessionLocal
     from ..models import AppSettings
-    from ..services.post_generator import generate_linkedin_post
-    from ..services.x_scraper import scrape_tweet
 
     await query.edit_message_reply_markup(None)
     await query.edit_message_text("🤖 Regenerando post con IA…")
-
-    try:
-        tweet = await scrape_tweet(post_data["tweet_url"])
-    except Exception as e:
-        await query.edit_message_text(f"❌ No pude extraer el tweet:\n`{e}`", parse_mode="Markdown")
-        return
 
     async with AsyncSessionLocal() as db:
         cfg_result = await db.execute(select(AppSettings).where(AppSettings.id == 1))
         cfg = cfg_result.scalar_one_or_none()
         custom_prompt = cfg.custom_prompt if cfg else None
 
+    source_url = post_data["tweet_url"]
+    is_tweet = bool(_TWEET_RE.match(source_url))
+
     try:
-        linkedin_text = await generate_linkedin_post(
-            tweet=tweet,
-            language=settings.post_language or "es",
-            custom_prompt=custom_prompt,
-        )
+        if is_tweet:
+            from ..services.x_scraper import scrape_tweet
+            from ..services.post_generator import generate_linkedin_post
+            tweet = await scrape_tweet(source_url)
+            linkedin_text = await generate_linkedin_post(
+                tweet=tweet,
+                language=settings.post_language or "es",
+                custom_prompt=custom_prompt,
+            )
+        else:
+            from ..services.url_scraper import scrape_url
+            from ..services.post_generator import generate_linkedin_post_from_url_content
+            url_content = await scrape_url(source_url)
+            linkedin_text = await generate_linkedin_post_from_url_content(
+                url_content=url_content,
+                language=settings.post_language or "es",
+                custom_prompt=custom_prompt,
+            )
     except Exception as e:
         await query.edit_message_text(f"❌ Error regenerando:\n`{e}`", parse_mode="Markdown")
         return
@@ -1251,7 +1265,7 @@ async def _do_regenerate(query, mid: int):
     if linkedin_text.startswith("[NO_PUBLICAR]"):
         reason = linkedin_text.split(":", 1)[-1].strip()
         await query.edit_message_text(
-            f"⚠️ Este tweet no es publicable:\n_{reason}_",
+            f"⚠️ Este contenido no es publicable:\n_{reason}_",
             parse_mode="Markdown",
         )
         _pending.pop(mid, None)
