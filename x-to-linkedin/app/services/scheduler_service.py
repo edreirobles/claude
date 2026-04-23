@@ -2,17 +2,20 @@
 Servicio de programación de publicaciones.
 Usa APScheduler con SQLite para persistir los trabajos.
 """
+import asyncio
 import logging
 from datetime import datetime, timedelta, timezone
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
+from ..config import get_settings
 
 logger = logging.getLogger(__name__)
+settings = get_settings()
 
 # Scheduler global (se inicializa en startup de la app)
 scheduler = AsyncIOScheduler(
     jobstores={
-        "default": SQLAlchemyJobStore(url="sqlite:///./scheduler_jobs.db")
+        "default": SQLAlchemyJobStore(url=settings.scheduler_database_url)
     },
     job_defaults={"coalesce": True, "max_instances": 1},
     timezone="UTC",
@@ -25,6 +28,13 @@ def start_scheduler():
         logger.info("Scheduler iniciado")
         _start_x_monitor_job()
         _start_metrics_refresh_job()
+        try:
+            loop = asyncio.get_running_loop()
+            loop.create_task(rehydrate_scheduled_posts())
+        except RuntimeError:
+            logger.warning(
+                "No hay event loop activo para rehidratar posts programados al iniciar"
+            )
 
 
 def _start_metrics_refresh_job():
@@ -37,6 +47,71 @@ def _start_metrics_refresh_job():
         replace_existing=True,
     )
     logger.info("Métricas: job de auto-refresh registrado (cada 6 horas)")
+
+
+async def rehydrate_scheduled_posts():
+    """
+    Reconstruye los jobs de APScheduler a partir de la BD principal.
+
+    Si encuentra posts aún marcados como "scheduled" pero con fecha vencida,
+    los mueve al próximo slot disponible en vez de publicarlos inmediatamente.
+    """
+    from sqlalchemy import select
+
+    from ..database import AsyncSessionLocal
+    from ..models import ScheduledPost
+    from .x_likes_monitor import get_next_auto_slot
+
+    async with AsyncSessionLocal() as db:
+        result = await db.execute(
+            select(ScheduledPost)
+            .where(ScheduledPost.status == "scheduled")
+            .order_by(ScheduledPost.scheduled_at)
+        )
+        posts = result.scalars().all()
+
+        if not posts:
+            logger.info("Scheduler: no hay posts programados para rehidratar")
+            return
+
+        now_utc = datetime.utcnow()
+        restored = 0
+        requeued = 0
+        skipped = 0
+
+        for post in posts:
+            if not post.scheduled_at:
+                skipped += 1
+                logger.warning(
+                    f"Scheduler: post {post.id} está en estado 'scheduled' sin scheduled_at"
+                )
+                continue
+
+            if post.scheduled_at <= now_utc:
+                old_run_at = post.scheduled_at
+                post.scheduled_at = await get_next_auto_slot(db)
+                await db.flush()
+                requeued += 1
+                logger.warning(
+                    "Scheduler: post %s vencido desde %s; reprogramado para %s",
+                    post.id,
+                    old_run_at,
+                    post.scheduled_at,
+                )
+            else:
+                restored += 1
+
+            schedule_post(post.id, post.scheduled_at)
+
+        if requeued or skipped:
+            await db.commit()
+
+        logger.info(
+            "Scheduler: rehidratación completada (%s restaurados, %s reprogramados, %s omitidos)",
+            restored,
+            requeued,
+            skipped,
+        )
 
 
 async def auto_refresh_metrics():

@@ -115,18 +115,19 @@ async function generatePost() {
   const url = urlInput.value.trim();
 
   if (!url) {
-    showError('generate-error', 'Por favor ingresa un URL de X/Twitter válido.');
+    showError('generate-error', 'Por favor ingresa un URL válido.');
     urlInput.focus();
     return;
   }
 
-  if (!/^https?:\/\/(www\.)?(twitter|x)\.com\/.+\/status\/\d+/.test(url)) {
-    showError('generate-error', 'El URL debe ser un enlace directo a un tweet. Ejemplo: https://x.com/usuario/status/123456');
+  if (!/^https?:\/\//i.test(url)) {
+    showError('generate-error', 'El URL debe comenzar con http:// o https://');
     return;
   }
 
   hideError('generate-error');
-  showLoading('Extrayendo contenido del tweet...');
+  const isTweet = /^https?:\/\/(www\.)?(twitter|x)\.com\/.+\/status\/\d+/i.test(url);
+  showLoading(isTweet ? 'Extrayendo contenido del tweet...' : 'Analizando contenido del enlace...');
 
   const language = document.getElementById('post-language').value;
 
@@ -962,15 +963,13 @@ function renderXMonitorStatus(data) {
       <div class="x-setup-box">
         <h4>Cómo activar la automatización</h4>
         <ol>
-          <li>Ve a <strong>developer.twitter.com</strong> y crea una App (cuenta gratuita).</li>
-          <li>En <em>Keys and tokens</em>, copia el <strong>Bearer Token</strong>.</li>
-          <li>Obtén tu <strong>User ID numérico</strong> en
-            <a href="https://tweeterid.com" target="_blank" rel="noopener" style="color:var(--accent)">tweeterid.com</a>
-            (pon tu @username y te devuelve el ID).
-          </li>
+          <li>Inicia sesión en <strong>x.com</strong> en tu navegador.</li>
+          <li>Abre DevTools y ve a <strong>Application → Cookies → x.com</strong>.</li>
+          <li>Copia las cookies <strong>auth_token</strong> y <strong>ct0</strong>.</li>
           <li>Edita el archivo <code>.env</code> y agrega:
-            <br/><code>X_BEARER_TOKEN=tu_token_aquí</code>
-            <br/><code>X_USER_ID=tu_id_numerico</code>
+            <br/><code>X_USERNAME=tu_handle_sin_arroba</code>
+            <br/><code>X_AUTH_TOKEN=tu_cookie_auth_token</code>
+            <br/><code>X_CT0=tu_cookie_ct0</code>
             <br/><code>X_MONITOR_START_DATE=2026-03-02T00:00:00</code> (hora Monterrey, opcional)
           </li>
           <li>Reinicia la app con <code>uvicorn app.main:app --reload</code>.</li>
