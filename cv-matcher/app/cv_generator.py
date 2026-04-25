@@ -57,11 +57,23 @@ PRIORITIZE:
 - Most relevant experience to THIS job gets more detail, regardless of recency
 
 ═══════════════════════════════════════
+WRITING QUALITY STANDARDS
+═══════════════════════════════════════
+PROFESSIONAL REGISTER — apply to every bullet and every sentence:
+- Eliminate weak openers: "responsible for", "helped with", "assisted in", "worked on", "participated in" → replace with strong ownership verbs: "led", "built", "reduced", "generated", "negotiated", "architected", "delivered", "launched", "drove", "managed", "secured", "optimized"
+- Every bullet must follow: [Strong action verb] + [what specifically] + [measurable result or scope]
+- If the original bullet lacks metrics, use contextual scale where directly inferable (team size, company size, time saved) — never invent numbers
+- Professional summary must immediately answer "why is THIS person the right fit for THIS role" — not a generic career description
+- Elevate the register to match the seniority level of the target role: if the original sounds junior or casual, raise the language accordingly
+- Use consistent verb tense: past for past roles, present for current role
+- Avoid redundant qualifiers: "very", "highly", "extremely", "truly" — let facts speak
+
+═══════════════════════════════════════
 OUTPUT LANGUAGE
 ═══════════════════════════════════════
 Write the ENTIRE CV output in: {output_language}
-This includes section titles, bullet points, professional summary, skill names — everything.
-If output_language is "auto", detect the dominant language of the job posting and use that language."""
+This includes section titles, bullet points, professional summary, skill names, section_labels — everything without exception.
+If output_language is "auto", detect the dominant language of the job posting and use that language throughout."""
 
 CV_PROMPT = """Adapt this CV to the job posting below. Apply strict content curation — remove what's irrelevant, trim what's excessive, reframe what's valuable.
 
@@ -81,6 +93,16 @@ Return ONLY a valid JSON object, no other text:
   "portfolio": "portfolio or website from CV or empty string",
   "job_title_applied": "job title from the posting",
   "company_applied": "company name from the posting",
+  "detected_language": "ISO 639-1 code of the language used for the entire CV output (e.g. 'en', 'es', 'fr', 'pt', 'de', 'it')",
+  "section_labels": {{
+    "summary": "section header translated to the output language (e.g. 'Perfil Profesional' for Spanish)",
+    "skills": "section header translated to the output language (e.g. 'Habilidades' for Spanish)",
+    "experience": "section header translated to the output language (e.g. 'Experiencia' for Spanish)",
+    "education": "section header translated to the output language (e.g. 'Educación' for Spanish)",
+    "projects": "section header translated to the output language (e.g. 'Proyectos' for Spanish)",
+    "additional": "section header translated to the output language (e.g. 'Información Adicional' for Spanish)",
+    "degree_connector": "word connecting degree and field in the output language (e.g. 'en' for Spanish, 'in' for English, 'em' for Portuguese)"
+  }},
   "professional_summary": "2-3 sentences maximum. Synthesize the candidate's most relevant value for THIS role using their actual background. No generic phrases like 'results-driven professional' or 'passionate about'. Be specific.",
   "experience": [
     {{
@@ -250,6 +272,18 @@ def _render_pdf(cv_data: dict, gen_id: int) -> str:
     filename = f"cv_{gen_id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
     output_path = os.path.join(OUTPUTS_DIR, filename)
 
+    # Section labels come from the model (already in the output language)
+    lbl = cv_data.get("section_labels") or {}
+    L = {
+        "summary":    lbl.get("summary")    or "Professional Summary",
+        "skills":     lbl.get("skills")     or "Skills",
+        "experience": lbl.get("experience") or "Experience",
+        "education":  lbl.get("education")  or "Education",
+        "projects":   lbl.get("projects")   or "Projects",
+        "additional": lbl.get("additional") or "Additional Information",
+        "degree_in":  lbl.get("degree_connector") or "in",
+    }
+
     doc = SimpleDocTemplate(output_path, pagesize=A4,
                             leftMargin=20*mm, rightMargin=20*mm,
                             topMargin=18*mm, bottomMargin=18*mm)
@@ -270,20 +304,20 @@ def _render_pdf(cv_data: dict, gen_id: int) -> str:
 
     # ── Summary ──
     if cv_data.get("professional_summary"):
-        _section_header(story, "Professional Summary", W)
+        _section_header(story, L["summary"], W)
         story.append(Paragraph(cv_data["professional_summary"], S["summary"]))
 
     # ── Skills ──
     skills = cv_data.get("skills", {})
     items = skills.get("all_items", []) if isinstance(skills, dict) else []
     if items:
-        _section_header(story, "Skills", W)
+        _section_header(story, L["skills"], W)
         story.extend(_two_col_bullets(items, W, S["skill_bullet"]))
 
     # ── Experience ──
     experience = cv_data.get("experience", [])
     if experience:
-        _section_header(story, "Experience", W)
+        _section_header(story, L["experience"], W)
         for i, exp in enumerate(experience):
             story.append(_row(
                 Paragraph(exp.get("company", ""), S["exp_company"]),
@@ -303,11 +337,11 @@ def _render_pdf(cv_data: dict, gen_id: int) -> str:
     # ── Education ──
     education = cv_data.get("education", [])
     if education:
-        _section_header(story, "Education", W)
+        _section_header(story, L["education"], W)
         for edu in education:
             degree = edu.get("degree", "")
             if edu.get("field"):
-                degree += f" in {edu['field']}"
+                degree += f" {L['degree_in']} {edu['field']}"
             story.append(_row(
                 Paragraph(edu.get("institution", ""), S["edu_main"]),
                 Paragraph(edu.get("location", ""), S["exp_loc"]),
@@ -325,7 +359,7 @@ def _render_pdf(cv_data: dict, gen_id: int) -> str:
     # ── Projects ──
     projects = cv_data.get("projects", [])
     if projects:
-        _section_header(story, "Projects", W)
+        _section_header(story, L["projects"], W)
         for proj in projects:
             story.append(Paragraph(proj.get("name", ""), S["exp_title"]))
             if proj.get("description"):
@@ -338,7 +372,7 @@ def _render_pdf(cv_data: dict, gen_id: int) -> str:
     langs = cv_data.get("languages", [])
     certs = cv_data.get("certifications", [])
     if langs or certs:
-        _section_header(story, "Additional Information", W)
+        _section_header(story, L["additional"], W)
         for lang in langs:
             story.append(Paragraph(
                 f"<b>{lang.get('language','')}</b>: {lang.get('level','')}",
