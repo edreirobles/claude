@@ -243,7 +243,7 @@ async def generate_adapted_cv(cv_text: str, job_description: str, gen_id: int, o
     from openai import OpenAI
     client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
     response = client.chat.completions.create(
-        model="gpt-4.1",
+        model="gpt-5-mini",
         max_tokens=4096,
         response_format={"type": "json_object"},
         messages=[
