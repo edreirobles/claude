@@ -218,7 +218,7 @@ Rules:
     from openai import OpenAI
     client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
     response = client.chat.completions.create(
-        model="gpt-4o-mini",
+        model="gpt-4.1-mini",
         max_tokens=2048,
         response_format={"type": "json_object"},
         messages=[{"role": "user", "content": prompt}],
