@@ -215,18 +215,16 @@ Rules:
 - Never invent experience or facts not in the CV
 - Write entirely in {lang_name}"""
 
-    client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
-    message = client.messages.create(
-        model="claude-haiku-4-5-20251001",
+    from openai import OpenAI
+    client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
+    response = client.chat.completions.create(
+        model="gpt-4o-mini",
         max_tokens=2048,
+        response_format={"type": "json_object"},
         messages=[{"role": "user", "content": prompt}],
     )
 
-    raw = message.content[0].text.strip()
-    json_match = re.search(r"```(?:json)?\s*([\s\S]+?)\s*```", raw)
-    if json_match:
-        raw = json_match.group(1)
-
+    raw = response.choices[0].message.content.strip()
     return json.loads(raw)
 
 
