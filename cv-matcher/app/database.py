@@ -23,9 +23,17 @@ def init_db():
             job_text TEXT,
             original_cv_filename TEXT,
             output_pdf_path TEXT,
-            status TEXT DEFAULT 'pending'
+            status TEXT DEFAULT 'pending',
+            cv_data TEXT,
+            interview_tips TEXT
         )
     """)
+    # Add columns if upgrading an existing DB
+    for col, typedef in [("cv_data", "TEXT"), ("interview_tips", "TEXT")]:
+        try:
+            conn.execute(f"ALTER TABLE generations ADD COLUMN {col} {typedef}")
+        except Exception:
+            pass
     conn.commit()
     conn.close()
 
@@ -43,20 +51,28 @@ def create_generation(job_title, company, job_url, job_text, original_cv_filenam
     return gen_id
 
 
-def update_generation(gen_id, output_pdf_path="", job_title=None, company=None, status="completed"):
+def update_generation(gen_id, output_pdf_path="", job_title=None, company=None, status="completed", cv_data=None):
+    import json as _json
     conn = get_db()
+    cv_data_str = _json.dumps(cv_data) if cv_data is not None else None
     if job_title and company:
         conn.execute(
-            "UPDATE generations SET output_pdf_path=?, job_title=?, company=?, status=? WHERE id=?",
-            (output_pdf_path, job_title, company, status, gen_id),
+            "UPDATE generations SET output_pdf_path=?, job_title=?, company=?, status=?, cv_data=? WHERE id=?",
+            (output_pdf_path, job_title, company, status, cv_data_str, gen_id),
         )
-        conn.commit()
-        conn.close()
-        return
-    conn.execute(
-        "UPDATE generations SET output_pdf_path=?, status=? WHERE id=?",
-        (output_pdf_path, status, gen_id),
-    )
+    else:
+        conn.execute(
+            "UPDATE generations SET output_pdf_path=?, status=?, cv_data=? WHERE id=?",
+            (output_pdf_path, status, cv_data_str, gen_id),
+        )
+    conn.commit()
+    conn.close()
+
+
+def save_generation_tips(gen_id, tips: dict):
+    import json as _json
+    conn = get_db()
+    conn.execute("UPDATE generations SET interview_tips=? WHERE id=?", (_json.dumps(tips), gen_id))
     conn.commit()
     conn.close()
 
@@ -71,7 +87,17 @@ def get_all_generations():
 
 
 def get_generation(gen_id):
+    import json as _json
     conn = get_db()
     row = conn.execute("SELECT * FROM generations WHERE id=?", (gen_id,)).fetchone()
     conn.close()
-    return dict(row) if row else None
+    if not row:
+        return None
+    d = dict(row)
+    for key in ("cv_data", "interview_tips"):
+        if d.get(key):
+            try:
+                d[key] = _json.loads(d[key])
+            except Exception:
+                pass
+    return d

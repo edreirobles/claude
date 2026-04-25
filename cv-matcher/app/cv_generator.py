@@ -153,6 +153,83 @@ Do NOT include any information not present in the original CV."""
 
 # ── GENERATE ───────────────────────────────────────────────────────────────────
 
+async def generate_interview_tips(cv_data: dict, job_text: str) -> dict:
+    """Generate interview prep tips from an already-adapted CV. Uses Haiku for speed."""
+    lang = cv_data.get("detected_language", "en")
+    lang_names = {
+        "en": "English", "es": "Spanish", "fr": "French",
+        "pt": "Portuguese", "de": "German", "it": "Italian",
+    }
+    lang_name = lang_names.get(lang, "the same language used in the CV")
+
+    job_title = cv_data.get("job_title_applied", "this role")
+    company = cv_data.get("company_applied", "this company")
+
+    cv_summary = json.dumps({
+        "name": cv_data.get("name"),
+        "professional_summary": cv_data.get("professional_summary"),
+        "skills": (cv_data.get("skills") or {}).get("all_items", []),
+        "experience": [
+            {
+                "title": e.get("title"),
+                "company": e.get("company"),
+                "dates": f"{e.get('start_date','')} – {e.get('end_date','')}",
+                "bullets": e.get("bullets", []),
+            }
+            for e in (cv_data.get("experience") or [])
+        ],
+    }, ensure_ascii=False, indent=2)
+
+    prompt = f"""You are a career coach preparing a candidate for an interview at {company} for {job_title}.
+
+Based on the candidate's adapted CV and the job posting, generate practical interview preparation guidance entirely in {lang_name}.
+
+CANDIDATE'S ADAPTED CV:
+{cv_summary}
+
+JOB POSTING (first 1500 chars):
+{job_text[:1500]}
+
+Return ONLY a valid JSON object:
+{{
+  "talking_points": [
+    "3-5 specific, compelling points the candidate should proactively mention — tied to real achievements in the CV, NOT generic"
+  ],
+  "skill_demonstrations": [
+    {{
+      "skill": "skill name",
+      "example": "How to present a specific story from this CV that proves this skill in an interview (1-2 sentences)"
+    }}
+  ],
+  "likely_questions": [
+    {{
+      "question": "A specific interview question for this exact role",
+      "tip": "1-2 sentence answer framework using the candidate's actual background"
+    }}
+  ]
+}}
+
+Rules:
+- 3-5 talking_points, 3-4 skill_demonstrations, 5-6 likely_questions
+- Role-specific questions only — no generic ones like "tell me about yourself"
+- Never invent experience or facts not in the CV
+- Write entirely in {lang_name}"""
+
+    client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
+    message = client.messages.create(
+        model="claude-haiku-4-5-20251001",
+        max_tokens=2048,
+        messages=[{"role": "user", "content": prompt}],
+    )
+
+    raw = message.content[0].text.strip()
+    json_match = re.search(r"```(?:json)?\s*([\s\S]+?)\s*```", raw)
+    if json_match:
+        raw = json_match.group(1)
+
+    return json.loads(raw)
+
+
 async def generate_adapted_cv(cv_text: str, job_description: str, gen_id: int, output_language: str = "auto") -> dict:
     lang_instruction = {
         "auto": "auto — detect from the job posting language and use that language for the entire CV",

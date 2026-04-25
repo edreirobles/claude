@@ -109,6 +109,14 @@ const T = {
     login_sent_title:"Check your email!",
     login_sent_desc:"We sent a magic link to:",
     login_no_password:"No password needed. One click and you're in.",
+    // Interview tips
+    btn_tips:"Prepare for this interview",
+    tips_loading:"Generating your interview prep…",
+    tips_title:"Interview Preparation",
+    tips_talking_points:"Key points to highlight",
+    tips_skill_demos:"How to demonstrate your skills",
+    tips_questions:"Questions you'll likely face",
+    tips_error:"Could not load tips. Try again.",
     // Payment success
     pay_success_title:"Payment successful!",
     pay_success_desc:"Your account has been updated. You can now generate CVs.",
@@ -225,6 +233,14 @@ const T = {
     pay_success_desc:"Tu cuenta ha sido actualizada. Ya puedes generar CVs.",
     pay_success_btn:"Empezar a generar →",
     pay_success_note:"El recibo fue enviado a tu correo.",
+    // Interview tips
+    btn_tips:"Preparar para esta entrevista",
+    tips_loading:"Generando tu preparación para la entrevista…",
+    tips_title:"Preparación para la Entrevista",
+    tips_talking_points:"Puntos clave que debes destacar",
+    tips_skill_demos:"Cómo demostrar tus habilidades",
+    tips_questions:"Preguntas que probablemente enfrentarás",
+    tips_error:"No se pudieron cargar los tips. Intenta de nuevo.",
   },
 };
 
@@ -235,6 +251,7 @@ let selectedFile = null;
 let activeTab    = "url";
 let cvOutputLang = "auto";
 let userInfo     = null;   // cached /api/user response
+let currentGenId = null;   // gen_id of the last completed generation
 
 /* ── I18N ──────────────────────────────────────────────── */
 function t(key, vars = {}) {
@@ -461,6 +478,9 @@ function initUI() {
   document.getElementById("start-over")?.addEventListener("click", resetAll);
   document.getElementById("start-over-claim")?.addEventListener("click", resetAll);
 
+  // Interview tips button
+  document.getElementById("tips-btn")?.addEventListener("click", loadTips);
+
   // Claim sign-in button
   document.getElementById("claim-btn")?.addEventListener("click", () => {
     if (window.signInWithGoogle) signInWithGoogle();
@@ -559,9 +579,22 @@ async function handleGenerate() {
       showClaimState(data.claim_token, data.job_title, data.company);
     } else {
       // Authenticated generation — show download button
+      currentGenId = data.id;
       const subtitle = t("success_for").replace("{title}", data.job_title || "").replace("{company}", data.company || "");
       document.getElementById("success-subtitle").textContent = subtitle;
       document.getElementById("download-btn").href = data.download_url;
+
+      // Show tips button only for authenticated users
+      const tipsBtn = document.getElementById("tips-btn");
+      if (tipsBtn) {
+        tipsBtn.textContent = t("btn_tips");
+        tipsBtn.classList.toggle("hidden", !window.AUTH_ENABLED || !userInfo);
+      }
+      // Reset tips panel
+      document.getElementById("tips-panel")?.classList.add("hidden");
+      document.getElementById("tips-loading")?.classList.add("hidden");
+      document.getElementById("tips-content")?.classList.add("hidden");
+
       document.getElementById("success-state")?.classList.remove("hidden");
 
       // Refresh usage badge
@@ -589,6 +622,65 @@ function showClaimState(claimToken, jobTitle, company) {
   document.getElementById("claim-btn-label").textContent = t("claim_btn");
   document.getElementById("claim-note").textContent = t("claim_note");
   document.getElementById("claim-state")?.classList.remove("hidden");
+}
+
+/* ── INTERVIEW TIPS ────────────────────────────────────── */
+async function loadTips() {
+  if (!currentGenId) return;
+  const btn = document.getElementById("tips-btn");
+  if (btn) btn.classList.add("hidden");
+
+  const panel = document.getElementById("tips-panel");
+  const loadingEl = document.getElementById("tips-loading");
+  const contentEl = document.getElementById("tips-content");
+
+  panel?.classList.remove("hidden");
+  loadingEl?.classList.remove("hidden");
+  contentEl?.classList.add("hidden");
+  if (loadingEl) loadingEl.querySelector("p").textContent = t("tips_loading");
+
+  try {
+    const headers = await getAuthHeaders();
+    const resp = await fetch(`/api/tips/${currentGenId}`, { headers });
+    if (!resp.ok) throw new Error();
+    const { tips } = await resp.json();
+
+    // Talking points
+    const tpList = document.getElementById("tips-talking-points");
+    if (tpList) {
+      tpList.innerHTML = (tips.talking_points || []).map(p => `<li>${p}</li>`).join("");
+    }
+    document.getElementById("tips-talking-label").textContent = t("tips_talking_points");
+
+    // Skill demonstrations
+    const skillsEl = document.getElementById("tips-skills");
+    if (skillsEl) {
+      skillsEl.innerHTML = (tips.skill_demonstrations || []).map(s =>
+        `<div class="tips-skill"><span class="tips-skill-name">${s.skill}</span><p>${s.example}</p></div>`
+      ).join("");
+    }
+    document.getElementById("tips-skills-label").textContent = t("tips_skill_demos");
+
+    // Likely questions
+    const qEl = document.getElementById("tips-questions");
+    if (qEl) {
+      qEl.innerHTML = (tips.likely_questions || []).map(q =>
+        `<div class="tips-question"><div class="tips-q-text">❓ ${q.question}</div><div class="tips-q-tip">→ ${q.tip}</div></div>`
+      ).join("");
+    }
+    document.getElementById("tips-questions-label").textContent = t("tips_questions");
+
+    document.getElementById("tips-title-el").textContent = t("tips_title");
+    loadingEl?.classList.add("hidden");
+    contentEl?.classList.remove("hidden");
+  } catch {
+    loadingEl?.classList.add("hidden");
+    panel?.classList.add("hidden");
+    if (btn) {
+      btn.classList.remove("hidden");
+      btn.textContent = t("tips_error");
+    }
+  }
 }
 
 /* ── PAYWALL ───────────────────────────────────────────── */

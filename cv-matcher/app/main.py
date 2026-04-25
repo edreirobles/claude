@@ -215,7 +215,7 @@ async def generate(
 
     job_title = cv_data.get("job_title_applied", "Unknown Role")
     company = cv_data.get("company_applied", "Unknown Company")
-    _update(gen_id, pdf_ref, job_title=job_title, company=company, status="completed")
+    _update(gen_id, pdf_ref, job_title=job_title, company=company, status="completed", cv_data=cv_data)
 
     # ── Deduct credit (authenticated users only) ──
     if AUTH_ENABLED and not anonymous:
@@ -292,6 +292,36 @@ async def download(gen_id: str):
     if not os.path.exists(pdf_ref):
         raise HTTPException(404, "PDF file not found on disk")
     return FileResponse(path=pdf_ref, media_type="application/pdf", filename=filename)
+
+
+@app.get("/api/tips/{gen_id}")
+async def interview_tips(gen_id: str, user=Depends(get_current_user)):
+    if AUTH_ENABLED:
+        from app.supabase_db import get_generation, save_generation_tips
+    else:
+        from app.database import get_generation, save_generation_tips
+
+    gen = get_generation(gen_id)
+    if not gen or gen.get("status") != "completed":
+        raise HTTPException(404, "Generation not found or not completed")
+
+    # Return cached tips if available
+    cached = gen.get("interview_tips")
+    if cached:
+        return {"tips": cached}
+
+    cv_data = gen.get("cv_data")
+    if not cv_data:
+        raise HTTPException(422, "CV data not available for this generation (regenerate the CV to enable tips)")
+
+    from app.cv_generator import generate_interview_tips
+    try:
+        tips = await generate_interview_tips(cv_data, gen.get("job_text", ""))
+    except Exception as e:
+        raise HTTPException(500, f"Could not generate tips: {e}")
+
+    save_generation_tips(gen_id, tips)
+    return {"tips": tips}
 
 
 @app.get("/api/history")

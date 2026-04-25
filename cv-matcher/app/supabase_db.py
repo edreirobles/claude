@@ -82,13 +82,20 @@ def create_generation(user_id: str, job_title: str, company: str, job_url: str, 
     return r.data[0]["id"]
 
 
-def update_generation(gen_id: str, pdf_ref: str, job_title: str = "", company: str = "", status: str = "completed"):
-    _sb().table("generations").update({
+def update_generation(gen_id: str, pdf_ref: str, job_title: str = "", company: str = "", status: str = "completed", cv_data: dict = None):
+    payload = {
         "pdf_storage_path": pdf_ref,
         "job_title": job_title,
         "company": company,
         "status": status,
-    }).eq("id", gen_id).execute()
+    }
+    if cv_data is not None:
+        payload["cv_data"] = cv_data
+    _sb().table("generations").update(payload).eq("id", gen_id).execute()
+
+
+def save_generation_tips(gen_id: str, tips: dict):
+    _sb().table("generations").update({"interview_tips": tips}).eq("id", gen_id).execute()
 
 
 def get_generation(gen_id: str) -> dict | None:

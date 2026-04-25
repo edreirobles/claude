@@ -149,6 +149,32 @@
             </a>
             <button class="btn-ghost" id="start-over" data-i18n="btn_start_over"></button>
           </div>
+          <!-- Interview tips button (shown only for auth'd users) -->
+          <div style="margin-top:16px;text-align:center">
+            <button class="btn-tips hidden" id="tips-btn"></button>
+          </div>
+          <!-- Tips panel -->
+          <div id="tips-panel" class="tips-panel hidden">
+            <div id="tips-loading" class="tips-loading hidden">
+              <div class="spinner" style="margin:0 auto 10px"></div>
+              <p></p>
+            </div>
+            <div id="tips-content" class="hidden">
+              <h3 class="tips-title" id="tips-title-el"></h3>
+              <div class="tips-block">
+                <div class="tips-block-label" id="tips-talking-label"></div>
+                <ul class="tips-list" id="tips-talking-points"></ul>
+              </div>
+              <div class="tips-block">
+                <div class="tips-block-label" id="tips-skills-label"></div>
+                <div id="tips-skills"></div>
+              </div>
+              <div class="tips-block">
+                <div class="tips-block-label" id="tips-questions-label"></div>
+                <div id="tips-questions"></div>
+              </div>
+            </div>
+          </div>
         </div>
         <!-- Claim state: anonymous user must sign in to download -->
         <div id="claim-state" class="hidden">

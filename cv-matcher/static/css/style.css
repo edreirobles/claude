@@ -766,3 +766,58 @@ body.dark .usage-badge.badge-pro     { background: #431407; color: #fdba74; bord
 
 /* ── UTILS ───────────────────────────────────────────────── */
 .hidden { display: none !important; }
+
+/* ── INTERVIEW TIPS ──────────────────────────────────────── */
+.btn-tips {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 10px 20px; border-radius: 8px; font-size: 0.9rem; font-weight: 500;
+  background: var(--blue-light); color: var(--blue);
+  border: 1.5px solid var(--blue-border); cursor: pointer;
+  transition: background .15s, border-color .15s;
+}
+.btn-tips:hover { background: #DBEAFE; border-color: var(--blue); }
+body.dark .btn-tips { background: var(--blue-light); color: #93C5FD; border-color: #1D4ED8; }
+
+.tips-panel {
+  margin-top: 20px; padding: 20px 24px;
+  background: var(--bg); border: 1px solid var(--border);
+  border-radius: var(--radius); text-align: left;
+}
+.tips-loading { text-align: center; padding: 16px 0; }
+.tips-loading p { font-size: 0.88rem; color: var(--text-muted); margin-top: 4px; }
+
+.tips-title {
+  font-size: 1rem; font-weight: 700; color: var(--text-primary);
+  margin-bottom: 16px; padding-bottom: 10px;
+  border-bottom: 1px solid var(--border);
+}
+.tips-block { margin-bottom: 18px; }
+.tips-block-label {
+  font-size: 0.78rem; font-weight: 700; color: var(--text-muted);
+  text-transform: uppercase; letter-spacing: .06em; margin-bottom: 10px;
+}
+.tips-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 7px; }
+.tips-list li {
+  font-size: 0.88rem; color: var(--text-secondary); line-height: 1.5;
+  padding-left: 16px; position: relative;
+}
+.tips-list li::before { content: '✦'; position: absolute; left: 0; color: var(--blue); font-size: 0.65rem; top: 3px; }
+
+.tips-skill {
+  padding: 10px 12px; border-radius: 8px;
+  background: var(--bg-card); border: 1px solid var(--border);
+  margin-bottom: 8px;
+}
+.tips-skill-name {
+  display: inline-block; font-size: 0.78rem; font-weight: 600;
+  color: var(--blue); background: var(--blue-light);
+  border-radius: 4px; padding: 2px 8px; margin-bottom: 6px;
+}
+.tips-skill p { font-size: 0.86rem; color: var(--text-secondary); line-height: 1.5; margin: 0; }
+
+.tips-question {
+  padding: 10px 12px; border-radius: 8px;
+  border: 1px solid var(--border); margin-bottom: 8px;
+}
+.tips-q-text { font-size: 0.88rem; font-weight: 600; color: var(--text-primary); margin-bottom: 5px; }
+.tips-q-tip { font-size: 0.84rem; color: var(--text-muted); line-height: 1.5; }
