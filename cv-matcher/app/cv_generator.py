@@ -1,4 +1,3 @@
-import anthropic
 import json
 import os
 import re
@@ -241,22 +240,22 @@ async def generate_adapted_cv(cv_text: str, job_description: str, gen_id: int, o
 
     system = SYSTEM_PROMPT.format(output_language=lang_instruction)
 
-    client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
-    message = client.messages.create(
-        model="claude-opus-4-6",
+    from openai import OpenAI
+    client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
+    response = client.chat.completions.create(
+        model="gpt-4.1",
         max_tokens=4096,
-        system=system,
-        messages=[{"role": "user", "content": CV_PROMPT.format(
-            cv_text=cv_text,
-            job_description=job_description,
-        )}],
+        response_format={"type": "json_object"},
+        messages=[
+            {"role": "system", "content": system},
+            {"role": "user", "content": CV_PROMPT.format(
+                cv_text=cv_text,
+                job_description=job_description,
+            )},
+        ],
     )
 
-    raw = message.content[0].text.strip()
-    json_match = re.search(r"```(?:json)?\s*([\s\S]+?)\s*```", raw)
-    if json_match:
-        raw = json_match.group(1)
-
+    raw = response.choices[0].message.content.strip()
     cv_data = json.loads(raw)
     pdf_path = _render_pdf(cv_data, gen_id)
     return {"cv_data": cv_data, "pdf_path": pdf_path}
