@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """
-PDF → Kindle EPUB converter.
+PDF → Kindle converter.
 
 Usage:
   python convert.py paper.pdf
+  python convert.py paper.pdf --format azw3
   python convert.py paper.pdf -o my-paper.epub
   python convert.py paper.pdf --pages 1-10
 """
@@ -15,19 +16,23 @@ from typing import Optional
 
 from extractor import PDFExtractor
 from builder import EPUBBuilder
+from azw3 import epub_to_azw3, calibre_available, CALIBRE_DOWNLOAD_URL
 
 
 def convert(
     pdf_path: str,
     output_path: Optional[str] = None,
     page_range: Optional[tuple[int, int]] = None,
+    fmt: str = "epub",
     verbose: bool = True,
 ) -> str:
     src = Path(pdf_path)
     if not src.exists():
         raise FileNotFoundError(f"PDF not found: {pdf_path}")
 
-    dst = Path(output_path) if output_path else src.with_suffix(".epub")
+    fmt = fmt.lower()
+    default_suffix = f".{fmt}"
+    dst = Path(output_path) if output_path else src.with_suffix(default_suffix)
 
     if verbose:
         print(f"Reading  : {src}")
@@ -53,8 +58,16 @@ def convert(
         blocks_total = sum(len(p.blocks) for p in doc.pages)
         print(f"Blocks   : {blocks_total}  ({len(doc.pages)} pages)")
 
+    # Always build EPUB first (intermediate format for AZW3)
+    epub_dst = dst if fmt == "epub" else dst.with_suffix(".epub")
     builder = EPUBBuilder(doc)
-    builder.build(str(dst))
+    builder.build(str(epub_dst))
+
+    if fmt == "azw3":
+        if verbose:
+            print("Converting EPUB → AZW3 via Calibre…")
+        epub_to_azw3(str(epub_dst), str(dst))
+        epub_dst.unlink(missing_ok=True)   # remove intermediate EPUB
 
     if verbose:
         size_kb = dst.stat().st_size // 1024
@@ -111,12 +124,26 @@ def main() -> None:
         help="Convert only a page range, e.g. --pages 1-12",
     )
     parser.add_argument(
+        "--format",
+        choices=["epub", "azw3"],
+        default="azw3",
+        help="Output format: azw3 (default, requires Calibre) or epub",
+    )
+    parser.add_argument(
         "-q", "--quiet",
         action="store_true",
         help="Suppress progress output",
     )
 
     args = parser.parse_args()
+
+    if args.format == "azw3" and not calibre_available():
+        print(
+            f"Error: AZW3 requiere Calibre. Descargalo desde {CALIBRE_DOWNLOAD_URL}\n"
+            "O usá --format epub para generar EPUB.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
 
     page_range = _parse_page_range(args.pages) if args.pages else None
 
@@ -125,6 +152,7 @@ def main() -> None:
             pdf_path=args.pdf,
             output_path=args.output,
             page_range=page_range,
+            fmt=args.format,
             verbose=not args.quiet,
         )
     except FileNotFoundError as e:
