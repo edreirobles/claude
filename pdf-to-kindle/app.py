@@ -235,36 +235,71 @@ with tab_lib:
 
     # ── Folder scanner ────────────────────────────────────────────────────────
 
-    with st.expander("➕  Agregar EPUBs desde carpeta", expanded=True):
-        col_browse, col_rec = st.columns([1, 1])
-        with col_browse:
-            if st.button("📁 Seleccionar carpeta…", use_container_width=True):
-                try:
-                    import tkinter as tk
-                    from tkinter import filedialog
-                    root = tk.Tk()
-                    root.withdraw()
-                    root.wm_attributes("-topmost", 1)
-                    chosen = filedialog.askdirectory(title="Seleccioná la carpeta de EPUBs")
-                    root.destroy()
-                    if chosen:
-                        st.session_state["folder_input"] = chosen
-                except Exception:
-                    st.warning("No se pudo abrir el selector. Escribí la ruta manualmente.")
-        with col_rec:
-            recursive = st.checkbox("Incluir subcarpetas")
-
-        folder_input = st.text_input(
-            "Ruta de la carpeta",
-            value=st.session_state.get("folder_input", ""),
-            placeholder=r"C:\Users\victo\Documents\Libros",
+    with st.expander("➕  Agregar EPUBs", expanded=True):
+        st.caption("Seleccioná uno o varios archivos EPUB — podés usar Ctrl+click para elegir múltiples.")
+        uploaded_epubs = st.file_uploader(
+            "Archivos EPUB",
+            type=["epub"],
+            accept_multiple_files=True,
+            label_visibility="collapsed",
         )
-        if folder_input:
-            st.session_state["folder_input"] = folder_input
 
-        scan_btn = st.button("🔍 Escanear EPUBs", use_container_width=True, type="primary")
+        if uploaded_epubs:
+            import pandas as pd
 
-        if scan_btn and folder_input:
+            # Save uploaded files to a local library folder so we can track paths
+            library_dir = Path(__file__).parent / "epub_library"
+            library_dir.mkdir(exist_ok=True)
+
+            preview_df = pd.DataFrame({
+                "✓": [True] * len(uploaded_epubs),
+                "Archivo": [f.name for f in uploaded_epubs],
+                "Tamaño": [f"{len(f.getvalue()) // 1024} KB" for f in uploaded_epubs],
+            })
+            edited_preview = st.data_editor(
+                preview_df,
+                use_container_width=True,
+                hide_index=True,
+                column_config={"✓": st.column_config.CheckboxColumn("", width="small")},
+                key="upload_editor",
+            )
+            selected_uploads = [
+                uploaded_epubs[i]
+                for i, checked in enumerate(edited_preview["✓"])
+                if checked
+            ]
+
+            if st.button(
+                f"Agregar {len(selected_uploads)} archivo(s) a la librería",
+                disabled=len(selected_uploads) == 0,
+                type="primary",
+                use_container_width=True,
+            ):
+                saved = []
+                for f in selected_uploads:
+                    dest = library_dir / f.name
+                    dest.write_bytes(f.getvalue())
+                    saved.append(dest)
+                new, dupes = lib.add_books(saved)
+                st.success(
+                    f"✓ {new} nuevo(s) agregado(s)"
+                    + (f" · {dupes} ya existían" if dupes else "")
+                )
+                st.rerun()
+
+        st.divider()
+        st.caption("¿Tenés los EPUBs en una carpeta? Pegá la ruta y escaneá.")
+        col_path, col_rec = st.columns([4, 1])
+        with col_path:
+            folder_input = st.text_input(
+                "Ruta",
+                placeholder=r"C:\Users\victo\Documents\Libros",
+                label_visibility="collapsed",
+            )
+        with col_rec:
+            recursive = st.checkbox("Subcarpetas")
+
+        if st.button("🔍 Escanear carpeta", use_container_width=True) and folder_input:
             found = lib.scan_folder(folder_input.strip(), recursive)
             st.session_state["found_epubs"] = [str(p) for p in found]
 
@@ -273,30 +308,25 @@ with tab_lib:
             if not found_paths:
                 st.warning("No se encontraron archivos EPUB en esa carpeta.")
             else:
-                st.caption(f"Se encontraron **{len(found_paths)}** archivos EPUB:")
-
-                # Build a small df for the file picker
                 import pandas as pd
+                st.caption(f"Se encontraron **{len(found_paths)}** archivos EPUB:")
                 found_df = pd.DataFrame({
                     "✓": [True] * len(found_paths),
                     "Archivo": [Path(p).name for p in found_paths],
                     "Carpeta": [str(Path(p).parent) for p in found_paths],
-                    "_path": found_paths,
                 })
                 edited_found = st.data_editor(
-                    found_df[["✓", "Archivo", "Carpeta"]],
+                    found_df,
                     use_container_width=True,
                     hide_index=True,
                     column_config={"✓": st.column_config.CheckboxColumn("", width="small")},
                     key="found_editor",
                 )
-
                 selected_paths = [
                     found_paths[i]
                     for i, checked in enumerate(edited_found["✓"])
                     if checked
                 ]
-
                 col_add, col_clear = st.columns([3, 1])
                 with col_add:
                     if st.button(
@@ -306,7 +336,7 @@ with tab_lib:
                         use_container_width=True,
                     ):
                         new, dupes = lib.add_books([Path(p) for p in selected_paths])
-                        st.success(f"✓ {new} nuevo(s) agregado(s)" + (f" · {dupes} ya existían" if dupes else ""))
+                        st.success(f"✓ {new} nuevo(s)" + (f" · {dupes} ya existían" if dupes else ""))
                         del st.session_state["found_epubs"]
                         st.rerun()
                 with col_clear:
