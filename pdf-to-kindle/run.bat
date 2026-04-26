@@ -1,3 +1,4 @@
 @echo off
-py -m streamlit run "%~dp0app.py"
+cd /d "%~dp0"
+py server.py
 pause
