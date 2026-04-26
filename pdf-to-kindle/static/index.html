@@ -103,12 +103,27 @@ input:focus,select:focus{outline:none;border-color:#FF9900;box-shadow:0 0 0 2px 
   <h2>📚 Mi Librería</h2>
 
   <div class="card">
-    <h3>Explorar y agregar EPUBs</h3>
+    <h3>Agregar EPUBs</h3>
+
+    <!-- Direct path input — main entry point -->
+    <div style="display:flex;gap:8px;margin-bottom:14px">
+      <input type="text" id="path-input"
+             placeholder="Pegá la ruta de tu carpeta de EPUBs, ej: C:\Users\victo\Documents\Libros"
+             onkeydown="if(event.key==='Enter')goToPath()"
+             style="flex:1">
+      <button class="btn btn-primary" onclick="goToPath()">Ir →</button>
+    </div>
+
+    <!-- Tree browser -->
     <div class="breadcrumb" id="bc"><span class="crumb" onclick="browse('')">🖥 Inicio</span></div>
-    <div class="file-list" id="fl"><div class="empty-dir">Cargando…</div></div>
+    <div class="file-list" id="fl">
+      <div class="empty-dir">Escribí una ruta arriba o navegá haciendo click en las carpetas</div>
+    </div>
+
     <div class="btn-row">
       <button class="btn btn-primary" id="btn-add" disabled onclick="addSelected()">Agregar a librería</button>
-      <button class="btn btn-secondary" onclick="clearSel()">Limpiar selección</button>
+      <button class="btn btn-secondary" id="btn-sel-all" style="display:none" onclick="selectAllVisible()">Seleccionar todos</button>
+      <button class="btn btn-secondary" onclick="clearSel()">Limpiar</button>
       <span class="sel-info" id="sel-info"></span>
     </div>
   </div>
@@ -247,10 +262,19 @@ let selected=new Map(); // path -> name
 
 async function browse(path){
   curPath=path;
+  // Update the path input to reflect current location
+  if(path) document.getElementById('path-input').value=path;
   const r=await fetch('/api/browse?path='+encodeURIComponent(path));
+  if(!r.ok){toast('No se pudo abrir esa ruta','err');return;}
   const d=await r.json();
+  if(d.error){toast(d.error,'err');return;}
   renderBC(d.path,d.parent);
   renderFL(d.items,d.parent);
+}
+
+function goToPath(){
+  const p=document.getElementById('path-input').value.trim();
+  if(p) browse(p);
 }
 
 function renderBC(path,parent){
@@ -273,27 +297,43 @@ function renderFL(items,parent){
   if(parent!==null)
     h+=`<div class="file-item folder" onclick="browse(${JSON.stringify(parent)})"><span class="icon">⬆</span><span class="file-name">.. (subir)</span></div>`;
   if(!items.length&&parent===null)
-    h+='<div class="empty-dir">Seleccioná una unidad</div>';
+    h+='<div class="empty-dir">Escribí la ruta de tu carpeta arriba y presioná Ir →</div>';
   else if(!items.length)
     h+='<div class="empty-dir">Carpeta vacía</div>';
+
+  const epubsInView=[];
   items.forEach(item=>{
     if(item.is_dir){
       h+=`<div class="file-item folder" onclick="browse(${JSON.stringify(item.path)})">
         <span class="icon">📁</span><span class="file-name">${esc(item.name)}</span></div>`;
     } else if(item.is_epub){
+      epubsInView.push(item);
       const chk=selected.has(item.path)?'checked':'';
-      h+=`<div class="file-item epub" onclick="toggleEpub(${JSON.stringify(item.path)},${JSON.stringify(item.name)},this)">
+      h+=`<div class="file-item epub" data-path="${esc(item.path)}" data-name="${esc(item.name)}"
+            onclick="toggleEpub(${JSON.stringify(item.path)},${JSON.stringify(item.name)},this)">
         <input type="checkbox" ${chk} onclick="event.stopPropagation();toggleEpub(${JSON.stringify(item.path)},${JSON.stringify(item.name)},this.closest('.file-item'))">
         <span class="icon">📖</span><span class="file-name">${esc(item.name)}</span></div>`;
     }
   });
   fl.innerHTML=h;
+  // Show/hide "Seleccionar todos" button
+  document.getElementById('btn-sel-all').style.display=epubsInView.length?'inline-block':'none';
+  fl._epubsInView=epubsInView;
 }
 
 function toggleEpub(path,name,el){
   const cb=el.querySelector('input[type=checkbox]');
   if(selected.has(path)){selected.delete(path);if(cb)cb.checked=false;}
   else{selected.set(path,name);if(cb)cb.checked=true;}
+  updSel();
+}
+function selectAllVisible(){
+  const fl=document.getElementById('fl');
+  (fl._epubsInView||[]).forEach(item=>{
+    selected.set(item.path,item.name);
+    const el=fl.querySelector(`[data-path="${CSS.escape(item.path)}"] input`);
+    if(el)el.checked=true;
+  });
   updSel();
 }
 function updSel(){
