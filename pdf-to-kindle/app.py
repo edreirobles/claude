@@ -236,17 +236,33 @@ with tab_lib:
     # ── Folder scanner ────────────────────────────────────────────────────────
 
     with st.expander("➕  Agregar EPUBs desde carpeta", expanded=True):
-        col_path, col_rec = st.columns([5, 1])
-        with col_path:
-            folder_input = st.text_input(
-                "Ruta de la carpeta",
-                placeholder=r"C:\Users\victo\Documents\Libros",
-                label_visibility="collapsed",
-            )
+        col_browse, col_rec = st.columns([1, 1])
+        with col_browse:
+            if st.button("📁 Seleccionar carpeta…", use_container_width=True):
+                try:
+                    import tkinter as tk
+                    from tkinter import filedialog
+                    root = tk.Tk()
+                    root.withdraw()
+                    root.wm_attributes("-topmost", 1)
+                    chosen = filedialog.askdirectory(title="Seleccioná la carpeta de EPUBs")
+                    root.destroy()
+                    if chosen:
+                        st.session_state["folder_input"] = chosen
+                except Exception:
+                    st.warning("No se pudo abrir el selector. Escribí la ruta manualmente.")
         with col_rec:
-            recursive = st.checkbox("Subcarpetas")
+            recursive = st.checkbox("Incluir subcarpetas")
 
-        scan_btn = st.button("🔍 Escanear", use_container_width=True)
+        folder_input = st.text_input(
+            "Ruta de la carpeta",
+            value=st.session_state.get("folder_input", ""),
+            placeholder=r"C:\Users\victo\Documents\Libros",
+        )
+        if folder_input:
+            st.session_state["folder_input"] = folder_input
+
+        scan_btn = st.button("🔍 Escanear EPUBs", use_container_width=True, type="primary")
 
         if scan_btn and folder_input:
             found = lib.scan_folder(folder_input.strip(), recursive)
