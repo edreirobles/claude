@@ -505,6 +505,9 @@ async function startCheckout(product) {
 
     if (resp.ok) {
       const { checkout_url } = await resp.json();
+      if (!checkout_url || !checkout_url.startsWith("https://")) {
+        throw new Error("No se recibió una URL de pago válida de Stripe.");
+      }
       // Close modal only on success, right before redirect
       document.getElementById("paywall-modal")?.classList.add("hidden");
       window.location.href = checkout_url;

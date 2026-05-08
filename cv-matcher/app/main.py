@@ -256,35 +256,43 @@ async def create_checkout(
     user=Depends(get_current_user),
 ):
     if not PAYMENTS_ENABLED:
-        raise HTTPException(503, "Payments not configured")
+        raise HTTPException(503, "Stripe no está configurado. Agrega STRIPE_SECRET_KEY en Railway.")
     if not AUTH_ENABLED:
-        raise HTTPException(503, "Auth not configured")
+        raise HTTPException(503, "Auth no está configurado.")
 
     from app.supabase_db import get_or_create_stripe_customer
     from app.payments import create_checkout as _checkout
 
-    customer_id = get_or_create_stripe_customer(user.id, user.email)
-    base_url = os.environ.get("APP_URL", "http://localhost:8001")
+    try:
+        customer_id = get_or_create_stripe_customer(user.id, user.email)
+    except Exception as e:
+        raise HTTPException(502, f"Error creando cliente en Stripe: {e}")
 
-    if product == "credits":
+    base_url = os.environ.get("APP_URL", "http://localhost:8001").rstrip("/")
+
+    price_env = "STRIPE_PRICE_CREDITS" if product == "credits" else "STRIPE_PRICE_MONTHLY"
+    price_id = os.environ.get(price_env, "")
+    if not price_id:
+        raise HTTPException(503, f"Variable {price_env} no configurada en Railway.")
+
+    mode = "payment" if product == "credits" else "subscription"
+    if product not in ("credits", "monthly"):
+        raise HTTPException(400, "Producto inválido")
+
+    try:
         url = _checkout(
             customer_id=customer_id,
-            price_id=os.environ["STRIPE_PRICE_CREDITS"],
-            mode="payment",
-            success_url=f"{base_url}/payment/success?product=credits",
+            price_id=price_id,
+            mode=mode,
+            success_url=f"{base_url}/payment/success?product={product}",
             cancel_url=f"{base_url}/",
-            metadata={"user_id": user.id, "product": "credits"},
+            metadata={"user_id": user.id, "product": product} if product == "credits" else {},
         )
-    elif product == "monthly":
-        url = _checkout(
-            customer_id=customer_id,
-            price_id=os.environ["STRIPE_PRICE_MONTHLY"],
-            mode="subscription",
-            success_url=f"{base_url}/payment/success?product=monthly",
-            cancel_url=f"{base_url}/",
-        )
-    else:
-        raise HTTPException(400, "Invalid product")
+    except Exception as e:
+        raise HTTPException(502, f"Error de Stripe: {e}")
+
+    if not url:
+        raise HTTPException(502, "Stripe no devolvió una URL de pago.")
 
     return {"checkout_url": url}
 
