@@ -484,16 +484,46 @@ function showPaywall() {
 }
 
 async function startCheckout(product) {
-  document.getElementById("paywall-modal")?.classList.add("hidden");
-  const headers = await getAuthHeaders();
-  const form = new FormData();
-  form.append("product", product);
-  const resp = await fetch("/api/create-checkout", { method: "POST", body: form, headers });
-  if (resp.ok) {
-    const { checkout_url } = await resp.json();
-    window.location.href = checkout_url;
-  } else {
-    alert("Could not start checkout. Please try again.");
+  const btnId = product === "credits" ? "buy-credits-btn" : "buy-monthly-btn";
+  const btn = document.getElementById(btnId);
+  const errEl = document.getElementById("checkout-error");
+  const originalText = btn?.textContent;
+
+  // Reset error, show loading on button — keep modal open
+  if (errEl) errEl.classList.add("hidden");
+  if (btn) { btn.disabled = true; btn.textContent = "…"; }
+
+  try {
+    const headers = await getAuthHeaders();
+    if (!headers["Authorization"]) {
+      throw new Error(uiLang === "es" ? "Debes iniciar sesión para continuar." : "Please sign in to continue.");
+    }
+
+    const form = new FormData();
+    form.append("product", product);
+    const resp = await fetch("/api/create-checkout", { method: "POST", body: form, headers });
+
+    if (resp.ok) {
+      const { checkout_url } = await resp.json();
+      // Close modal only on success, right before redirect
+      document.getElementById("paywall-modal")?.classList.add("hidden");
+      window.location.href = checkout_url;
+      return;
+    }
+
+    let msg = uiLang === "es" ? "No se pudo iniciar el pago. Intenta de nuevo." : "Could not start checkout. Please try again.";
+    if (resp.status === 401) {
+      msg = uiLang === "es" ? "Sesión expirada. Vuelve a iniciar sesión." : "Session expired. Please sign in again.";
+    } else if (resp.status === 503) {
+      msg = uiLang === "es" ? "Los pagos aún no están configurados." : "Payments are not configured yet.";
+    } else {
+      try { const d = await resp.json(); if (d.detail) msg = d.detail; } catch {}
+    }
+    throw new Error(msg);
+
+  } catch (e) {
+    if (errEl) { errEl.textContent = e.message; errEl.classList.remove("hidden"); }
+    if (btn) { btn.disabled = false; btn.textContent = originalText; }
   }
 }
 

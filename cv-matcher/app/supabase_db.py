@@ -84,7 +84,7 @@ def create_generation(user_id: str, job_title: str, company: str, job_url: str, 
     return r.data[0]["id"]
 
 
-def update_generation(gen_id: int, pdf_ref: str, job_title: str, company: str, status: str = "completed"):
+def update_generation(gen_id: int, pdf_ref: str, job_title: str = "", company: str = "", status: str = "completed"):
     _sb().table("generations").update({
         "pdf_storage_path": pdf_ref,
         "job_title": job_title,

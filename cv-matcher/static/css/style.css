@@ -622,6 +622,18 @@ body.dark .usage-badge.badge-pro     { background: #431407; color: #fdba74; bord
 }
 .modal-close:hover { color: var(--text-muted); }
 
+.checkout-error {
+  text-align: center;
+  color: var(--red);
+  font-size: 0.85rem;
+  background: #FEF2F2;
+  border: 1px solid #FECACA;
+  border-radius: 8px;
+  padding: 10px 14px;
+  margin-top: 12px;
+}
+body.dark .checkout-error { background: #2d1010; border-color: #7f1d1d; }
+
 /* ── PRICING CARDS ───────────────────────────────────────── */
 .pricing-cards {
   display: grid;
