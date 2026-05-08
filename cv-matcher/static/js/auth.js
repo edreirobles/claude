@@ -41,6 +41,16 @@ async function signInWithEmail(email) {
   return error;
 }
 
+async function signInWithGoogle() {
+  const sb = initSupabase();
+  if (!sb) return new Error("Auth not configured");
+  const { error } = await sb.auth.signInWithOAuth({
+    provider: "google",
+    options: { redirectTo: `${window.location.origin}/auth/callback` },
+  });
+  return error;
+}
+
 async function signOut() {
   const sb = initSupabase();
   if (sb) await sb.auth.signOut();

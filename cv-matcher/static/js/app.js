@@ -72,6 +72,8 @@ const T = {
     login_btn:"Send magic link →",
     login_sent_title:"Check your email!",
     login_sent_desc:"We sent a magic link to:",
+    login_or:"or",
+    login_google_btn:"Continue with Google",
     login_no_password:"No password needed. One click and you're in.",
     // Payment success
     pay_success_title:"Payment successful!",
@@ -149,6 +151,8 @@ const T = {
     login_btn:"Enviar enlace mágico →",
     login_sent_title:"¡Revisa tu correo!",
     login_sent_desc:"Enviamos un enlace mágico a:",
+    login_or:"o",
+    login_google_btn:"Continuar con Google",
     login_no_password:"Sin contraseña. Un clic y listo.",
     pay_success_title:"¡Pago exitoso!",
     pay_success_desc:"Tu cuenta ha sido actualizada. Ya puedes generar CVs.",

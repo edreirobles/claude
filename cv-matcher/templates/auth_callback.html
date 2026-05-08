@@ -21,13 +21,27 @@
   <script src="/static/js/auth.js"></script>
   <script>
     document.addEventListener("DOMContentLoaded", async () => {
-      // Supabase JS automatically reads the URL hash and establishes the session
       const sb = initSupabase();
       if (!sb) { window.location.href = "/"; return; }
-      // Wait briefly for the SDK to process the token from the URL hash
-      await new Promise(r => setTimeout(r, 800));
-      const { data: { session } } = await sb.auth.getSession();
-      window.location.href = session ? "/" : "/login";
+
+      // Listen for auth state — fires as soon as Supabase processes the
+      // hash token (magic link) or PKCE code (Google OAuth)
+      let redirected = false;
+      sb.auth.onAuthStateChange((event, session) => {
+        if (redirected) return;
+        if (event === "SIGNED_IN" || event === "TOKEN_REFRESHED") {
+          redirected = true;
+          window.location.href = "/";
+        }
+      });
+
+      // Fallback: if already signed in or event never fires, redirect after 3s
+      await new Promise(r => setTimeout(r, 3000));
+      if (!redirected) {
+        const { data: { session } } = await sb.auth.getSession();
+        redirected = true;
+        window.location.href = session ? "/" : "/login";
+      }
     });
   </script>
 </body>
