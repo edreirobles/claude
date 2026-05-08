@@ -250,7 +250,41 @@ async def api_history(user=Depends(get_current_user)):
 
 # ── Payments ───────────────────────────────────────────────
 
-@app.post("/api/create-checkout")
+@app.get("/api/stripe-status")
+async def stripe_status(user=Depends(get_current_user)):
+    """Diagnóstico de configuración de Stripe. Solo visible para usuarios autenticados."""
+    key = os.environ.get("STRIPE_SECRET_KEY", "")
+    info = {
+        "payments_enabled": PAYMENTS_ENABLED,
+        "auth_enabled": AUTH_ENABLED,
+        "stripe_mode": ("test" if key.startswith("sk_test_") else "live") if key else "not_set",
+        "price_credits_set": bool(os.environ.get("STRIPE_PRICE_CREDITS")),
+        "price_monthly_set": bool(os.environ.get("STRIPE_PRICE_MONTHLY")),
+        "webhook_secret_set": bool(os.environ.get("STRIPE_WEBHOOK_SECRET")),
+        "app_url": os.environ.get("APP_URL", "NOT SET"),
+        "free_limit": FREE_LIMIT,
+    }
+    if PAYMENTS_ENABLED:
+        try:
+            import stripe
+            stripe.api_key = key
+            # Verify price IDs exist in Stripe
+            for env_var in ("STRIPE_PRICE_CREDITS", "STRIPE_PRICE_MONTHLY"):
+                price_id = os.environ.get(env_var, "")
+                if price_id:
+                    try:
+                        p = stripe.Price.retrieve(price_id)
+                        info[f"{env_var}_valid"] = p.active
+                        info[f"{env_var}_mode"] = "live" if not price_id.startswith("price_test") else "test"
+                    except Exception as e:
+                        info[f"{env_var}_valid"] = False
+                        info[f"{env_var}_error"] = str(e)
+        except Exception as e:
+            info["stripe_error"] = str(e)
+    return info
+
+
+
 async def create_checkout(
     product: str = Form(...),  # "credits" or "monthly"
     user=Depends(get_current_user),
