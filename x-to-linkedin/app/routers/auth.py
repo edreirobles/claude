@@ -13,6 +13,11 @@ from ..models import LinkedInToken
 from ..schemas import AuthStatusResponse
 from ..config import get_settings
 from ..services.linkedin_client import get_oauth_url, exchange_code_for_token, LinkedInClient
+from ..services.linkedin_auth import (
+    LinkedInAuthError,
+    ensure_valid_linkedin_token,
+    load_linkedin_token,
+)
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 settings = get_settings()
@@ -72,6 +77,8 @@ async def linkedin_oauth_callback(
 
     access_token = token_data.get("access_token", "")
     expires_in = token_data.get("expires_in", 5184000)  # 60 días por defecto
+    refresh_token = (token_data.get("refresh_token") or "").strip()
+    refresh_token_expires_in = token_data.get("refresh_token_expires_in")
 
     # Obtener perfil del usuario
     try:
@@ -96,46 +103,76 @@ async def linkedin_oauth_callback(
     existing = result.scalar_one_or_none()
 
     expires_at = datetime.utcnow() + timedelta(seconds=expires_in)
+    refresh_token_expires_at = None
+    if refresh_token_expires_in:
+        refresh_token_expires_at = datetime.utcnow() + timedelta(
+            seconds=int(refresh_token_expires_in)
+        )
 
     if existing:
         existing.access_token = access_token
+        if refresh_token:
+            existing.refresh_token = refresh_token
         existing.person_urn = person_urn
         existing.person_name = person_name
         existing.person_picture = person_picture
         existing.expires_at = expires_at
+        if refresh_token_expires_at:
+            existing.refresh_token_expires_at = refresh_token_expires_at
     else:
         db.add(
             LinkedInToken(
                 access_token=access_token,
+                refresh_token=refresh_token or None,
                 person_urn=person_urn,
                 person_name=person_name,
                 person_picture=person_picture,
                 expires_at=expires_at,
+                refresh_token_expires_at=refresh_token_expires_at,
             )
         )
     await db.commit()
 
-    return RedirectResponse("/?connected=true")
+    requeued = 0
+    try:
+        from ..services.scheduler_service import recover_failed_posts_after_auth
+
+        requeued = await recover_failed_posts_after_auth(db)
+    except Exception:
+        requeued = 0
+
+    return RedirectResponse(f"/?connected=true&requeued={requeued}")
 
 
 @router.get("/status", response_model=AuthStatusResponse)
 async def auth_status(db: AsyncSession = Depends(get_db)):
     """Devuelve si LinkedIn está conectado y los datos del usuario."""
-    result = await db.execute(select(LinkedInToken).limit(1))
-    token = result.scalar_one_or_none()
+    token = await load_linkedin_token(db)
 
     if not token:
         return AuthStatusResponse(connected=False)
 
-    # Verificar expiración
-    if token.expires_at and token.expires_at < datetime.utcnow():
-        return AuthStatusResponse(connected=False)
+    try:
+        valid_token = await ensure_valid_linkedin_token(db)
+    except LinkedInAuthError as exc:
+        return AuthStatusResponse(
+            connected=False,
+            person_name=token.person_name,
+            person_picture=token.person_picture,
+            person_urn=token.person_urn,
+            expires_at=token.expires_at,
+            needs_reconnect=exc.needs_reconnect,
+            can_refresh=bool(token.refresh_token),
+            message=str(exc),
+        )
 
     return AuthStatusResponse(
         connected=True,
-        person_name=token.person_name,
-        person_picture=token.person_picture,
-        person_urn=token.person_urn,
+        person_name=valid_token.person_name,
+        person_picture=valid_token.person_picture,
+        person_urn=valid_token.person_urn,
+        expires_at=valid_token.expires_at,
+        can_refresh=bool(valid_token.refresh_token),
     )
 
 

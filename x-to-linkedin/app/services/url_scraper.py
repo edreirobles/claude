@@ -4,7 +4,9 @@ Usado cuando el usuario envía un enlace que no es un tweet de X.
 """
 import logging
 import re
+import json
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Optional
 from urllib.parse import urlparse
 
@@ -33,6 +35,10 @@ class UrlContent:
     images: list[str] = field(default_factory=list)
     has_video: bool = False
     source_domain: str = ""
+    published_at: Optional[str] = None
+    updated_at: Optional[str] = None
+    status_code: int = 200
+    content_type: str = ""
 
 
 def _clean_text(text: str) -> str:
@@ -118,6 +124,118 @@ def _has_video_embed(soup: BeautifulSoup) -> bool:
     return False
 
 
+def _normalize_datetime_string(value: str) -> Optional[str]:
+    if not value:
+        return None
+    raw = value.strip()
+    if not raw:
+        return None
+
+    candidates = [
+        raw,
+        raw.replace("Z", "+00:00"),
+    ]
+
+    for candidate in candidates:
+        try:
+            return datetime.fromisoformat(candidate).isoformat()
+        except ValueError:
+            continue
+
+    for fmt in (
+        "%Y-%m-%d",
+        "%Y/%m/%d",
+        "%Y-%m-%d %H:%M:%S",
+        "%Y-%m-%dT%H:%M:%S",
+        "%Y-%m-%dT%H:%M:%S.%f",
+    ):
+        try:
+            return datetime.strptime(raw, fmt).isoformat()
+        except ValueError:
+            continue
+
+    return None
+
+
+def _extract_json_ld_dates(soup: BeautifulSoup) -> tuple[Optional[str], Optional[str]]:
+    published = None
+    updated = None
+
+    for script in soup.find_all("script", attrs={"type": "application/ld+json"}):
+        raw = script.string or script.get_text() or ""
+        raw = raw.strip()
+        if not raw:
+            continue
+        try:
+            payload = json.loads(raw)
+        except Exception:
+            continue
+
+        nodes = payload if isinstance(payload, list) else [payload]
+        for node in nodes:
+            if not isinstance(node, dict):
+                continue
+            if not published:
+                published = _normalize_datetime_string(
+                    str(node.get("datePublished") or "")
+                )
+            if not updated:
+                updated = _normalize_datetime_string(
+                    str(node.get("dateModified") or "")
+                )
+            if published and updated:
+                return published, updated
+
+    return published, updated
+
+
+def _extract_dates(soup: BeautifulSoup) -> tuple[Optional[str], Optional[str]]:
+    published_selectors = [
+        ('meta[property="article:published_time"]', "content"),
+        ('meta[name="article:published_time"]', "content"),
+        ('meta[name="parsely-pub-date"]', "content"),
+        ('meta[name="pubdate"]', "content"),
+        ('meta[name="publish-date"]', "content"),
+        ('meta[itemprop="datePublished"]', "content"),
+        ('time[itemprop="datePublished"]', "datetime"),
+        ("time[datetime]", "datetime"),
+    ]
+    updated_selectors = [
+        ('meta[property="article:modified_time"]', "content"),
+        ('meta[name="article:modified_time"]', "content"),
+        ('meta[name="last-modified"]', "content"),
+        ('meta[itemprop="dateModified"]', "content"),
+        ('time[itemprop="dateModified"]', "datetime"),
+    ]
+
+    published = None
+    updated = None
+
+    for selector, attr in published_selectors:
+        el = soup.select_one(selector)
+        if not el:
+            continue
+        value = (el.get(attr) or el.get_text() or "").strip()
+        published = _normalize_datetime_string(value)
+        if published:
+            break
+
+    for selector, attr in updated_selectors:
+        el = soup.select_one(selector)
+        if not el:
+            continue
+        value = (el.get(attr) or el.get_text() or "").strip()
+        updated = _normalize_datetime_string(value)
+        if updated:
+            break
+
+    jsonld_published, jsonld_updated = _extract_json_ld_dates(soup)
+    published = published or jsonld_published
+    updated = updated or jsonld_updated
+
+    return published, updated
+
+
 async def scrape_url(url: str) -> UrlContent:
     """Extrae el contenido de una URL genérica (artículo, blog, noticia)."""
     domain = urlparse(url).netloc.replace("www.", "")
@@ -131,6 +249,8 @@ async def scrape_url(url: str) -> UrlContent:
             response = await client.get(url)
             response.raise_for_status()
             html = response.text
+            status_code = response.status_code
+            content_type = response.headers.get("content-type", "")
 
     except httpx.HTTPStatusError as e:
         raise ValueError(f"No se pudo acceder a la URL (código {e.response.status_code})")
@@ -177,6 +297,7 @@ async def scrape_url(url: str) -> UrlContent:
 
     images = _extract_images(soup)
     has_video = _has_video_embed(soup)
+    published_at, updated_at = _extract_dates(soup)
 
     return UrlContent(
         url=url,
@@ -186,4 +307,8 @@ async def scrape_url(url: str) -> UrlContent:
         images=images,
         has_video=has_video,
         source_domain=domain,
+        published_at=published_at,
+        updated_at=updated_at,
+        status_code=status_code,
+        content_type=content_type,
     )

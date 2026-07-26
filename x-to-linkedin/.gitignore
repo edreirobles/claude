@@ -24,6 +24,33 @@ playwright/.local-browsers/
 
 # Logs
 *.log
+logs/
+
+# Artefactos operativos y respaldos
+*.dump
+*.dump.gz
+*.age
+*.jsonl
+*.ndjson
+
+# Estado local de proveedores cloud
+.netlify/
+.supabase/.temp/
+node_modules/
+dist/
+migration-artifacts/
+coverage/
+
+# Media y archivos de diagnostico generados
+static/generated_images/*
+!static/generated_images/.gitkeep
+static/generated_images_preview/
+tmp_*
+comment_batch_*.jsonl
+pending_comment_replies.md
+rewrite_*_result*.txt
+sample_post_check.txt
+scan_*.txt
 
 # macOS
 .DS_Store

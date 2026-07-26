@@ -1,0 +1,24 @@
+{
+  "captured_at": "2026-07-15",
+  "database_bytes": 2236416,
+  "tables": {
+    "app_settings": 1,
+    "linkedin_comments": 170,
+    "linkedin_tokens": 1,
+    "scheduled_posts": 544,
+    "x_liked_tweets": 132
+  },
+  "scheduled_posts_by_source": {
+    "editorial": 74,
+    "manual": 324,
+    "radar": 24,
+    "x_auto": 122
+  },
+  "scheduled_posts_by_status": {
+    "approval_pending": 10,
+    "cancelled": 200,
+    "paused": 43,
+    "published": 280,
+    "radar_slot": 11
+  }
+}

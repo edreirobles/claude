@@ -1,28 +1,22 @@
 """
-Métricas de LinkedIn via API Voyager (API interna de linkedin.com).
+Metricas de LinkedIn via API Voyager (API interna de linkedin.com).
 
 LinkedIn Voyager es la API REST que usa la propia web de LinkedIn.
-Se autentica con cookies de sesión (li_at + JSESSIONID), igual que
-el browser. No requiere Playwright — son llamadas HTTP directas,
-más rápidas y confiables.
+Se autentica con cookies de sesion (li_at + JSESSIONID), igual que
+el browser. No requiere Playwright: son llamadas HTTP directas,
+mas rapidas y confiables.
 
-Configuración en .env:
-    LINKEDIN_LI_AT      → Cookie "li_at" de linkedin.com
-    LINKEDIN_JSESSIONID → Cookie "JSESSIONID" (sin las comillas del valor)
+Configuracion en .env:
+    LINKEDIN_LI_AT      -> Cookie "li_at" de linkedin.com
+    LINKEDIN_JSESSIONID -> Cookie "JSESSIONID" (sin las comillas del valor)
 """
-import re
 import httpx
+import json
 import logging
 import urllib.parse
-from typing import Optional
+from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
-
-
-def _find_int(pattern: str, text: str) -> Optional[int]:
-    """Busca el primer int que coincida con el patrón en el texto."""
-    m = re.search(pattern, text)
-    return int(m.group(1)) if m else None
 
 
 def _normalize_post_id(raw_id: str) -> str:
@@ -38,7 +32,39 @@ def _normalize_post_id(raw_id: str) -> str:
         return raw_id.split(":")[-1]
     if raw_id.startswith("urn:li:share:"):
         return raw_id.split(":")[-1]
+    if raw_id.startswith("urn:li:activity:"):
+        return raw_id.split(":")[-1]
     return raw_id
+
+
+def _candidate_post_urns(raw_id: str) -> list[str]:
+    """
+    Devuelve URNs candidatas para el post.
+
+    LinkedIn puede devolver posts publicados como `ugcPost` o como `share`.
+    Para ampliar cobertura, intentamos primero el tipo original y luego el alterno.
+    """
+    raw_id = (raw_id or "").strip()
+    if not raw_id:
+        return []
+
+    numeric_id = _normalize_post_id(raw_id)
+    if raw_id.startswith("urn:li:share:"):
+        urns = [raw_id, f"urn:li:ugcPost:{numeric_id}"]
+    elif raw_id.startswith("urn:li:ugcPost:"):
+        urns = [raw_id, f"urn:li:share:{numeric_id}"]
+    elif raw_id.startswith("urn:li:activity:"):
+        urns = [raw_id]
+    else:
+        urns = [f"urn:li:ugcPost:{numeric_id}", f"urn:li:share:{numeric_id}"]
+
+    seen = set()
+    ordered: list[str] = []
+    for urn in urns:
+        if urn and urn not in seen:
+            seen.add(urn)
+            ordered.append(urn)
+    return ordered
 
 
 def _build_headers(li_at: str, jsessionid: str) -> dict:
@@ -53,13 +79,124 @@ def _build_headers(li_at: str, jsessionid: str) -> dict:
             "AppleWebKit/537.36 (KHTML, like Gecko) "
             "Chrome/122.0.0.0 Safari/537.36"
         ),
-        "Accept": "application/vnd.linkedin.normalized+json+2.1",
+        "Accept": "application/json",
         "Accept-Language": "en-US,en;q=0.9",
         "Cookie": cookie,
         "Csrf-Token": raw_jid if raw_jid else "ajax:0",
         "x-restli-protocol-version": "2.0.0",
         "x-li-lang": "en_US",
         "Referer": "https://www.linkedin.com/feed/",
+    }
+
+
+def _iter_metric_candidates(obj: Any, path: str = "root"):
+    if isinstance(obj, dict):
+        if any(
+            key in obj
+            for key in (
+                "numLikes",
+                "numComments",
+                "numViews",
+                "numShares",
+                "totalLikes",
+                "totalFirstLevelComments",
+                "likeCount",
+                "commentCount",
+                "impressionCount",
+                "clickCount",
+                "shareCount",
+            )
+        ):
+            yield path, obj
+        for key, value in obj.items():
+            yield from _iter_metric_candidates(value, f"{path}.{key}")
+    elif isinstance(obj, list):
+        for index, value in enumerate(obj):
+            yield from _iter_metric_candidates(value, f"{path}[{index}]")
+
+
+def _score_metric_candidate(
+    path: str,
+    candidate: dict[str, Any],
+    numeric_id: str,
+    requested_urn: str,
+) -> int:
+    refs = " ".join(
+        str(candidate.get(key) or "")
+        for key in ("urn", "entityUrn", "dashEntityUrn")
+    )
+
+    score = 0
+    if "socialDetail.totalSocialActivityCounts" in path:
+        score += 10
+    if requested_urn and requested_urn in refs:
+        score += 6
+    if numeric_id and numeric_id in refs:
+        score += 4
+    if "comment:" in refs:
+        score -= 6
+
+    for key in ("numLikes", "numComments", "numViews", "numShares", "clickCount"):
+        if candidate.get(key) is not None:
+            score += 1
+
+    return score
+
+
+def _extract_metric_value(candidate: dict[str, Any], *keys: str) -> Optional[int]:
+    for key in keys:
+        value = candidate.get(key)
+        if value is not None:
+            return int(value)
+    return None
+
+
+def _extract_metrics_from_payload(
+    payload: dict[str, Any],
+    numeric_id: str,
+    requested_urn: str,
+) -> dict[str, Optional[int]]:
+    best_candidate = None
+    best_score = None
+
+    for path, candidate in _iter_metric_candidates(payload):
+        score = _score_metric_candidate(path, candidate, numeric_id, requested_urn)
+        if best_score is None or score > best_score:
+            best_score = score
+            best_candidate = candidate
+
+    if not best_candidate:
+        return {
+            "likes": None,
+            "comments": None,
+            "impressions": None,
+            "clicks": None,
+            "shares": None,
+        }
+
+    likes = _extract_metric_value(best_candidate, "numLikes", "totalLikes", "likeCount")
+    comments = _extract_metric_value(
+        best_candidate,
+        "numComments",
+        "totalFirstLevelComments",
+        "commentCount",
+    )
+    impressions = _extract_metric_value(
+        best_candidate,
+        "numViews",
+        "viewCount",
+        "impressionCount",
+        "numImpressions",
+    )
+    clicks = _extract_metric_value(best_candidate, "clickCount")
+    shares = _extract_metric_value(best_candidate, "numShares", "shareCount")
+
+    return {
+        "likes": likes,
+        "comments": comments,
+        "impressions": impressions,
+        "clicks": clicks,
+        "shares": shares,
     }
 
 
@@ -73,54 +210,38 @@ async def scrape_linkedin_post_metrics(
     usando la API Voyager (interna). No necesita Playwright.
     """
     numeric_id = _normalize_post_id(post_id)
-    if not numeric_id:
+    urn_candidates = _candidate_post_urns(post_id)
+    if not numeric_id or not urn_candidates:
         logger.error(f"[Voyager] post_id inválido: '{post_id}'")
-        return {"likes": None, "comments": None, "impressions": None}
+        return {
+            "likes": None,
+            "comments": None,
+            "impressions": None,
+            "clicks": None,
+            "shares": None,
+        }
 
-    urn = f"urn:li:ugcPost:{numeric_id}"
-    encoded_urn = urllib.parse.quote(urn, safe="")
     headers = _build_headers(li_at, jsessionid)
 
-    result: dict = {"likes": None, "comments": None, "impressions": None}
-
-    # Patrones regex para extraer métricas del JSON de respuesta.
-    # LinkedIn usa distintos nombres según el endpoint.
-    LIKE_PATTERNS = [
-        r'"numLikes"\s*:\s*(\d+)',
-        r'"totalLikes"\s*:\s*(\d+)',
-        r'"likeCount"\s*:\s*(\d+)',
-        r'"reactionCount"\s*:\s*(\d+)',
-    ]
-    COMMENT_PATTERNS = [
-        r'"numComments"\s*:\s*(\d+)',
-        r'"totalFirstLevelComments"\s*:\s*(\d+)',
-        r'"commentCount"\s*:\s*(\d+)',
-    ]
-    IMPRESSION_PATTERNS = [
-        r'"numViews"\s*:\s*(\d+)',
-        r'"viewCount"\s*:\s*(\d+)',
-        r'"impressionCount"\s*:\s*(\d+)',
-        r'"numImpressions"\s*:\s*(\d+)',
-    ]
-
-    endpoints = [
-        # feed/updates — devuelve el update completo con socialDetail
-        f"https://www.linkedin.com/voyager/api/feed/updates/{encoded_urn}",
-        # socialActions — like/comment counts directos
-        f"https://www.linkedin.com/voyager/api/socialActions/{encoded_urn}",
-        # updateSocialDetail — detalle social específico
-        f"https://www.linkedin.com/voyager/api/feed/updates/{encoded_urn}/updateSocialDetail",
-    ]
+    empty = {
+        "likes": None,
+        "comments": None,
+        "impressions": None,
+        "clicks": None,
+        "shares": None,
+    }
 
     async with httpx.AsyncClient(timeout=20, follow_redirects=False) as client:
-        for url in endpoints:
+        for urn in urn_candidates:
+            encoded_urn = urllib.parse.quote(urn, safe="")
+            url = f"https://www.linkedin.com/voyager/api/feed/updates/{encoded_urn}"
             try:
                 r = await client.get(url, headers=headers)
-                logger.info(f"[Voyager] {url.rsplit('/', 2)[-2]} → HTTP {r.status_code}")
+                logger.info(f"[Voyager] feed/updates {urn} -> HTTP {r.status_code}")
 
                 if r.status_code in (401, 403):
                     logger.warning(
-                        "[Voyager] Cookie li_at inválida o expirada — "
+                        "[Voyager] Cookie li_at invalida o expirada; "
                         "actualiza LINKEDIN_LI_AT en .env"
                     )
                     break
@@ -128,34 +249,22 @@ async def scrape_linkedin_post_metrics(
                 if r.status_code != 200:
                     continue
 
-                text = r.text
+                payload = r.json()
+                result = _extract_metrics_from_payload(payload, numeric_id, urn)
 
-                # Buscar cada métrica con todos sus patrones alternativos
-                for key, patterns in [
-                    ("likes",       LIKE_PATTERNS),
-                    ("comments",    COMMENT_PATTERNS),
-                    ("impressions", IMPRESSION_PATTERNS),
-                ]:
-                    if result[key] is None:
-                        for pat in patterns:
-                            val = _find_int(pat, text)
-                            if val is not None:
-                                result[key] = val
-                                break
-
-                if result["likes"] is not None or result["comments"] is not None:
+                if any(value is not None for value in result.values()):
                     logger.info(
-                        f"[Voyager] ✓ Post {numeric_id}: "
+                        f"[Voyager] OK post {numeric_id} via {urn}: "
                         f"likes={result['likes']}, "
                         f"comments={result['comments']}, "
-                        f"impressions={result['impressions']}"
+                        f"impressions={result['impressions']}, "
+                        f"shares={result['shares']}"
                     )
-                    break
-
+                    return result
             except Exception as e:
                 logger.warning(f"[Voyager] Error en {url}: {e}")
 
-    return result
+    return empty
 
 
 async def debug_post_metrics(
@@ -168,31 +277,37 @@ async def debug_post_metrics(
     de la respuesta cruda de cada endpoint Voyager.
     """
     numeric_id = _normalize_post_id(post_id)
-    urn = f"urn:li:ugcPost:{numeric_id}"
-    encoded_urn = urllib.parse.quote(urn, safe="")
+    urn_candidates = _candidate_post_urns(post_id)
     headers = _build_headers(li_at, jsessionid)
 
     responses = []
-    endpoints = [
-        f"https://www.linkedin.com/voyager/api/feed/updates/{encoded_urn}",
-        f"https://www.linkedin.com/voyager/api/socialActions/{encoded_urn}",
-    ]
-
     async with httpx.AsyncClient(timeout=20, follow_redirects=False) as client:
-        for url in endpoints:
+        for urn in urn_candidates:
+            encoded_urn = urllib.parse.quote(urn, safe="")
+            url = f"https://www.linkedin.com/voyager/api/feed/updates/{encoded_urn}"
             try:
                 r = await client.get(url, headers=headers)
-                snippet = r.text[:600] if r.text else "(vacío)"
+                snippet = r.text[:600] if r.text else "(vacio)"
+                metrics = None
+                if r.status_code == 200:
+                    try:
+                        metrics = _extract_metrics_from_payload(r.json(), numeric_id, urn)
+                    except json.JSONDecodeError:
+                        metrics = None
                 responses.append({
+                    "urn": urn,
                     "url": url,
                     "status": r.status_code,
                     "snippet": snippet,
+                    "metrics": metrics,
                 })
             except Exception as e:
-                responses.append({"url": url, "status": "error", "snippet": str(e)})
+                responses.append(
+                    {"urn": urn, "url": url, "status": "error", "snippet": str(e)}
+                )
 
     return {
         "numeric_id": numeric_id,
-        "urn": urn,
+        "urn_candidates": urn_candidates,
         "responses": responses,
     }

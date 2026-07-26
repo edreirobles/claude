@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>X → LinkedIn AI</title>
-  <link rel="stylesheet" href="/static/css/style.css?v=3" />
+  <link rel="stylesheet" href="/static/css/style.css?v=5" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
@@ -200,7 +200,8 @@
           <button class="view-toggle-btn active" id="btn-view-list" onclick="switchHistoryView('list')" title="Vista lista">☰ Lista</button>
           <button class="view-toggle-btn" id="btn-view-cal" onclick="switchHistoryView('calendar')" title="Vista calendario">📅 Mes</button>
         </div>
-        <button class="btn btn-ghost btn-sm" onclick="loadHistory()">↺ Actualizar</button>
+        <button class="btn btn-ghost btn-sm" id="btn-verify-history" onclick="verifyScheduledPosts()">🛡 Verificar calendario</button>
+        <button class="btn btn-ghost btn-sm" id="btn-refresh-history" onclick="refreshHistory()">↺ Actualizar</button>
       </div>
     </div>
 
@@ -218,6 +219,11 @@
           ⬇ Descargar CSV
         </button>
       </div>
+    </div>
+
+    <div id="history-summary" class="history-summary">Cargando historial...</div>
+    <div id="history-verify-note" class="history-verify-note">
+      Antes de publicar, cada post puede verificarse automaticamente para detectar fuentes caidas, duplicados y copy desactualizado.
     </div>
 
     <!-- Vista lista -->
@@ -337,16 +343,16 @@
       <button class="btn btn-primary btn-sm" onclick="refreshAllMetrics()" id="btn-refresh-all">
         ↺ Actualizar todas las métricas
       </button>
-      <span class="analytics-note">Las métricas se actualizan automáticamente cada 6 horas. Para ver impresiones y clicks reconecta LinkedIn para habilitar el permiso <code>r_member_social</code>.</span>
+      <span class="analytics-note" id="analytics-note">Las métricas se actualizan automáticamente cada 6 horas. Para ver impresiones y clicks reconecta LinkedIn para habilitar el permiso <code>r_member_social</code>.</span>
     </div>
 
-    <!-- Fila de gráficas 1 -->
-    <div class="analytics-row">
-      <div class="chart-box chart-box--wide">
-        <div class="chart-title">Publicaciones por día (últimos 30 días)</div>
-        <canvas id="chart-by-day"></canvas>
+      <!-- Fila de gráficas 1 -->
+      <div class="analytics-row">
+        <div class="chart-box chart-box--wide">
+          <div class="chart-title">Publicaciones publicadas por día (últimos 60 días)</div>
+          <canvas id="chart-by-day"></canvas>
+        </div>
       </div>
-    </div>
 
     <!-- Fila de gráficas 2 -->
     <div class="analytics-row">
@@ -365,12 +371,12 @@
     </div>
 
     <!-- Top posts -->
-    <div class="chart-box" style="margin-top:16px">
-      <div class="chart-title">Top posts por engagement (likes + comentarios + clicks)</div>
-      <div id="top-posts-list" class="top-posts-list">
-        <div class="empty-state">Actualiza las métricas de tus posts para ver el ranking.</div>
+      <div class="chart-box" style="margin-top:16px">
+        <div class="chart-title">Top posts por likes</div>
+        <div id="top-posts-list" class="top-posts-list">
+          <div class="empty-state">Actualiza las métricas de tus posts para ver el ranking.</div>
+        </div>
       </div>
-    </div>
 
   </section>
 
@@ -476,7 +482,7 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
-<script src="/static/js/app.js?v=3"></script>
+<script src="/static/js/app.js?v=5"></script>
 <script>
 // ── Admin: Git Pull / Restart ──────────────────────────────────────
 function adminSetLoading(loading) {

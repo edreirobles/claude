@@ -91,6 +91,12 @@ body {
   font-size: 13px;
 }
 
+.auth-user-disconnected {
+  align-items: flex-start;
+  flex-direction: column;
+  gap: 6px;
+}
+
 .auth-avatar {
   width: 30px;
   height: 30px;
@@ -100,6 +106,7 @@ body {
 }
 
 .auth-name { color: var(--text-muted); max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.auth-note { color: var(--text-muted); font-size: 12px; line-height: 1.35; max-width: 300px; }
 
 /* ── MAIN LAYOUT ─────────────────────────────────── */
 .main {
@@ -524,13 +531,26 @@ body {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  max-height: 480px;
-  overflow-y: auto;
 }
 
-.history-list::-webkit-scrollbar { width: 4px; }
-.history-list::-webkit-scrollbar-track { background: transparent; }
-.history-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+.history-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 12px;
+  font-size: 12px;
+  color: var(--text-faint);
+}
+
+.history-summary strong {
+  color: var(--text);
+}
+
+.history-verify-note {
+  margin: -4px 0 12px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
 
 .history-item {
   background: var(--bg);
@@ -1186,6 +1206,12 @@ body {
   color: var(--text-muted);
   line-height: 1.5;
   min-width: 0;
+}
+
+.cal-detail-reason {
+  font-size: 12px;
+  color: var(--warning);
+  line-height: 1.5;
 }
 
 .cal-detail-metrics {

@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex,nofollow">
+  <title>Acceso | Radar Editorial</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/cloud.css">
+</head>
+<body class="cloud-login-page">
+  <main class="cloud-login-shell">
+    <section class="cloud-login-panel" aria-labelledby="login-title">
+      <div class="cloud-login-brand">Radar Editorial</div>
+      <h1 id="login-title">Acceso privado</h1>
+      <form id="cloud-login-form">
+        <label for="cloud-email">Correo</label>
+        <input id="cloud-email" name="email" type="email" autocomplete="username" required>
+        <label for="cloud-password">Contraseña</label>
+        <input id="cloud-password" name="password" type="password" autocomplete="current-password" required>
+        <button class="cloud-primary-button" type="submit">Entrar</button>
+      </form>
+      <button id="cloud-magic-link" class="cloud-link-button" type="button">Enviar enlace de acceso</button>
+      <p id="cloud-login-status" class="cloud-login-status" role="status"></p>
+    </section>
+  </main>
+  <script src="/cloud-config.js"></script>
+  <script src="/cloud-auth.js"></script>
+</body>
+</html>

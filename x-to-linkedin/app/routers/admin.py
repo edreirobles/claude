@@ -5,6 +5,8 @@ import subprocess
 import sys
 import os
 import logging
+import threading
+import time
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 
@@ -38,10 +40,12 @@ async def restart_server():
     """Reinicia el proceso uvicorn reemplazando el proceso actual."""
     try:
         logger.info("Reiniciando servidor por petición de admin...")
-        # Ejecutar en background para que la respuesta llegue antes del restart
-        subprocess.Popen(
-            ["bash", "-c", "sleep 1 && kill -HUP " + str(os.getpid())],
-        )
+
+        def _exit_soon():
+            time.sleep(1)
+            os._exit(3)
+
+        threading.Thread(target=_exit_soon, daemon=True).start()
         return {"success": True, "output": "Reiniciando en 1 segundo..."}
     except Exception as e:
         return JSONResponse(status_code=500, content={"success": False, "output": str(e)})
@@ -67,9 +71,11 @@ async def pull_and_restart():
 
     # Luego el restart
     try:
-        subprocess.Popen(
-            ["bash", "-c", "sleep 1 && kill -HUP " + str(os.getpid())],
-        )
+        def _exit_soon():
+            time.sleep(1)
+            os._exit(3)
+
+        threading.Thread(target=_exit_soon, daemon=True).start()
         return {"success": True, "output": f"Pull OK:\n{output.strip()}\n\nReiniciando en 1 segundo..."}
     except Exception as e:
         return JSONResponse(status_code=500, content={"success": False, "output": str(e)})

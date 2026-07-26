@@ -1,0 +1,148 @@
+name: x-to-linkedin encrypted backup
+
+on:
+  schedule:
+    - cron: "17 8 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: x-to-linkedin-backup
+  cancel-in-progress: false
+
+jobs:
+  backup-and-restore:
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      DATABASE_URL: ${{ secrets.X2LI_DATABASE_URL }}
+      BACKUP_PASSPHRASE: ${{ secrets.X2LI_BACKUP_PASSPHRASE }}
+      TELEGRAM_BOT_TOKEN: ${{ secrets.X2LI_TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_USER_ID: ${{ secrets.X2LI_TELEGRAM_USER_ID }}
+    steps:
+      - name: Check required secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$DATABASE_URL"
+          test -n "$BACKUP_PASSPHRASE"
+
+      - name: Dump private schema
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p backup
+          docker run --rm \
+            -e DATABASE_URL \
+            -v "$PWD/backup:/backup" \
+            postgres:17-alpine \
+            sh -ec 'pg_dump "$DATABASE_URL" --format=custom --compress=0 --no-owner --no-acl --schema=app --file=/backup/app.dump'
+          gzip -9 backup/app.dump
+          test "$(stat -c%s backup/app.dump.gz)" -lt 524288000
+
+      - name: Encrypt and checksum
+        id: encrypted
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf '%s' "$BACKUP_PASSPHRASE" |
+            openssl enc -aes-256-cbc -salt -pbkdf2 -iter 200000 \
+              -in backup/app.dump.gz \
+              -out backup/app.dump.gz.enc \
+              -pass stdin
+          sha256sum backup/app.dump.gz.enc > backup/SHA256SUMS
+          rm backup/app.dump.gz
+          echo "checksum=$(cut -d ' ' -f1 backup/SHA256SUMS)" >> "$GITHUB_OUTPUT"
+          echo "size_bytes=$(stat -c%s backup/app.dump.gz.enc)" >> "$GITHUB_OUTPUT"
+
+      - name: Restore verification
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run -d --name x2li-restore \
+            -e POSTGRES_PASSWORD=restore-only \
+            -e POSTGRES_DB=restore \
+            postgres:17-alpine
+          for attempt in {1..30}; do
+            if docker exec x2li-restore pg_isready -U postgres -d restore; then
+              break
+            fi
+            sleep 1
+          done
+          printf '%s' "$BACKUP_PASSPHRASE" |
+            openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 \
+              -in backup/app.dump.gz.enc \
+              -out backup/restore.dump.gz \
+              -pass stdin
+          gunzip backup/restore.dump.gz
+          docker exec x2li-restore psql -U postgres -d restore -v ON_ERROR_STOP=1 \
+            -c 'create schema if not exists extensions' \
+            -c 'create extension if not exists pgcrypto with schema extensions' \
+            -c 'create schema if not exists net' \
+            -c 'create schema if not exists vault'
+          docker cp backup/restore.dump x2li-restore:/tmp/restore.dump
+          docker exec x2li-restore pg_restore \
+            -U postgres -d restore --no-owner --no-acl --exit-on-error \
+            /tmp/restore.dump
+          docker exec x2li-restore psql -U postgres -d restore -v ON_ERROR_STOP=1 \
+            -c 'select count(*) from app.posts' \
+            -c "select to_regclass('app.posts_status_publish_at_idx')" \
+            -c "select count(*) from pg_constraint where connamespace = 'app'::regnamespace"
+          rm backup/restore.dump
+
+      - name: Upload encrypted backup
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: x-to-linkedin-app-${{ github.run_id }}
+          path: |
+            backup/app.dump.gz.enc
+            backup/SHA256SUMS
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 0
+
+      - name: Record verified backup
+        shell: bash
+        env:
+          ARTIFACT_NAME: x-to-linkedin-app-${{ github.run_id }}
+          CHECKSUM: ${{ steps.encrypted.outputs.checksum }}
+          SIZE_BYTES: ${{ steps.encrypted.outputs.size_bytes }}
+        run: |
+          set -euo pipefail
+          docker run --rm \
+            -e DATABASE_URL \
+            -e ARTIFACT_NAME \
+            -e CHECKSUM \
+            -e SIZE_BYTES \
+            postgres:17-alpine \
+            sh -ec 'psql "$DATABASE_URL" -v ON_ERROR_STOP=1 \
+              -v artifact_name="$ARTIFACT_NAME" \
+              -v checksum="$CHECKSUM" \
+              -v size_bytes="$SIZE_BYTES" \
+              -c "insert into app.backup_runs (
+                    status, artifact_name, size_bytes, checksum, completed_at
+                  ) values (
+                    '\''restore_verified'\'',
+                    :'\''artifact_name'\'',
+                    :'\''size_bytes'\''::bigint,
+                    :'\''checksum'\'',
+                    now()
+                  )"'
+
+      - name: Notify backup failure
+        if: failure()
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "$TELEGRAM_BOT_TOKEN" ] || [ -z "$TELEGRAM_USER_ID" ]; then
+            exit 0
+          fi
+          curl --fail --silent --show-error \
+            --request POST \
+            "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            --data-urlencode "chat_id=${TELEGRAM_USER_ID}" \
+            --data-urlencode "text=Falló el backup nocturno de x-to-linkedin. Revisa GitHub Actions, ejecución ${GITHUB_RUN_ID}." \
+            >/dev/null

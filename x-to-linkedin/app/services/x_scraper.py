@@ -5,15 +5,48 @@ Fallback a oEmbed para obtener al menos el texto cuando el browser no está disp
 """
 import re
 import sys
+import os
 import asyncio
 import concurrent.futures
+import html as html_lib
 import httpx
 from bs4 import BeautifulSoup
 from dataclasses import dataclass, field
 from typing import Optional
 import logging
 
+from ..config import get_settings
+
 logger = logging.getLogger(__name__)
+
+
+def ensure_playwright_browsers_path() -> None:
+    """Hace que Playwright encuentre Chromium incluso si la app corre como SYSTEM."""
+    if os.environ.get("PLAYWRIGHT_BROWSERS_PATH"):
+        return
+
+    candidates = [
+        r"C:\Users\victo\AppData\Local\ms-playwright",
+        os.path.join(os.environ.get("LOCALAPPDATA", ""), "ms-playwright"),
+    ]
+    for candidate in candidates:
+        if candidate and os.path.exists(candidate):
+            os.environ["PLAYWRIGHT_BROWSERS_PATH"] = candidate
+            logger.info("PLAYWRIGHT_BROWSERS_PATH=%s", candidate)
+            return
+
+
+ensure_playwright_browsers_path()
+
+_X_POST_PATH_RE = re.compile(
+    r"^/(?:(?P<user>[^/]+)/)?(?P<kind>status|article)/(?P<id>\d+)$",
+    re.IGNORECASE,
+)
+_X_I_STATUS_PATH_RE = re.compile(r"^/i/status/(?P<id>\d+)$", re.IGNORECASE)
+_ARXIV_URL_RE = re.compile(
+    r"arxiv\.org/(?:abs|pdf|html)/(?P<id>\d{4}\.\d{4,5})(?:v\d+)?",
+    re.IGNORECASE,
+)
 
 
 @dataclass
@@ -31,12 +64,177 @@ class TweetData:
     article_content: str = ""  # Contenido completo si es un artículo largo de X
 
 
+def _article_teaser(article_content: str) -> str:
+    cleaned = re.sub(r"\s+", " ", (article_content or "")).strip()
+    return cleaned[:500]
+
+
 def normalize_tweet_url(url: str) -> str:
     """Convierte twitter.com a x.com y limpia el URL."""
     url = url.strip()
     url = re.sub(r"https?://(www\.)?(twitter|x)\.com", "https://x.com", url)
     url = url.split("?")[0]
     return url
+
+
+def is_x_post_url(url: str) -> bool:
+    normalized = normalize_tweet_url(url)
+    path = httpx.URL(normalized).path
+    return bool(_X_POST_PATH_RE.match(path) or _X_I_STATUS_PATH_RE.match(path))
+
+
+def parse_x_post_url(url: str) -> dict[str, str]:
+    """
+    Extrae kind e id de una URL de X.
+
+    Soporta:
+    - /{user}/status/{id}
+    - /{user}/article/{id}
+    - /i/status/{id}
+    """
+    normalized = normalize_tweet_url(url)
+    path = httpx.URL(normalized).path
+
+    match = _X_POST_PATH_RE.match(path)
+    if match:
+        return {
+            "url": normalized,
+            "kind": match.group("kind").lower(),
+            "tweet_id": match.group("id"),
+            "username": (match.group("user") or "").strip(),
+        }
+
+    match = _X_I_STATUS_PATH_RE.match(path)
+    if match:
+        return {
+            "url": normalized,
+            "kind": "status",
+            "tweet_id": match.group("id"),
+            "username": "",
+        }
+
+    return {
+        "url": normalized,
+        "kind": "",
+        "tweet_id": "",
+        "username": "",
+    }
+
+
+def extract_arxiv_id(url: str) -> Optional[str]:
+    """Extrae el ID moderno de arXiv desde /abs, /pdf o /html."""
+    match = _ARXIV_URL_RE.search(url or "")
+    return match.group("id") if match else None
+
+
+def arxiv_pdf_url(url: str) -> Optional[str]:
+    """Devuelve el PDF canonico de arXiv si el URL apunta a un paper."""
+    arxiv_id = extract_arxiv_id(url)
+    return f"https://arxiv.org/pdf/{arxiv_id}.pdf" if arxiv_id else None
+
+
+def is_arxiv_paper(paper_info: Optional[dict]) -> bool:
+    """Indica si la metadata corresponde a arXiv."""
+    return bool(paper_info and paper_info.get("source") == "arXiv")
+
+
+def _normalize_x_media_url(src: str | None) -> Optional[str]:
+    """Normaliza URLs de media de X y descarta avatares/emoji."""
+    if not src:
+        return None
+
+    src = html_lib.unescape(src).replace("\\u0026", "&").replace("\\/", "/").strip()
+    if not src.startswith("http") or "twimg.com" not in src:
+        return None
+    if "abs.twimg.com/" in src:
+        return None
+    if any(skip in src for skip in ("/profile_images/", "/emoji/", "/hashflags/")):
+        return None
+
+    if "pbs.twimg.com/media/" in src or "video_thumb" in src:
+        if re.search(r"([?&])name=", src):
+            src = re.sub(r"([?&])name=[^&]+", r"\1name=large", src)
+        elif "?" in src:
+            src = f"{src}&name=large"
+
+    return src
+
+
+def _append_media_url(images: list[str], src: str | None) -> None:
+    normalized = _normalize_x_media_url(src)
+    if normalized and normalized not in images:
+        images.append(normalized)
+
+
+def _extract_media_urls_from_html(raw_html: str) -> list[str]:
+    """Fallback para encontrar media embebida en JSON/HTML renderizado de X."""
+    cleaned = (
+        raw_html.replace("\\/", "/")
+        .replace("\\u0026", "&")
+        .replace("&amp;", "&")
+    )
+    candidates = re.findall(r"https?://[^\"'<>\\\s]+twimg\.com[^\"'<>\\\s]+", cleaned)
+    images: list[str] = []
+    for candidate in candidates:
+        _append_media_url(images, candidate)
+    return images
+
+
+def _is_video_media_url(url: str) -> bool:
+    return any(
+        marker in (url or "")
+        for marker in ("video_thumb", "ext_tw_video_thumb", "amplify_video_thumb")
+    )
+
+
+def _is_external_content_url(url: str) -> bool:
+    try:
+        host = httpx.URL(url).host or ""
+    except Exception:
+        return False
+    host = host.lower()
+    return bool(host) and not (
+        host.endswith("x.com")
+        or host.endswith("twitter.com")
+        or host.endswith("t.co")
+    )
+
+
+async def _expand_tco_url(url: str) -> str:
+    """Resuelve enlaces t.co para detectar arXiv/DOI detrás del tweet."""
+    if "t.co/" not in (url or ""):
+        return url
+    try:
+        async with httpx.AsyncClient(
+            timeout=8,
+            follow_redirects=True,
+            headers={"User-Agent": "Mozilla/5.0"},
+        ) as client:
+            response = await client.get(url)
+            return str(response.url)
+    except Exception as exc:
+        logger.debug("No se pudo expandir t.co %s: %s", url, exc)
+        return url
+
+
+async def _get_arxiv_url(url: str, timeout: int = 20) -> httpx.Response:
+    """GET para arXiv con fallback SSL acotado a esta fuente."""
+    try:
+        async with httpx.AsyncClient(
+            timeout=timeout,
+            headers={"User-Agent": "Mozilla/5.0"},
+        ) as client:
+            return await client.get(url)
+    except Exception as exc:
+        if "CERTIFICATE_VERIFY_FAILED" not in str(exc):
+            raise
+        logger.warning("arXiv falló por certificado; reintentando sin verificación SSL")
+        async with httpx.AsyncClient(
+            timeout=timeout,
+            headers={"User-Agent": "Mozilla/5.0"},
+            verify=False,
+        ) as client:
+            return await client.get(url)
 
 
 async def fetch_oembed(url: str) -> dict | None:
@@ -93,6 +291,9 @@ def parse_oembed(data: dict, url: str) -> TweetData:
 async def _playwright_impl(url: str) -> TweetData | None:
     """Lógica interna de playwright, ejecutada en su propio event loop."""
     from playwright.async_api import async_playwright, TimeoutError as PWTimeout
+    settings = get_settings()
+    parsed_url = parse_x_post_url(url)
+    is_article_url = parsed_url.get("kind") == "article"
 
     async with async_playwright() as p:
             browser = await p.chromium.launch(headless=True)
@@ -104,6 +305,25 @@ async def _playwright_impl(url: str) -> TweetData | None:
                 ),
                 viewport={"width": 1280, "height": 800},
             )
+
+            if settings.x_auth_token and settings.x_ct0:
+                await context.add_cookies([
+                    {
+                        "name": "auth_token",
+                        "value": settings.x_auth_token,
+                        "domain": ".x.com",
+                        "path": "/",
+                        "secure": True,
+                        "httpOnly": True,
+                    },
+                    {
+                        "name": "ct0",
+                        "value": settings.x_ct0,
+                        "domain": ".x.com",
+                        "path": "/",
+                        "secure": True,
+                    },
+                ])
 
             page = await context.new_page()
 
@@ -138,62 +358,108 @@ async def _playwright_impl(url: str) -> TweetData | None:
                     if part.startswith("@"):
                         author_handle = part.strip("@").strip()
 
-            # Imágenes del tweet (no avatares)
+            if not author_handle and parsed_url.get("username"):
+                author_handle = parsed_url["username"]
+            if not author_name and author_handle:
+                author_name = author_handle
+
+            # Imágenes/thumbnails del tweet. X cambia seguido su DOM, así que
+            # combinamos selectores específicos, metadata y fallback por HTML.
             images: list[str] = []
-            img_els = await page.query_selector_all('[data-testid="tweetPhoto"] img')
-            for img in img_els:
-                src = await img.get_attribute("src")
-                if src and "twimg.com" in src:
-                    # Obtener versión de alta resolución
-                    src = re.sub(r"&name=\w+", "&name=large", src)
-                    images.append(src)
+            media_root = (
+                await page.query_selector('article[data-testid="tweet"]')
+                or await page.query_selector('[data-testid="tweet"]')
+                or page
+            )
+            media_selectors = [
+                '[data-testid="tweetPhoto"] img[src*="twimg.com"]',
+                '[data-testid="tweet"] [data-testid="tweetPhoto"] img[src*="twimg.com"]',
+                'article [data-testid="tweetPhoto"] img[src*="twimg.com"]',
+                '[data-testid="card.wrapper"] img[src*="twimg.com"]',
+                '[data-testid="videoComponent"] img[src*="twimg.com"]',
+                '[data-testid="videoPlayer"] img[src*="twimg.com"]',
+                '[data-testid="previewInterstitial"] img[src*="twimg.com"]',
+                'article img[src*="pbs.twimg.com/media"]',
+                'article img[src*="video_thumb"]',
+                'article img[src*="ext_tw_video_thumb"]',
+                'article img[src*="amplify_video_thumb"]',
+            ]
+            for sel in media_selectors:
+                for img in await media_root.query_selector_all(sel):
+                    _append_media_url(images, await img.get_attribute("src"))
 
-            # Detección de video y captura de thumbnail
-            # Dar tiempo al player de X para renderizar antes de buscar el poster
-            await page.wait_for_timeout(1500)
+            # Detección de video y captura de poster.
+            await page.wait_for_timeout(1800)
 
-            video_poster_els = await page.query_selector_all("video[poster]")
-            has_video = len(video_poster_els) > 0
-            for v in video_poster_els:
-                poster = await v.get_attribute("poster")
-                # Ignorar blob: URLs y URLs vacías
-                if poster and poster.startswith("http") and "twimg.com" in poster:
-                    # Obtener versión de mayor resolución del thumbnail
-                    poster = re.sub(r"&name=\w+", "&name=large", poster)
-                    images.append(poster)
+            has_video = False
+            for sel in (
+                "video",
+                '[data-testid="videoComponent"]',
+                '[data-testid="videoPlayer"]',
+                '[data-testid="playButton"]',
+                '[aria-label*="Play"]',
+                '[aria-label*="Reproducir"]',
+                '[aria-label*="video"]',
+                '[aria-label*="Video"]',
+            ):
+                if await media_root.query_selector(sel):
+                    has_video = True
+                    break
 
-            # Si no hay poster, buscar thumbnail en otros elementos del player de X
-            if not images or not any("twimg.com" in img for img in images):
-                thumb_selectors = [
-                    '[data-testid="videoComponent"] img[src*="twimg.com"]',
-                    '[data-testid="previewInterstitial"] img[src*="twimg.com"]',
-                    'div[data-testid="tweetPhoto"] img[src*="twimg.com"]',
-                    'div[aria-label*="video"] img[src*="twimg.com"]',
-                ]
-                for sel in thumb_selectors:
-                    thumb_els = await page.query_selector_all(sel)
-                    for el in thumb_els:
-                        src = await el.get_attribute("src")
-                        if src and "twimg.com" in src and src not in images:
-                            src = re.sub(r"&name=\w+", "&name=large", src)
-                            images.append(src)
-                    if images:
-                        break
+            for v in await media_root.query_selector_all("video[poster]"):
+                _append_media_url(images, await v.get_attribute("poster"))
 
-            # Detectar videos sin poster como fallback
-            if not has_video:
-                all_video_els = await page.query_selector_all("video")
-                has_video = len(all_video_els) > 0
+            if not images:
+                for meta_sel in (
+                    'meta[property="og:image"]',
+                    'meta[name="twitter:image"]',
+                    'meta[property="twitter:image"]',
+                ):
+                    meta = page.locator(meta_sel).first
+                    if await meta.count() > 0:
+                        _append_media_url(images, await meta.get_attribute("content"))
+
+            if not images:
+                for src in _extract_media_urls_from_html(await page.content()):
+                    _append_media_url(images, src)
+
+            if any(_is_video_media_url(src) for src in images):
+                has_video = True
 
             # ── Detección de artículos de X (long-form tweets) ─────────────────
-            is_article = False
+            is_article = is_article_url
             article_content = ""
+            article_title = ""
+
+            if is_article_url:
+                title_el = page.locator('[data-testid="twitter-article-title"]').first
+                if await title_el.count() > 0:
+                    article_title = (await title_el.inner_text()).strip()
+
+                for article_sel in (
+                    '[data-testid="twitterArticleRichTextView"]',
+                    '[data-testid="longformRichTextComponent"]',
+                    '[data-testid="twitterArticleReadView"]',
+                    'main',
+                ):
+                    el = page.locator(article_sel).first
+                    if await el.count() == 0:
+                        continue
+                    candidate = (await el.inner_text()).strip()
+                    if candidate:
+                        article_content = candidate
+                        break
+
+                if article_title:
+                    text = article_title
 
             # Los artículos de X tienen un contenedor especial con el cuerpo del artículo
             article_selectors = [
                 '[data-testid="articleBody"]',
                 '[data-testid="article-body"]',
                 '[data-testid="tweetArticle"]',
+                '[data-testid="twitterArticleRichTextView"]',
+                '[data-testid="longformRichTextComponent"]',
             ]
             for art_sel in article_selectors:
                 art_els = await page.query_selector_all(art_sel)
@@ -239,21 +505,34 @@ async def _playwright_impl(url: str) -> TweetData | None:
                 except Exception:
                     pass
 
-            # Links en el texto
-            links: list[str] = []
-            link_els = await page.query_selector_all('[data-testid="tweetText"] a')
-            for a in link_els:
-                href = await a.get_attribute("href")
-                if href and href.startswith("http") and "t.co" not in href:
-                    links.append(href)
+            # En artículos largos, a veces no existe tweetText tradicional.
+            # Conservamos un teaser útil para no perder el contexto en la app.
+            if is_article and not text.strip() and article_content.strip():
+                text = _article_teaser(article_content)
 
-            # t.co links expandidos (el atributo data-expanded-url o title)
-            tco_els = await page.query_selector_all("a[data-testid='card.layoutLarge.media']")
-            card_els = await page.query_selector_all("[data-testid='card.wrapper'] a")
-            for a in card_els:
-                href = await a.get_attribute("href")
-                if href and href.startswith("http") and "x.com" not in href:
-                    links.append(href)
+            if is_article and article_title and article_title not in article_content:
+                article_content = f"{article_title}\n\n{article_content}".strip()
+
+            # Links externos. Muchos papers llegan como t.co, por eso intentamos
+            # data-expanded-url, title y expansion HTTP antes de decidir.
+            raw_links: list[str] = []
+            link_els = await media_root.query_selector_all(
+                '[data-testid="tweetText"] a, [data-testid="card.wrapper"] a, article a'
+            )
+            for a in link_els:
+                for attr in ("data-expanded-url", "title", "href"):
+                    value = (await a.get_attribute(attr)) or ""
+                    value = value.strip()
+                    if "arxiv.org/" in value and not value.startswith("http"):
+                        value = f"https://{value.lstrip('/')}"
+                    if value.startswith("http") and value not in raw_links:
+                        raw_links.append(value)
+
+            links: list[str] = []
+            for raw in raw_links:
+                expanded = await _expand_tco_url(raw)
+                if _is_external_content_url(expanded) and expanded not in links:
+                    links.append(expanded)
 
             await browser.close()
 
@@ -262,7 +541,7 @@ async def _playwright_impl(url: str) -> TweetData | None:
                 author_name=author_name,
                 author_handle=author_handle,
                 images=images,
-                links=list(set(links)),
+                links=links,
                 tweet_url=url,
                 has_video=has_video,
                 is_article=is_article,
@@ -304,31 +583,69 @@ async def fetch_paper_info(url: str) -> dict | None:
     paper: dict = {}
 
     # arXiv
-    arxiv_match = re.search(r"arxiv\.org/(?:abs|pdf)/(\d{4}\.\d{4,5})", url)
-    if arxiv_match:
-        arxiv_id = arxiv_match.group(1)
+    arxiv_id = extract_arxiv_id(url)
+    if arxiv_id:
         try:
-            async with httpx.AsyncClient(timeout=10) as client:
-                r = await client.get(
-                    f"https://export.arxiv.org/api/query?id_list={arxiv_id}"
-                )
+            api_url = f"https://export.arxiv.org/api/query?id_list={arxiv_id}"
+            r = await _get_arxiv_url(api_url, timeout=25)
+            if r.status_code == 200:
+                soup = BeautifulSoup(r.text, "lxml-xml")
+                entry = soup.find("entry")
+                if entry:
+                    title_tag = entry.find("title")
+                    summary_tag = entry.find("summary")
+                    authors = [a.find("name").get_text() for a in entry.find_all("author") if a.find("name")]
+                    paper = {
+                        "title": title_tag.get_text(strip=True) if title_tag else "",
+                        "abstract": summary_tag.get_text(strip=True) if summary_tag else "",
+                        "authors": authors[:5],
+                        "source": "arXiv",
+                        "url": url,
+                        "pdf_url": f"https://arxiv.org/pdf/{arxiv_id}.pdf",
+                    }
+        except Exception as e:
+            logger.warning(f"Error fetching arXiv API: {e}")
+
+        if not paper:
+            try:
+                abs_url = f"https://arxiv.org/abs/{arxiv_id}"
+                r = await _get_arxiv_url(abs_url, timeout=25)
                 if r.status_code == 200:
-                    soup = BeautifulSoup(r.text, "lxml-xml")
-                    entry = soup.find("entry")
-                    if entry:
-                        title_tag = entry.find("title")
-                        summary_tag = entry.find("summary")
-                        authors = [a.find("name").get_text() for a in entry.find_all("author") if a.find("name")]
+                    soup = BeautifulSoup(r.text, "lxml")
+                    title_el = soup.select_one("h1.title")
+                    abstract_el = soup.select_one("blockquote.abstract")
+                    authors_el = soup.select_one(".authors")
+
+                    title = title_el.get_text(" ", strip=True) if title_el else ""
+                    abstract = abstract_el.get_text(" ", strip=True) if abstract_el else ""
+                    title = re.sub(r"^Title:\s*", "", title).strip()
+                    abstract = re.sub(r"^Abstract:\s*", "", abstract).strip()
+                    authors: list[str] = []
+                    if authors_el:
+                        authors = [
+                            a.get_text(" ", strip=True)
+                            for a in authors_el.find_all("a")
+                            if a.get_text(" ", strip=True)
+                        ]
+                        if not authors:
+                            authors_text = re.sub(
+                                r"^Authors?:\s*",
+                                "",
+                                authors_el.get_text(" ", strip=True),
+                            )
+                            authors = [a.strip() for a in authors_text.split(",") if a.strip()]
+
+                    if title or abstract:
                         paper = {
-                            "title": title_tag.get_text(strip=True) if title_tag else "",
-                            "abstract": summary_tag.get_text(strip=True) if summary_tag else "",
+                            "title": title,
+                            "abstract": abstract,
                             "authors": authors[:5],
                             "source": "arXiv",
                             "url": url,
                             "pdf_url": f"https://arxiv.org/pdf/{arxiv_id}.pdf",
                         }
-        except Exception as e:
-            logger.warning(f"Error fetching arXiv: {e}")
+            except Exception as e:
+                logger.warning(f"Error fetching arXiv abs page: {e}")
 
     return paper if paper else None
 
@@ -345,7 +662,7 @@ async def scrape_tweet(url: str) -> TweetData:
     result = await scrape_with_playwright(url)
 
     # Intento 2: oEmbed como fallback
-    if result is None or not result.text:
+    if result is None or (not result.text and not result.article_content):
         oembed = await fetch_oembed(url)
         if oembed:
             result = parse_oembed(oembed, url)

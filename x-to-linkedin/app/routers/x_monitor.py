@@ -4,6 +4,7 @@ Rutas para gestionar el monitoreo automático de "me gusta" en X.
 from datetime import datetime, timezone as dt_timezone
 from zoneinfo import ZoneInfo
 from fastapi import APIRouter, Depends, BackgroundTasks
+from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, desc
 
@@ -14,6 +15,10 @@ from ..config import get_settings
 router = APIRouter(prefix="/api/x-monitor", tags=["x-monitor"])
 
 MONTERREY_TZ = ZoneInfo("America/Monterrey")
+
+
+class XBackfillRequest(BaseModel):
+    year: int | None = None
 
 
 def _parse_start_date_utc(start_date_str: str):
@@ -124,3 +129,33 @@ async def x_monitor_check_now(background_tasks: BackgroundTasks):
     from ..services.x_likes_monitor import check_and_process_likes
     background_tasks.add_task(check_and_process_likes)
     return {"message": "Chequeo de likes iniciado en segundo plano"}
+
+
+@router.post("/backfill")
+async def x_monitor_backfill(
+    data: XBackfillRequest,
+    background_tasks: BackgroundTasks,
+):
+    """
+    Dispara un backfill profundo de likes para el año indicado.
+    Si el tweet quedó sembrado como skipped en la primera ejecución, lo reintenta.
+    """
+    year = data.year or datetime.now(MONTERREY_TZ).year
+    current_year = datetime.now(MONTERREY_TZ).year
+
+    if year < 2006 or year > current_year:
+        return {
+            "message": (
+                f"Año inválido: {year}. Usa un año entre 2006 y {current_year}."
+            )
+        }
+
+    from ..services.x_likes_monitor import backfill_likes_from_year
+
+    background_tasks.add_task(backfill_likes_from_year, year)
+    return {
+        "message": (
+            f"Backfill iniciado para {year}. "
+            "Escaneará likes no considerados y reintentará los skipped de ese año."
+        )
+    }

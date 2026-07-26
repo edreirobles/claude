@@ -26,11 +26,14 @@ def start_scheduler():
     if not scheduler.running:
         scheduler.start()
         logger.info("Scheduler iniciado")
+        _start_editorial_radar_job()
         _start_x_monitor_job()
         _start_metrics_refresh_job()
+        _start_linkedin_comment_monitor_job()
         try:
             loop = asyncio.get_running_loop()
             loop.create_task(rehydrate_scheduled_posts())
+            loop.create_task(maintain_editorial_radar_schedule())
         except RuntimeError:
             logger.warning(
                 "No hay event loop activo para rehidratar posts programados al iniciar"
@@ -47,6 +50,58 @@ def _start_metrics_refresh_job():
         replace_existing=True,
     )
     logger.info("Métricas: job de auto-refresh registrado (cada 6 horas)")
+
+
+def _start_linkedin_comment_monitor_job():
+    """Registra el job periódico que vigila nuevos comentarios en posts publicados."""
+    from .linkedin_comments import scan_linkedin_comments
+
+    interval = max(int(settings.linkedin_comment_check_interval_minutes or 20), 5)
+    scheduler.add_job(
+        scan_linkedin_comments,
+        trigger="interval",
+        minutes=interval,
+        id="linkedin_comment_monitor",
+        replace_existing=True,
+    )
+    logger.info(
+        "LinkedIn Comments: job registrado cada %s min",
+        interval,
+    )
+
+
+def _start_editorial_radar_job():
+    """Registra el mantenimiento periodico de slots del radar editorial."""
+    if not settings.editorial_radar_enabled:
+        logger.info("Radar editorial: desactivado")
+        return
+
+    scheduler.add_job(
+        maintain_editorial_radar_schedule,
+        trigger="interval",
+        hours=6,
+        id="editorial_radar_maintainer",
+        replace_existing=True,
+    )
+    logger.info("Radar editorial: mantenimiento registrado cada 6 horas")
+
+
+async def maintain_editorial_radar_schedule():
+    """Crea y rehidrata slots del radar editorial."""
+    if not settings.editorial_radar_enabled:
+        return
+
+    try:
+        from .editorial_radar import ensure_radar_slots, list_active_radar_posts
+
+        await ensure_radar_slots()
+        posts = await list_active_radar_posts()
+        for post in posts:
+            if post.scheduled_at:
+                schedule_radar_post(post.id, post.scheduled_at)
+        logger.info("Radar editorial: %s slots activos rehidratados", len(posts))
+    except Exception as exc:
+        logger.warning("Radar editorial: mantenimiento fallo: %s", exc)
 
 
 async def rehydrate_scheduled_posts():
@@ -120,18 +175,17 @@ async def auto_refresh_metrics():
     que no se han actualizado en las últimas 6 horas.
     """
     from ..database import AsyncSessionLocal
-    from ..models import ScheduledPost, LinkedInToken
-    from ..services.linkedin_client import LinkedInClient
+    from ..models import ScheduledPost
+    from .linkedin_auth import LinkedInAuthError, get_linkedin_client_from_db
     from sqlalchemy import select, and_
 
     logger.info("[AutoMetrics] Iniciando refresh automático de métricas...")
 
     async with AsyncSessionLocal() as db:
-        # Obtener token de LinkedIn
-        token_result = await db.execute(select(LinkedInToken).limit(1))
-        token = token_result.scalar_one_or_none()
-        if not token:
-            logger.debug("[AutoMetrics] No hay token de LinkedIn, saltando")
+        try:
+            li_client = await get_linkedin_client_from_db(db)
+        except LinkedInAuthError as exc:
+            logger.info("[AutoMetrics] Saltando refresh de métricas: %s", exc)
             return
 
         # Posts publicados en los últimos 60 días con linkedin_post_id
@@ -162,7 +216,6 @@ async def auto_refresh_metrics():
             return
 
         logger.info(f"[AutoMetrics] Actualizando métricas de {len(to_refresh)} posts...")
-        li_client = LinkedInClient(token.access_token, token.person_urn)
 
         refreshed = 0
         for post in to_refresh:
@@ -191,6 +244,12 @@ def _start_x_monitor_job():
     """Registra el job periódico de monitoreo de likes en X si hay credenciales."""
     from ..config import get_settings
     settings = get_settings()
+    if not settings.x_auto_schedule_enabled:
+        logger.info(
+            "X Monitor: auto-calendarización desde likes desactivada "
+            "(X_AUTO_SCHEDULE_ENABLED=false)."
+        )
+        return
     if not settings.x_username or not settings.x_auth_token or not settings.x_ct0:
         logger.info(
             "X Monitor: credenciales de sesión no configuradas "
@@ -231,6 +290,14 @@ def stop_scheduler():
         logger.info("Scheduler detenido")
 
 
+def _remove_job_if_exists(job_id: str) -> bool:
+    try:
+        scheduler.remove_job(job_id)
+        return True
+    except Exception:
+        return False
+
+
 async def execute_pre_notify(post_id: int):
     """Envía notificación de Telegram 10 minutos antes de publicar un post."""
     from ..database import AsyncSessionLocal
@@ -263,6 +330,8 @@ async def execute_pre_notify(post_id: int):
                 media_detail = urls[0]
         elif media_type == "document":
             media_detail = getattr(post, "document_title", "") or ""
+        elif media_type == "paper_image":
+            media_detail = getattr(post, "document_title", "") or getattr(post, "pdf_url", "") or ""
         elif media_type == "video":
             media_detail = getattr(post, "tweet_url", "") or ""
 
@@ -273,34 +342,108 @@ async def execute_pre_notify(post_id: int):
         logger.warning(f"Pre-notificación Telegram para post {post_id} falló: {e}")
 
 
+async def execute_pre_publish_verification(post_id: int):
+    """Verifica un post horas antes de publicarlo y lo cancela o actualiza si hace falta."""
+    from .post_verifier import verify_scheduled_post
+    from .calendar_maintenance import replace_cancelled_post
+
+    try:
+        outcome = await verify_scheduled_post(post_id)
+        action = outcome.get("action")
+        reason = outcome.get("reason", "")
+
+        if action == "cancelled":
+            cancel_scheduled_post(post_id, include_verify=False)
+            replacement = await replace_cancelled_post(post_id)
+            logger.warning(
+                "Post %s cancelado por verificación previa: %s. Reemplazos creados: %s",
+                post_id,
+                reason,
+                replacement.get("replaced", 0),
+            )
+        elif action == "updated":
+            logger.info(
+                "Post %s actualizado por verificación previa: %s",
+                post_id,
+                reason,
+            )
+        else:
+            logger.info(
+                "Post %s verificado antes de publicar: %s",
+                post_id,
+                reason or action,
+            )
+    except Exception as e:
+        logger.warning(f"Verificación previa para post {post_id} falló: {e}")
+
+
 async def execute_scheduled_post(post_id: int):
     """Función que ejecuta un post programado. Se llama desde el scheduler."""
     from ..database import AsyncSessionLocal
-    from ..models import ScheduledPost, LinkedInToken
-    from .linkedin_client import LinkedInClient
+    from ..models import ScheduledPost
+    from .calendar_maintenance import replace_cancelled_post
+    from .linkedin_auth import (
+        LinkedInAuthError,
+        get_linkedin_client_from_db,
+        looks_like_linkedin_auth_failure,
+    )
+    from .post_verifier import verify_scheduled_post
     from sqlalchemy import select
 
     async with AsyncSessionLocal() as db:
+        post = None
         try:
             # Obtener el post
             post_result = await db.execute(
                 select(ScheduledPost).where(ScheduledPost.id == post_id)
             )
             post = post_result.scalar_one_or_none()
-            if not post or post.status != "scheduled":
+            if not post:
+                return
+            if post.status == "approval_pending" and getattr(post, "source", "") == "radar":
+                logger.info(
+                    "Radar editorial: post %s sigue pendiente de aprobación; "
+                    "la solicitud permanece abierta sin vencimiento",
+                    post_id,
+                )
+                return
+            if post.status != "scheduled":
                 return
 
-            # Obtener el token de LinkedIn
-            token_result = await db.execute(select(LinkedInToken).limit(1))
-            token = token_result.scalar_one_or_none()
-            if not token:
+            verification = await verify_scheduled_post(post_id, db)
+            if verification.get("action") == "cancelled":
+                replacement = await replace_cancelled_post(post_id)
+                logger.warning(
+                    "Post %s cancelado justo antes de publicar: %s. Reemplazos creados: %s",
+                    post_id,
+                    verification.get("reason", ""),
+                    replacement.get("replaced", 0),
+                )
+                return
+            if verification.get("action") == "skipped":
+                return
+
+            await db.refresh(post)
+
+            try:
+                client = await get_linkedin_client_from_db(db)
+            except LinkedInAuthError as exc:
                 post.status = "failed"
-                post.error_message = "No hay cuenta de LinkedIn conectada"
+                post.error_message = str(exc)
                 await db.commit()
+                try:
+                    from .telegram_bot import notify_failed
+                    await notify_failed(post_id, str(exc))
+                except Exception:
+                    pass
                 return
 
             # Descargar media según tipo
-            from .post_generator import generate_free_image, generate_nano_banana_image, download_tweet_video, download_pdf
+            from .post_generator import (
+                download_tweet_video,
+                download_pdf,
+                render_pdf_first_page_image,
+            )
 
             media_type = getattr(post, "media_type", "auto")
             video_bytes = None
@@ -317,24 +460,23 @@ async def execute_scheduled_post(post_id: int):
                 pdf_url = getattr(post, "pdf_url", None)
                 if pdf_url:
                     document_bytes = await download_pdf(pdf_url)
+            elif media_type == "paper_image":
+                pdf_url = getattr(post, "pdf_url", None)
+                if pdf_url:
+                    generated_image_bytes = await render_pdf_first_page_image(pdf_url)
+                    if not generated_image_bytes:
+                        logger.warning(
+                            f"Post {post_id}: no se pudo renderizar paper como imagen, usando PDF"
+                        )
+                        media_type = "document"
+                        document_bytes = await download_pdf(pdf_url)
             elif media_type == "generate":
-                # Usar imagen pre-generada con Nano Banana si existe
-                pre_generated_path = getattr(post, "generated_image_path", None)
-                if pre_generated_path:
-                    import os
-                    disk_path = pre_generated_path.lstrip("/")
-                    if os.path.exists(disk_path):
-                        with open(disk_path, "rb") as f:
-                            generated_image_bytes = f.read()
-                        logger.info(f"Post {post_id}: usando imagen pre-generada {disk_path}")
-                    else:
-                        logger.warning(f"Post {post_id}: imagen pre-generada no encontrada en {disk_path}, regenerando")
-                if not generated_image_bytes:
-                    # Usar nano banana (Gemini + Imagen 3 + Pollinations como fallback)
-                    generated_image_bytes = await generate_nano_banana_image(post.linkedin_text)
+                logger.info(
+                    "Post %s usa media_type=generate heredado; se publicará sin imagen por la regla editorial vigente",
+                    post_id,
+                )
+                media_type = "none"
 
-            # Publicar
-            client = LinkedInClient(token.access_token, token.person_urn)
             result = await client.create_post(
                 text=post.linkedin_text,
                 image_urls=post.image_urls if media_type == "image" else None,
@@ -359,18 +501,156 @@ async def execute_scheduled_post(post_id: int):
                 pass
 
         except Exception as e:
-            logger.error(f"Error publicando post programado {post_id}: {e}")
+            message = str(e)
+            if looks_like_linkedin_auth_failure(message):
+                message = (
+                    "LinkedIn rechazó la autenticación de la cuenta. "
+                    "Reconecta LinkedIn desde la app web para reanudar publicaciones."
+                )
+            logger.error(f"Error publicando post programado {post_id}: {message}")
             if post:
                 post.status = "failed"
-                post.error_message = str(e)
+                post.error_message = message
                 await db.commit()
 
                 # Notificación de Telegram
                 try:
                     from .telegram_bot import notify_failed
-                    await notify_failed(post_id, str(e))
+                    await notify_failed(post_id, message)
                 except Exception:
                     pass
+
+
+async def execute_radar_preparation(post_id: int):
+    """Prepara un slot radar con una fuente fresca antes de pedir aprobacion."""
+    try:
+        from .editorial_radar import prepare_radar_post
+
+        await prepare_radar_post(post_id)
+    except Exception as exc:
+        logger.warning("Radar editorial: preparacion del post %s fallo: %s", post_id, exc)
+        try:
+            from .telegram_bot import notify_failed
+
+            await notify_failed(post_id, f"Radar editorial no pudo preparar el post: {exc}")
+        except Exception:
+            pass
+
+
+async def execute_radar_approval_request(post_id: int):
+    """Pide aprobacion por Telegram una hora antes de publicar."""
+    from sqlalchemy import select
+    from zoneinfo import ZoneInfo
+
+    from ..database import AsyncSessionLocal
+    from ..models import ScheduledPost
+    from .editorial_radar import RADAR_APPROVAL_STATUS, RADAR_SLOT_STATUS, prepare_radar_post
+
+    async with AsyncSessionLocal() as db:
+        result = await db.execute(select(ScheduledPost).where(ScheduledPost.id == post_id))
+        post = result.scalar_one_or_none()
+        if not post:
+            return
+        status = post.status
+
+    if status in {RADAR_SLOT_STATUS, "failed"}:
+        try:
+            await prepare_radar_post(post_id)
+        except Exception as exc:
+            logger.warning("Radar editorial: no se pudo preparar post %s para aprobacion: %s", post_id, exc)
+            try:
+                from .telegram_bot import notify_failed
+
+                await notify_failed(post_id, f"Radar editorial no encontro una publicacion lista: {exc}")
+            except Exception:
+                pass
+            return
+
+    async with AsyncSessionLocal() as db:
+        result = await db.execute(select(ScheduledPost).where(ScheduledPost.id == post_id))
+        post = result.scalar_one_or_none()
+        if not post or post.status != RADAR_APPROVAL_STATUS:
+            return
+
+        scheduled_at_str = ""
+        if post.scheduled_at:
+            mty_tz = ZoneInfo("America/Mexico_City")
+            sched_mty = post.scheduled_at.replace(tzinfo=timezone.utc).astimezone(mty_tz)
+            scheduled_at_str = sched_mty.strftime("%H:%M")
+
+        payload = {
+            "post_id": post.id,
+            "linkedin_text": post.linkedin_text or "",
+            "scheduled_at_str": scheduled_at_str,
+            "source_url": post.tweet_url or "",
+            "source_label": post.tweet_author or "",
+            "media_type": post.media_type or "none",
+            "radar_reason": post.error_message or "",
+        }
+
+    try:
+        from .telegram_bot import notify_radar_approval
+
+        await notify_radar_approval(**payload)
+    except Exception as exc:
+        logger.warning("Radar editorial: notificacion de aprobacion fallo para post %s: %s", post_id, exc)
+
+
+def schedule_radar_post(post_id: int, run_date: datetime) -> str:
+    """Agenda jobs auxiliares de un slot radar sin aprobarlo todavia."""
+    if not settings.editorial_radar_enabled:
+        return ""
+
+    now_utc = datetime.now(timezone.utc).replace(tzinfo=None)
+    if run_date <= now_utc:
+        return ""
+
+    job_id = f"post_{post_id}"
+    scheduler.add_job(
+        execute_scheduled_post,
+        trigger="date",
+        run_date=run_date,
+        args=[post_id],
+        id=job_id,
+        replace_existing=True,
+    )
+
+    prepare_at = run_date - timedelta(hours=max(int(settings.editorial_radar_lead_hours or 48), 1))
+    if prepare_at <= now_utc:
+        prepare_at = now_utc + timedelta(seconds=10)
+    if prepare_at < run_date:
+        scheduler.add_job(
+            execute_radar_preparation,
+            trigger="date",
+            run_date=prepare_at,
+            args=[post_id],
+            id=f"radar_prepare_{post_id}",
+            replace_existing=True,
+        )
+
+    approval_at = run_date - timedelta(
+        minutes=max(int(settings.editorial_radar_approval_lead_minutes or 60), 5)
+    )
+    if approval_at <= now_utc:
+        approval_at = now_utc + timedelta(seconds=20)
+    if approval_at < run_date:
+        scheduler.add_job(
+            execute_radar_approval_request,
+            trigger="date",
+            run_date=approval_at,
+            args=[post_id],
+            id=f"radar_approval_{post_id}",
+            replace_existing=True,
+        )
+
+    logger.info(
+        "Radar editorial: post %s armado para preparar %s, aprobar %s y publicar %s",
+        post_id,
+        prepare_at,
+        approval_at,
+        run_date,
+    )
+    return job_id
 
 
 def schedule_post(post_id: int, run_date: datetime) -> str:
@@ -386,9 +666,29 @@ def schedule_post(post_id: int, run_date: datetime) -> str:
     )
     logger.info(f"Post {post_id} programado para {run_date}")
 
+    now_utc = datetime.now(timezone.utc).replace(tzinfo=None)
+
+    if settings.pre_publish_verification_enabled and settings.pre_publish_verification_hours > 0:
+        verify_at = run_date - timedelta(hours=settings.pre_publish_verification_hours)
+        if verify_at > now_utc:
+            verify_job_id = f"pre_verify_{post_id}"
+            scheduler.add_job(
+                execute_pre_publish_verification,
+                trigger="date",
+                run_date=verify_at,
+                args=[post_id],
+                id=verify_job_id,
+                replace_existing=True,
+            )
+            logger.info(
+                "Verificación previa post %s programada para %s (%s h antes)",
+                post_id,
+                verify_at,
+                settings.pre_publish_verification_hours,
+            )
+
     # Programar notificación 10 min antes si hay margen suficiente
     notify_at = run_date - timedelta(minutes=10)
-    now_utc = datetime.now(timezone.utc).replace(tzinfo=None)
     if notify_at > now_utc:
         notify_job_id = f"pre_notify_{post_id}"
         scheduler.add_job(
@@ -404,18 +704,59 @@ def schedule_post(post_id: int, run_date: datetime) -> str:
     return job_id
 
 
-def cancel_scheduled_post(post_id: int) -> bool:
-    """Cancela un trabajo programado y su pre-notificación. Retorna True si se canceló."""
+def cancel_scheduled_post(post_id: int, include_verify: bool = True) -> bool:
+    """Cancela un trabajo programado y sus jobs auxiliares. Retorna True si se canceló."""
     job_id = f"post_{post_id}"
     notify_job_id = f"pre_notify_{post_id}"
-    cancelled = False
-    try:
-        scheduler.remove_job(job_id)
-        cancelled = True
-    except Exception:
-        pass
-    try:
-        scheduler.remove_job(notify_job_id)
-    except Exception:
-        pass
+    verify_job_id = f"pre_verify_{post_id}"
+    radar_prepare_job_id = f"radar_prepare_{post_id}"
+    radar_approval_job_id = f"radar_approval_{post_id}"
+    cancelled = _remove_job_if_exists(job_id)
+    _remove_job_if_exists(notify_job_id)
+    _remove_job_if_exists(radar_prepare_job_id)
+    _remove_job_if_exists(radar_approval_job_id)
+    if include_verify:
+        _remove_job_if_exists(verify_job_id)
     return cancelled
+
+
+async def recover_failed_posts_after_auth(db=None) -> int:
+    """Reencola posts que fallaron solo porque LinkedIn pedía reautenticación."""
+    from sqlalchemy import select
+
+    from ..database import AsyncSessionLocal
+    from ..models import ScheduledPost
+    from .linkedin_auth import looks_like_linkedin_auth_failure
+    from .x_likes_monitor import get_next_auto_slot
+
+    owns_session = db is None
+    if owns_session:
+        async with AsyncSessionLocal() as session:
+            return await recover_failed_posts_after_auth(session)
+
+    result = await db.execute(
+        select(ScheduledPost)
+        .where(ScheduledPost.status == "failed")
+        .order_by(ScheduledPost.scheduled_at, ScheduledPost.id)
+    )
+    posts = [
+        post
+        for post in result.scalars().all()
+        if looks_like_linkedin_auth_failure(post.error_message)
+    ]
+    if not posts:
+        return 0
+
+    recovered = 0
+    for post in posts:
+        run_at = await get_next_auto_slot(db)
+        post.status = "scheduled"
+        post.error_message = None
+        post.scheduled_at = run_at
+        await db.flush()
+        schedule_post(post.id, run_at)
+        recovered += 1
+
+    await db.commit()
+    logger.info("Scheduler: %s posts fallidos por auth fueron reencolados", recovered)
+    return recovered

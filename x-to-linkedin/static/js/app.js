@@ -11,7 +11,7 @@ const state = {
   suggestedImages: [],
   selectedImageIndex: 0,   // 0 = ninguna, 1+ = imagen índice-1
   linkedInConnected: false,
-  mediaType: 'auto',        // image | video | document | generate | auto
+  mediaType: 'auto',        // image | video | document | paper_image | none | auto
   pdfUrl: null,
   documentTitle: 'Documento',
 };
@@ -20,6 +20,7 @@ const state = {
 document.addEventListener('DOMContentLoaded', () => {
   checkAuthStatus();
   loadHistory();
+  loadScheduleVerificationStatus(false);
   setupCharCounter();
   checkUrlParams();
   setDefaultScheduleTime();
@@ -31,7 +32,12 @@ document.addEventListener('DOMContentLoaded', () => {
 function checkUrlParams() {
   const params = new URLSearchParams(window.location.search);
   if (params.get('connected') === 'true') {
-    showToast('¡LinkedIn conectado exitosamente!', 'success');
+    const requeued = Number(params.get('requeued') || '0');
+    if (requeued > 0) {
+      showToast(`¡LinkedIn reconectado! Se reencolaron ${requeued} publicaciones que habían fallado por autenticación.`, 'success');
+    } else {
+      showToast('¡LinkedIn conectado exitosamente!', 'success');
+    }
     history.replaceState({}, '', '/');
     checkAuthStatus();
   }
@@ -81,10 +87,15 @@ function updateAuthUI(data) {
       </div>
     `;
   } else {
+    const buttonLabel = data.needs_reconnect ? 'Reconectar LinkedIn' : 'Conectar LinkedIn';
+    const helper = data.message ? `<span class="auth-note">${escHtml(data.message)}</span>` : '';
     container.innerHTML = `
-      <button class="btn btn-secondary btn-sm" onclick="connectLinkedIn()">
-        Conectar LinkedIn
-      </button>
+      <div class="auth-user auth-user-disconnected">
+        <button class="btn btn-secondary btn-sm" onclick="connectLinkedIn()">
+          ${buttonLabel}
+        </button>
+        ${helper}
+      </div>
     `;
   }
 }
@@ -126,7 +137,7 @@ async function generatePost() {
   }
 
   hideError('generate-error');
-  const isTweet = /^https?:\/\/(www\.)?(twitter|x)\.com\/.+\/status\/\d+/i.test(url);
+  const isTweet = /^https?:\/\/(www\.)?(twitter|x)\.com\/(?:i\/status\/\d+|.+\/(?:status|article)\/\d+)/i.test(url);
   showLoading(isTweet ? 'Extrayendo contenido del tweet...' : 'Analizando contenido del enlace...');
 
   const language = document.getElementById('post-language').value;
@@ -181,7 +192,8 @@ function renderTweetPreview(tweet) {
     ? `${tweet.author_name}${tweet.author_handle ? ' · @' + tweet.author_handle : ''}`
     : 'Autor desconocido';
 
-  textEl.textContent = tweet.text;
+  const sourcePrefix = tweet.is_article ? '📰 Artículo largo de X detectado\n\n' : '';
+  textEl.textContent = sourcePrefix + (tweet.text || '');
 
   // Imágenes
   imgsEl.innerHTML = '';
@@ -221,10 +233,19 @@ function renderMediaBadge(mediaType) {
   const badges = {
     video:    { text: '📹 Video detectado — se subirá el video a LinkedIn', color: '#1d4ed8', bg: '#dbeafe' },
     document: { text: '📄 Paper/PDF detectado — se adjuntará el PDF', color: '#065f46', bg: '#d1fae5' },
-    generate: { text: '🎨 Sin media — se generará imagen automáticamente con IA', color: '#7c3aed', bg: '#ede9fe' },
+    paper_image: { text: '📑 Paper arXiv detectado — se adjuntará la primera página como imagen', color: '#7f1d1d', bg: '#fee2e2' },
+    generate: { text: '📝 Sin media — se publicará sin adjunto', color: '#475569', bg: '#f1f5f9' },
+    none:     { text: '📝 Sin media — se publicará sin adjunto', color: '#475569', bg: '#f1f5f9' },
     image:    { text: '🖼️ Imagen(es) detectadas — se adjuntará la primera', color: '#92400e', bg: '#fef3c7' },
   };
   const b = badges[mediaType];
+  if (state.tweetData?.is_article) {
+    existingBadge.textContent = '📰 Artículo largo de X detectado — se usará el contenido completo';
+    existingBadge.style.color = '#155e75';
+    existingBadge.style.background = '#cffafe';
+    existingBadge.classList.remove('hidden');
+    return;
+  }
   if (b) {
     existingBadge.textContent = b.text;
     existingBadge.style.color = b.color;
@@ -421,15 +442,155 @@ const calState = {
   posts: [],
   selectedDay: null,
 };
+let _scheduleVerificationPollTimer = null;
+let _scheduleVerificationLastFinishedAt = null;
 
 async function loadHistory() {
+  const summaryEl = document.getElementById('history-summary');
+  if (summaryEl) summaryEl.textContent = 'Cargando historial...';
   try {
     const res = await fetch('/api/posts');
+    if (!res.ok) throw new Error('No se pudo cargar el historial');
     const posts = await res.json();
     calState.posts = posts || [];
-    renderHistory(posts);
+    renderHistory(calState.posts);
+    updateHistorySummary(calState.posts);
+    if (calState.view === 'calendar') {
+      renderCalendar();
+      if (calState.selectedDay) calSelectDay(calState.selectedDay);
+    }
+    return calState.posts;
   } catch (e) {
     console.error('Error loading history:', e);
+    if (summaryEl) summaryEl.textContent = 'No se pudo cargar el historial.';
+    return null;
+  }
+}
+
+function updateHistorySummary(posts) {
+  const el = document.getElementById('history-summary');
+  if (!el) return;
+  const total = posts.length;
+  const published = posts.filter(p => p.status === 'published').length;
+  const scheduled = posts.filter(p => p.status === 'scheduled').length;
+  const cancelled = posts.filter(p => p.status === 'cancelled').length;
+  const failed = posts.filter(p => p.status === 'failed').length;
+  el.innerHTML = `
+    <span><strong>${total}</strong> publicaciones cargadas</span>
+    <span>${published} publicadas</span>
+    <span>${scheduled} programadas</span>
+    <span>${cancelled} canceladas</span>
+    <span>${failed} fallidas</span>
+  `;
+}
+
+async function refreshHistory() {
+  const btn = document.getElementById('btn-refresh-history');
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = '⏳ Actualizando...';
+  }
+  try {
+    const posts = await loadHistory();
+    if (!posts) throw new Error('No se pudo cargar el historial');
+    showToast(`Historial actualizado: ${posts.length} publicaciones`, 'success');
+  } catch (e) {
+    showToast(`Error: ${e.message}`, 'error');
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = '↺ Actualizar';
+    }
+  }
+}
+
+async function verifyScheduledPosts() {
+  const btn = document.getElementById('btn-verify-history');
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = '⏳ Verificando...';
+  }
+  try {
+    const res = await fetch('/api/posts/verify-scheduled', { method: 'POST' });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || 'No se pudo iniciar la verificación');
+    showToast(data.message || 'Verificación del calendario iniciada', 'info');
+    await loadScheduleVerificationStatus(true);
+  } catch (e) {
+    showToast(`Error: ${e.message}`, 'error');
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = '🛡 Verificar calendario';
+    }
+  }
+}
+
+async function loadScheduleVerificationStatus(notifyOnFinish = false) {
+  const btn = document.getElementById('btn-verify-history');
+  const note = document.getElementById('history-verify-note');
+
+  if (_scheduleVerificationPollTimer) {
+    clearTimeout(_scheduleVerificationPollTimer);
+    _scheduleVerificationPollTimer = null;
+  }
+
+  try {
+    const res = await fetch('/api/posts/verify-scheduled/status');
+    if (!res.ok) throw new Error('No se pudo consultar el estado de verificación');
+    const data = await res.json();
+
+    if (btn) {
+      if (data.running) {
+        const progress = data.total ? ` ${data.processed || 0}/${data.total}` : '';
+        btn.disabled = true;
+        btn.textContent = `⏳ Verificando${progress}`;
+      } else {
+        btn.disabled = false;
+        btn.textContent = '🛡 Verificar calendario';
+      }
+    }
+
+    if (note) {
+      if (data.running) {
+        note.textContent = data.message || 'Verificando fuentes, duplicados y vigencia del copy...';
+      } else if (data.finished_at) {
+        note.textContent = data.message || 'La última verificación del calendario ya terminó.';
+      } else {
+        note.textContent = 'Antes de publicar, cada post puede verificarse automaticamente para detectar fuentes caidas, duplicados y copy desactualizado.';
+      }
+    }
+
+    if (data.running) {
+      _scheduleVerificationPollTimer = setTimeout(() => {
+        loadScheduleVerificationStatus(notifyOnFinish);
+      }, 3000);
+      return data;
+    }
+
+    if (
+      notifyOnFinish &&
+      data.finished_at &&
+      data.finished_at !== _scheduleVerificationLastFinishedAt
+    ) {
+      _scheduleVerificationLastFinishedAt = data.finished_at;
+      showToast(
+        data.message || 'Verificación del calendario completada',
+        data.cancelled ? 'info' : 'success'
+      );
+      await loadHistory();
+    }
+
+    return data;
+  } catch (e) {
+    console.error('Error consultando verificación del calendario:', e);
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = '🛡 Verificar calendario';
+    }
+    if (note) {
+      note.textContent = 'No se pudo consultar el estado de la verificación del calendario.';
+    }
+    return null;
   }
 }
 
@@ -540,33 +701,36 @@ function calSelectDay(key) {
   } else {
     const [y, m, d] = key.split('-');
     const dateLabel = new Date(+y, +m-1, +d).toLocaleDateString('es-MX', { weekday: 'long', day: 'numeric', month: 'long' });
-    const statusLabel = { published: 'Publicado', scheduled: 'Programado', failed: 'Error', cancelled: 'Cancelado', pending: 'Pendiente' };
+    const statusLabel = { published: 'Publicado', scheduled: 'Programado', failed: 'Error', cancelled: 'Cancelado', pending: 'Pendiente', approval_pending: 'Pendiente de aprobación', radar_slot: 'Radar pendiente' };
     detailEl.innerHTML = `
       <div class="cal-detail-header">${dateLabel.charAt(0).toUpperCase() + dateLabel.slice(1)}</div>
       ${dayPosts.map(p => {
-        const mediaIcon = { image: '🖼', video: '🎬', document: '📄' }[p.media_type] || '';
+        const mediaIcon = { image: '🖼', video: '🎬', document: '📄', paper_image: '📑' }[p.media_type] || '';
         const hasImages = p.image_urls && p.image_urls.length > 0;
         const mediaBadge = (p.media_type && p.media_type !== 'auto' && p.media_type !== 'none')
           ? `<span class="media-badge">${mediaIcon} ${escHtml(p.media_type)}</span>`
           : (hasImages ? `<span class="media-badge">🖼 ${p.image_urls.length} img</span>` : '');
-        const canGenImg = p.status === 'scheduled' || p.status === 'pending';
-        const calGenImgBtn = canGenImg
-          ? `<button class="btn-gen-image-small" onclick="generatePostImage(${p.id})">🎨 Imagen</button>`
-          : '';
         const actions = p.status === 'scheduled'
           ? `<div class="cal-detail-actions">
                <button class="btn-edit-small" onclick="editPost(${p.id})">Editar</button>
-               ${calGenImgBtn}
                <button class="btn-cancel-small" onclick="cancelPost(${p.id})">Cancelar</button>
              </div>`
-          : (canGenImg
+          : (p.status === 'approval_pending'
             ? `<div class="cal-detail-actions">
                  <button class="btn-edit-small" onclick="editPost(${p.id})">Editar</button>
-                 ${calGenImgBtn}
+                 <button class="btn-cancel-small" onclick="cancelPost(${p.id})">Cancelar</button>
+               </div>`
+            : (p.status === 'radar_slot'
+              ? `<div class="cal-detail-actions">
+                   <button class="btn-cancel-small" onclick="cancelPost(${p.id})">Cancelar</button>
+                 </div>`
+              : (p.status === 'pending'
+            ? `<div class="cal-detail-actions">
+                 <button class="btn-edit-small" onclick="editPost(${p.id})">Editar</button>
                </div>`
             : `<div class="cal-detail-actions">
                  <button class="btn-edit-small" onclick="editPost(${p.id})">Ver</button>
-               </div>`);
+               </div>`)));
         const calImgThumb = p.generated_image_path
           ? `<div class="gen-image-thumb gen-image-thumb--cal"><img src="${escHtml(p.generated_image_path)}?v=${p.id}" alt="Imagen generada" loading="lazy"></div>`
           : '';
@@ -580,6 +744,7 @@ function calSelectDay(key) {
               ? `<span class="cal-detail-metrics">👍 ${p.li_likes ?? '—'} &nbsp; 💬 ${p.li_comments ?? '—'}</span>`
               : ''}
           </div>
+          ${p.error_message ? `<div class="cal-detail-reason">⚠ ${escHtml(p.error_message)}</div>` : ''}
           ${calImgThumb}
           ${actions}
         </div>`;
@@ -608,16 +773,18 @@ function renderHistory(posts) {
       failed: 'Error',
       cancelled: 'Cancelado',
       pending: 'Pendiente',
+      approval_pending: 'Pendiente de aprobación',
+      radar_slot: 'Radar pendiente',
     }[post.status] || post.status;
 
     const editBtn = `<button class="btn-edit-small" onclick="editPost(${post.id})" title="Editar post">Editar</button>`;
-    const canGenerateImage = post.status === 'scheduled' || post.status === 'pending';
-    const genImgBtn = canGenerateImage
-      ? `<button class="btn-gen-image-small" onclick="generatePostImage(${post.id})" title="Generar imagen con Nano Banana">🎨 Imagen</button>`
-      : '';
     const cancelBtn = post.status === 'scheduled'
-      ? `${editBtn}${genImgBtn}<button class="btn-cancel-small" onclick="cancelPost(${post.id})" title="Cancelar">Cancelar</button>`
-      : (canGenerateImage ? `${editBtn}${genImgBtn}` : '');
+      ? `${editBtn}<button class="btn-cancel-small" onclick="cancelPost(${post.id})" title="Cancelar">Cancelar</button>`
+      : (post.status === 'approval_pending'
+        ? `${editBtn}<button class="btn-cancel-small" onclick="cancelPost(${post.id})" title="Cancelar">Cancelar</button>`
+        : (post.status === 'radar_slot'
+          ? `<button class="btn-cancel-small" onclick="cancelPost(${post.id})" title="Cancelar">Cancelar</button>`
+          : (post.status === 'pending' ? `${editBtn}` : '')));
 
     // Métricas
     let metricsHtml = '';
@@ -653,7 +820,7 @@ function renderHistory(posts) {
       : '';
 
     // Media badge
-    const mediaIcon = { image: '🖼', video: '🎬', document: '📄', none: '', auto: '' }[post.media_type] || '';
+    const mediaIcon = { image: '🖼', video: '🎬', document: '📄', paper_image: '📑', none: '', auto: '' }[post.media_type] || '';
     const hasImages = post.image_urls && post.image_urls.length > 0;
     const mediaLabel = post.media_type && post.media_type !== 'auto' && post.media_type !== 'none'
       ? `<span class="media-badge" title="Tipo media: ${escHtml(post.media_type)}">${mediaIcon} ${escHtml(post.media_type)}</span>`
@@ -684,19 +851,7 @@ function renderHistory(posts) {
 }
 
 async function generatePostImage(postId) {
-  try {
-    showToast('Generando imagen con Nano Banana...', 'info');
-    const res = await fetch(`/api/posts/${postId}/generate-image`, { method: 'POST' });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.detail);
-    showToast('¡Imagen generada y guardada!', 'success');
-    await loadHistory();
-    if (calState.view === 'calendar' && calState.selectedDay) {
-      calSelectDay(calState.selectedDay);
-    }
-  } catch (e) {
-    showToast(`Error: ${e.message}`, 'error');
-  }
+  showToast('La generación de imágenes está desactivada. Si la fuente no trae imagen real, se publica sin adjunto.', 'info');
 }
 
 async function cancelPost(postId) {
@@ -1050,7 +1205,8 @@ function renderXMonitorStatus(data) {
       <div style="color:var(--text-muted);font-size:13px">Últimos likes procesados</div>
       <div style="display:flex;gap:8px">
         <button class="btn btn-ghost btn-sm" onclick="checkXNow()">⚡ Revisar ahora</button>
-        <button class="btn btn-ghost btn-sm" onclick="repackSchedule()" title="Compacta los posts programados a 5 AM y 4 PM sin huecos">📅 Repaquetar horario</button>
+        <button class="btn btn-ghost btn-sm" onclick="backfillCurrentYearLikes()" title="Reescanea tus likes de este año y agenda los que quedaron fuera">⏪ Reescanear año</button>
+        <button class="btn btn-ghost btn-sm" onclick="repackSchedule()" title="Compacta los posts programados a las 9 AM sin huecos">📅 Repaquetar horario</button>
       </div>
     </div>
 
@@ -1060,8 +1216,7 @@ function renderXMonitorStatus(data) {
     }
 
     <p style="color:var(--text-faint);font-size:11px;margin-top:12px">
-      ℹ Posts calendarizados a las <strong>5:00 AM y 4:00 PM hora Monterrey</strong>, máximo 2 auto-posts por día.
-      Las publicaciones manuales no cuentan para ese límite.
+      ℹ Posts calendarizados a las <strong>9:00 AM hora Monterrey</strong>, máximo 1 post por día.
     </p>
   `;
 }
@@ -1077,8 +1232,28 @@ async function checkXNow() {
   }
 }
 
+async function backfillCurrentYearLikes() {
+  const year = new Date().getFullYear();
+  if (!confirm(`¿Reescanear tus likes de ${year} y calendarizar los que no se hayan considerado?`)) return;
+  try {
+    showToast(`Iniciando backfill de likes ${year}...`, 'info');
+    const res = await fetch('/api/x-monitor/backfill', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ year }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || data.message || 'Error');
+    showToast(data.message || `Backfill ${year} iniciado`, 'success');
+    setTimeout(loadXMonitorStatus, 5000);
+    setTimeout(loadHistory, 6000);
+  } catch (e) {
+    showToast(`Error: ${e.message}`, 'error');
+  }
+}
+
 async function repackSchedule() {
-  if (!confirm('¿Reordenar todos los posts programados a los slots 5 AM y 4 PM consecutivos sin huecos?')) return;
+  if (!confirm('¿Reordenar todos los posts programados a las 9 AM consecutivas sin huecos?')) return;
   try {
     showToast('Reordenando programación...', 'info');
     const res = await fetch('/api/posts/repack-schedule', { method: 'POST' });
@@ -1164,6 +1339,8 @@ function switchTab(tab) {
 // ── Analytics dashboard ─────────────────────────────────
 
 const _charts = {};
+let _metricsRefreshPollTimer = null;
+let _metricsRefreshLastFinishedAt = null;
 
 function _destroyChart(id) {
   if (_charts[id]) { _charts[id].destroy(); delete _charts[id]; }
@@ -1187,6 +1364,7 @@ async function loadAnalytics() {
     if (!res.ok) return;
     const data = await res.json();
     renderAnalytics(data);
+    loadMetricsRefreshStatus(false);
   } catch (e) {
     console.error('Error cargando analytics:', e);
   }
@@ -1196,16 +1374,26 @@ function renderAnalytics(data) {
   // KPIs
   document.getElementById('kpi-published').textContent = data.total_published ?? 0;
   const withM = data.posts_with_metrics ?? 0;
+  const coverage = data.metrics_coverage_pct ?? 0;
+  const missingMetrics = data.posts_missing_metrics ?? 0;
   const subM = document.getElementById('kpi-with-metrics');
-  if (subM) subM.textContent = withM > 0 ? `${withM} con métricas` : 'sin métricas aún';
+  if (subM) {
+    subM.textContent = withM > 0
+      ? `${withM} con métricas (${coverage}% cobertura)`
+      : 'sin métricas aún';
+  }
 
   document.getElementById('kpi-impressions').textContent = (data.total_impressions ?? 0).toLocaleString('es-MX');
   const avgImp = document.getElementById('kpi-avg-impressions');
-  if (avgImp) avgImp.textContent = data.avg_impressions ? `~${data.avg_impressions.toLocaleString('es-MX')} promedio` : '';
+  if (avgImp) {
+    avgImp.textContent = data.avg_impressions
+      ? `~${data.avg_impressions.toLocaleString('es-MX')} promedio medido`
+      : '';
+  }
 
   document.getElementById('kpi-likes').textContent = data.total_likes ?? 0;
   const avgL = document.getElementById('kpi-avg-likes');
-  if (avgL) avgL.textContent = data.avg_likes ? `${data.avg_likes} promedio` : '';
+  if (avgL) avgL.textContent = data.avg_likes ? `${data.avg_likes} promedio medido` : '';
 
   document.getElementById('kpi-comments').textContent = data.total_comments ?? 0;
   document.getElementById('kpi-clicks').textContent = (data.total_clicks ?? 0).toLocaleString('es-MX');
@@ -1215,6 +1403,13 @@ function renderAnalytics(data) {
     const eng = data.engagement_rate ?? 0;
     engEl.textContent = eng > 0 ? `${eng}%` : '—';
     engEl.style.color = eng > 3 ? 'var(--success)' : eng > 1 ? 'var(--primary)' : '';
+  }
+
+  const analyticsNote = document.getElementById('analytics-note');
+  if (analyticsNote) {
+    analyticsNote.innerHTML = withM > 0
+      ? `Cobertura actual: <strong>${withM}</strong> posts con métricas de <strong>${data.total_published ?? 0}</strong> publicados (${coverage}%).${missingMetrics > 0 ? ` <strong>${missingMetrics}</strong> aún no tienen datos cargados.` : ''} Las métricas se actualizan automáticamente cada 6 horas.`
+      : 'Todavía no hay posts con métricas cargadas. Usa "Actualizar todas las métricas" para poblar el dashboard.';
   }
 
   // Chart: posts por día
@@ -1299,7 +1494,7 @@ function renderAnalytics(data) {
   _destroyChart('media');
   const mediaCtx = document.getElementById('chart-media').getContext('2d');
   const mediaMap = data.media_type_breakdown || {};
-  const mediaLabels = { image: 'Imagen', video: 'Video', document: 'Documento', generate: 'IA generada', auto: 'Auto' };
+  const mediaLabels = { image: 'Imagen', video: 'Video', document: 'Documento', paper_image: 'Paper como imagen', generate: 'Sin adjunto', none: 'Sin adjunto', auto: 'Auto' };
   const mediaColors = ['#6366f1', '#0a66c2', '#10b981', '#f59e0b', '#8892a4'];
   const mediaKeys = Object.keys(mediaMap);
   _charts['media'] = new Chart(mediaCtx, {
@@ -1373,19 +1568,77 @@ async function refreshMetrics(postId) {
 
 async function refreshAllMetrics() {
   const btn = document.getElementById('btn-refresh-all');
-  if (btn) { btn.disabled = true; btn.textContent = '⏳ Actualizando...'; }
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Iniciando...'; }
   try {
-    showToast('Actualizando métricas de todos los posts...', 'info');
+    showToast('Iniciando actualización masiva de métricas...', 'info');
     const res = await fetch('/api/posts/refresh-all-metrics', { method: 'POST' });
     const data = await res.json();
     if (!res.ok) throw new Error(data.detail);
-    showToast(data.message || `✅ Actualizado: ${data.refreshed} posts`, 'success');
-    loadHistory();
-    loadAnalytics();
+    showToast(data.message || 'Actualización iniciada en segundo plano', 'info');
+    await loadMetricsRefreshStatus(true);
   } catch (e) {
     showToast(`Error: ${e.message}`, 'error');
-  } finally {
-    if (btn) { btn.disabled = false; btn.textContent = '↺ Actualizar todas las métricas'; }
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = '↺ Actualizar todas las métricas';
+    }
+  }
+}
+
+async function loadMetricsRefreshStatus(notifyOnFinish = false) {
+  const btn = document.getElementById('btn-refresh-all');
+  if (_metricsRefreshPollTimer) {
+    clearTimeout(_metricsRefreshPollTimer);
+    _metricsRefreshPollTimer = null;
+  }
+
+  try {
+    const res = await fetch('/api/posts/refresh-all-metrics/status');
+    if (!res.ok) throw new Error('No se pudo consultar el estado');
+    const data = await res.json();
+
+    if (btn) {
+      if (data.running) {
+        const progress = data.total
+          ? ` ${data.processed || 0}/${data.total}`
+          : '';
+        btn.disabled = true;
+        btn.textContent = `⏳ Actualizando${progress}`;
+      } else {
+        btn.disabled = false;
+        btn.textContent = '↺ Actualizar todas las métricas';
+      }
+    }
+
+    if (data.running) {
+      _metricsRefreshPollTimer = setTimeout(() => {
+        loadMetricsRefreshStatus(notifyOnFinish);
+      }, 3000);
+      return data;
+    }
+
+    if (
+      notifyOnFinish &&
+      data.finished_at &&
+      data.finished_at !== _metricsRefreshLastFinishedAt
+    ) {
+      _metricsRefreshLastFinishedAt = data.finished_at;
+      showToast(
+        data.message || `Métricas actualizadas: ${data.refreshed || 0}/${data.total || 0} posts`,
+        data.failed ? 'info' : 'success'
+      );
+      loadHistory();
+      loadAnalytics();
+    }
+
+    return data;
+  } catch (e) {
+    console.error('Error consultando estado de refresh:', e);
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = '↺ Actualizar todas las métricas';
+    }
+    return null;
   }
 }
 

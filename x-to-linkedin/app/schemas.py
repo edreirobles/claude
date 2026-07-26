@@ -18,13 +18,14 @@ class TweetData(BaseModel):
     paper_info: Optional[dict] = None
     has_video: bool = False
     pdf_url: Optional[str] = None
+    is_article: bool = False
 
 
 class GenerateResponse(BaseModel):
     tweet: TweetData
     linkedin_text: str
     suggested_images: list[str] = []
-    media_type: str = "auto"  # image | video | document | generate
+    media_type: str = "auto"  # image | video | document | paper_image | none
 
 
 class PublishRequest(BaseModel):
@@ -34,7 +35,7 @@ class PublishRequest(BaseModel):
     linkedin_text: str
     image_urls: list[str] = []
     use_first_image: bool = True
-    media_type: str = "auto"  # image | video | document | generate
+    media_type: str = "auto"  # image | video | document | paper_image | none
     pdf_url: Optional[str] = None
     document_title: str = "Documento"
 
@@ -74,6 +75,10 @@ class AuthStatusResponse(BaseModel):
     person_name: str = ""
     person_picture: str = ""
     person_urn: str = ""
+    expires_at: Optional[datetime] = None
+    needs_reconnect: bool = False
+    can_refresh: bool = False
+    message: str = ""
 
 
 class PostUpdate(BaseModel):

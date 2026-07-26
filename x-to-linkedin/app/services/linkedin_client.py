@@ -2,15 +2,44 @@
 Cliente LinkedIn API v2.
 Usa el endpoint UGC Posts (v2) para publicar y assets para subir media.
 """
+from datetime import datetime
 import httpx
 import logging
 from typing import Optional
+import urllib.parse
+import json
 
 logger = logging.getLogger(__name__)
+from ..config import get_settings
 
 LINKEDIN_API_BASE = "https://api.linkedin.com/v2"
 LINKEDIN_AUTH_URL = "https://www.linkedin.com/oauth/v2/authorization"
 LINKEDIN_TOKEN_URL = "https://www.linkedin.com/oauth/v2/accessToken"
+settings = get_settings()
+
+
+def _candidate_post_urns(post_id: str) -> list[str]:
+    post_id = (post_id or "").strip()
+    if not post_id:
+        return []
+
+    if post_id.startswith("urn:li:share:"):
+        numeric_id = post_id.split(":")[-1]
+        urns = [post_id, f"urn:li:ugcPost:{numeric_id}"]
+    elif post_id.startswith("urn:li:ugcPost:"):
+        numeric_id = post_id.split(":")[-1]
+        urns = [post_id, f"urn:li:share:{numeric_id}"]
+    else:
+        numeric_id = post_id
+        urns = [f"urn:li:ugcPost:{numeric_id}", f"urn:li:share:{numeric_id}"]
+
+    deduped: list[str] = []
+    seen = set()
+    for urn in urns:
+        if urn not in seen:
+            seen.add(urn)
+            deduped.append(urn)
+    return deduped
 
 
 class LinkedInClient:
@@ -336,6 +365,150 @@ class LinkedInClient:
         # 5. Solo texto
         return await self._create_text_post(text)
 
+    async def create_comment(
+        self,
+        *,
+        target_urn: str,
+        object_urn: str,
+        text: str,
+        parent_comment_urn: str | None = None,
+    ) -> dict:
+        """
+        Publica un comentario o respuesta usando Social Actions.
+
+        Primero intenta el endpoint v2, que hoy sigue aceptando este flujo
+        para cuentas con `w_member_social`. Si LinkedIn rechaza ese formato
+        o endpoint, cae al endpoint REST nuevo como respaldo.
+
+        `target_urn` suele ser el URN del post (`share` o `ugcPost`).
+        `object_urn` debe ser el URN del thread subyacente, normalmente
+        `urn:li:activity:...`, que obtenemos del comentario original.
+        """
+        attempts: list[tuple[str, str]] = []
+        if parent_comment_urn:
+            # Para respuestas anidadas, LinkedIn espera que el target del path
+            # sea el commentUrn padre y que el object en el body apunte al post.
+            attempts.append((parent_comment_urn, target_urn))
+            if object_urn and object_urn != target_urn:
+                attempts.append((parent_comment_urn, object_urn))
+        else:
+            attempts.append((target_urn, object_urn or target_urn))
+            if target_urn and object_urn and object_urn != target_urn:
+                attempts.append((target_urn, target_urn))
+
+        last_error: Exception | None = None
+        response = None
+        data = None
+
+        async with httpx.AsyncClient(timeout=20) as client:
+            for request_target, request_object in attempts:
+                payload = {
+                    "actor": f"urn:li:person:{self.person_urn}",
+                    "object": request_object,
+                    "message": {"text": text},
+                }
+                if parent_comment_urn:
+                    payload["parentComment"] = parent_comment_urn
+
+                encoded_target = urllib.parse.quote(request_target, safe="")
+                endpoint_variants = [
+                    (
+                        "v2",
+                        f"{LINKEDIN_API_BASE}/socialActions/{encoded_target}/comments",
+                        self._headers,
+                    ),
+                    (
+                        "rest",
+                        f"https://api.linkedin.com/rest/socialActions/{encoded_target}/comments",
+                        {
+                            **self._headers,
+                            "Linkedin-Version": self._rest_api_version(),
+                        },
+                    ),
+                ]
+
+                for api_family, url, headers in endpoint_variants:
+                    try:
+                        response = await client.post(url, headers=headers, json=payload)
+                        response.raise_for_status()
+                        data = response.json()
+                        break
+                    except httpx.HTTPStatusError as exc:
+                        last_error = RuntimeError(
+                            self._format_linkedin_http_error(
+                                exc,
+                                context=(
+                                    "respuesta a comentario"
+                                    if parent_comment_urn
+                                    else "comentario"
+                                ),
+                            )
+                        )
+                        # LinkedIn cambia entre endpoints y tipos de URN.
+                        # Si rechaza la forma del target/body o el endpoint
+                        # concreto, probamos el siguiente candidato.
+                        if exc.response.status_code in {400, 403, 404, 405, 409, 422}:
+                            logger.warning(
+                                "LinkedIn rechazo create_comment family=%s target=%s object=%s status=%s",
+                                api_family,
+                                request_target,
+                                request_object,
+                                exc.response.status_code,
+                            )
+                            continue
+                        raise last_error from exc
+                    except Exception as exc:
+                        last_error = exc
+                        raise
+
+                if data is not None and response is not None:
+                    break
+
+        if data is None or response is None:
+            if last_error:
+                raise last_error
+            raise RuntimeError("LinkedIn no devolvió respuesta al crear el comentario")
+
+        return {
+            "comment_id": response.headers.get("x-restli-id", ""),
+            "comment_urn": data.get("commentUrn", "") or data.get("$URN", "") or data.get("urn", ""),
+            "status": "published",
+            "raw": data,
+        }
+
+    @staticmethod
+    def _rest_api_version() -> str:
+        version = (settings.linkedin_api_version or "").strip()
+        if len(version) == 6 and version.isdigit():
+            return version
+        return "202604"
+
+    @staticmethod
+    def _format_linkedin_http_error(exc: httpx.HTTPStatusError, *, context: str) -> str:
+        status = exc.response.status_code
+        detail = ""
+        try:
+            payload = exc.response.json()
+            if isinstance(payload, dict):
+                pieces = [
+                    str(payload.get("message") or "").strip(),
+                    str(payload.get("code") or "").strip(),
+                    str(payload.get("status") or "").strip(),
+                ]
+                detail = " | ".join(piece for piece in pieces if piece)
+                if not detail:
+                    detail = json.dumps(payload, ensure_ascii=False)
+            else:
+                detail = str(payload)
+        except Exception:
+            detail = exc.response.text
+
+        detail = " ".join((detail or "").split())
+        if detail:
+            detail = detail[:500]
+            return f"LinkedIn devolvió {status} al publicar la {context}: {detail}"
+        return f"LinkedIn devolvió {status} al publicar la {context}"
+
     async def get_post_metrics(self, post_id: str) -> dict:
         """
         Obtiene métricas de un post publicado.
@@ -360,18 +533,18 @@ class LinkedInClient:
             numeric_id = numeric_id.split(":")[-1]
         elif numeric_id.startswith("urn:li:share:"):
             numeric_id = numeric_id.split(":")[-1]
+        urn_candidates = _candidate_post_urns(post_id)
 
         # ── Intento 1: Voyager API (cookies) ───────────────────────────────
         if settings.linkedin_li_at:
             try:
                 from .linkedin_scraper import scrape_linkedin_post_metrics
                 metrics = await scrape_linkedin_post_metrics(
-                    post_id=numeric_id,
+                    post_id=post_id,
                     li_at=settings.linkedin_li_at,
                     jsessionid=settings.linkedin_jsessionid,
                 )
                 if any(v is not None for v in metrics.values()):
-                    # Voyager no devuelve clicks/shares, completar con None
                     return {**empty, **metrics}
                 logger.warning(
                     f"[LinkedIn] Voyager no extrajo métricas para {numeric_id}, "
@@ -386,62 +559,60 @@ class LinkedInClient:
             person_urn_encoded = urllib.parse.quote(
                 f"urn:li:person:{self.person_urn}", safe=""
             )
-            share_urn_encoded = urllib.parse.quote(
-                f"urn:li:ugcPost:{numeric_id}", safe=""
-            )
-            stats_url = (
-                f"{LINKEDIN_API_BASE}/shareStatistics"
-                f"?q=authors"
-                f"&authors[0]={person_urn_encoded}"
-                f"&shares[0]={share_urn_encoded}"
-            )
             async with httpx.AsyncClient(timeout=15) as client:
-                r = await client.get(stats_url, headers=self._headers)
-                if r.status_code == 200:
-                    data = r.json()
-                    elements = data.get("elements", [])
-                    if elements:
-                        stats = elements[0].get("totalShareStatistics", {})
-                        result = {
-                            "likes": stats.get("likeCount"),
-                            "comments": stats.get("commentCount"),
-                            "impressions": stats.get("impressionCount"),
-                            "clicks": stats.get("clickCount"),
-                            "shares": stats.get("shareCount"),
-                        }
-                        if any(v is not None for v in result.values()):
-                            logger.info(
-                                f"[LinkedIn] shareStatistics ✓ post {numeric_id}: {result}"
-                            )
-                            return result
-                    logger.warning(
-                        f"[LinkedIn] shareStatistics devolvió 200 pero sin elementos para {numeric_id}"
+                for post_urn in urn_candidates:
+                    share_urn_encoded = urllib.parse.quote(post_urn, safe="")
+                    stats_url = (
+                        f"{LINKEDIN_API_BASE}/shareStatistics"
+                        f"?q=authors"
+                        f"&authors[0]={person_urn_encoded}"
+                        f"&shares[0]={share_urn_encoded}"
                     )
-                else:
-                    logger.warning(
-                        f"[LinkedIn] shareStatistics devolvió {r.status_code} para {numeric_id}. "
-                        f"Si es 403, reconecta LinkedIn para obtener el scope r_member_social."
-                    )
+                    r = await client.get(stats_url, headers=self._headers)
+                    if r.status_code == 200:
+                        data = r.json()
+                        elements = data.get("elements", [])
+                        if elements:
+                            stats = elements[0].get("totalShareStatistics", {})
+                            result = {
+                                "likes": stats.get("likeCount"),
+                                "comments": stats.get("commentCount"),
+                                "impressions": stats.get("impressionCount"),
+                                "clicks": stats.get("clickCount"),
+                                "shares": stats.get("shareCount"),
+                            }
+                            if any(v is not None for v in result.values()):
+                                logger.info(
+                                    f"[LinkedIn] shareStatistics OK {post_urn}: {result}"
+                                )
+                                return result
+                    else:
+                        logger.warning(
+                            f"[LinkedIn] shareStatistics devolvio {r.status_code} para {post_urn}. "
+                            f"Si es 403, reconecta LinkedIn para obtener el scope r_member_social."
+                        )
         except Exception as e:
             logger.warning(f"[LinkedIn] shareStatistics falló ({e}), intentando socialActions...")
 
         # ── Intento 3: socialActions (solo likes/comentarios, requiere r_member_social) ──
-        urn = f"urn:li:ugcPost:{numeric_id}"
-        encoded_urn = urllib.parse.quote(urn, safe="")
-        url = f"{LINKEDIN_API_BASE}/socialActions/{encoded_urn}"
         try:
             async with httpx.AsyncClient(timeout=15) as client:
-                r = await client.get(url, headers=self._headers)
-                if r.status_code == 200:
-                    data = r.json()
-                    return {
-                        "likes": data.get("likesSummary", {}).get("totalLikes"),
-                        "comments": data.get("commentsSummary", {}).get("totalFirstLevelComments"),
-                        "impressions": None,
-                        "clicks": None,
-                        "shares": None,
-                    }
-                logger.warning(f"[LinkedIn] socialActions devolvió {r.status_code} para {numeric_id}")
+                for post_urn in urn_candidates:
+                    encoded_urn = urllib.parse.quote(post_urn, safe="")
+                    url = f"{LINKEDIN_API_BASE}/socialActions/{encoded_urn}"
+                    r = await client.get(url, headers=self._headers)
+                    if r.status_code == 200:
+                        data = r.json()
+                        result = {
+                            "likes": data.get("likesSummary", {}).get("totalLikes"),
+                            "comments": data.get("commentsSummary", {}).get("totalFirstLevelComments"),
+                            "impressions": None,
+                            "clicks": None,
+                            "shares": None,
+                        }
+                        if any(v is not None for v in result.values()):
+                            return result
+                    logger.warning(f"[LinkedIn] socialActions devolvio {r.status_code} para {post_urn}")
         except Exception as e:
             logger.error(f"[LinkedIn] Error en socialActions: {e}")
 
@@ -450,14 +621,15 @@ class LinkedInClient:
 
 def get_oauth_url(client_id: str, redirect_uri: str, state: str) -> str:
     """Genera la URL de autorización OAuth 2.0 de LinkedIn."""
-    # r_member_social es necesario para leer métricas (likes, comentarios, impresiones)
-    # w_member_social es para crear posts
-    scope = "openid profile email w_member_social r_member_social"
+    # `w_member_social` basta para publicar posts, comentarios y respuestas.
+    # `r_member_social` es un permiso cerrado y hoy no debe pedirse aquí
+    # porque rompe la reautorización para apps sin esa aprobación especial.
+    scope = "openid profile email w_member_social"
     return (
         f"{LINKEDIN_AUTH_URL}"
         f"?response_type=code"
         f"&client_id={client_id}"
-        f"&redirect_uri={redirect_uri}"
+        f"&redirect_uri={urllib.parse.quote(redirect_uri, safe='')}"
         f"&state={state}"
         f"&scope={scope.replace(' ', '%20')}"
     )
@@ -477,6 +649,33 @@ async def exchange_code_for_token(
                 "client_id": client_id,
                 "client_secret": client_secret,
             },
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+        )
+        r.raise_for_status()
+        return r.json()
+
+
+async def exchange_refresh_token_for_token(
+    *,
+    refresh_token: str,
+    client_id: str,
+    client_secret: str,
+    redirect_uri: str = "",
+) -> dict:
+    """Intercambia un refresh token por un nuevo access token."""
+    payload = {
+        "grant_type": "refresh_token",
+        "refresh_token": refresh_token,
+        "client_id": client_id,
+        "client_secret": client_secret,
+    }
+    if redirect_uri:
+        payload["redirect_uri"] = redirect_uri
+
+    async with httpx.AsyncClient(timeout=15) as client:
+        r = await client.post(
+            LINKEDIN_TOKEN_URL,
+            data=payload,
             headers={"Content-Type": "application/x-www-form-urlencoded"},
         )
         r.raise_for_status()
