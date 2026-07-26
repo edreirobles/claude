@@ -6,6 +6,10 @@ Estado: IMPLEMENTACION_LISTA_ACTIVACION_BLOQUEADA
 
 Rama: `codex/cloud-netlify-supabase`
 
+La rama esta publicada en `origin`. La creacion del pull request fue rechazada
+porque la sesion GitHub App/CLI actual no es colaboradora del repositorio. El
+codigo no depende del PR para conservarse.
+
 ## Estado ejecutivo
 
 La implementacion cloud esta completa en codigo y validada localmente. La
@@ -126,5 +130,5 @@ La evidencia consolidada esta en `EVIDENCE.md`.
 2. Esperar renovacion de creditos Netlify para el deploy final, sin comprar
    creditos.
 3. Rotar el secreto LinkedIn y aceptar OAuth.
-4. Dar acceso para crear GitHub Actions secrets.
+4. Dar acceso de colaborador GitHub para abrir el PR y crear Actions secrets.
 5. Autorizar el momento exacto de freeze, webhook y corte.
